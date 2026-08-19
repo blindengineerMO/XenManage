@@ -86,10 +86,17 @@ const demoDb = {
       name_description: 'Primary billing API node',
       power_state: 'Running',
       VCPUs_at_startup: 4,
+      VCPUs_max: 4,
       memory_static_max: 8589934592,
+      memory_dynamic_max: 8589934592,
       uuid: 'vm-demo-uuid-1',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-1',
+      affinity: 'OpaqueRef:host-demo-1',
+      VBDs: ['OpaqueRef:vbd-demo-1'],
+      VIFs: ['OpaqueRef:vif-demo-1'],
+      HVM_boot_policy: 'BIOS order',
+      platform: { secureboot: 'enabled', firmware: 'uefi' },
       tags: ['prod', 'api'],
     },
     {
@@ -98,10 +105,17 @@ const demoDb = {
       name_description: 'Queue worker',
       power_state: 'Running',
       VCPUs_at_startup: 2,
+      VCPUs_max: 2,
       memory_static_max: 4294967296,
+      memory_dynamic_max: 4294967296,
       uuid: 'vm-demo-uuid-2',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-1',
+      affinity: 'OpaqueRef:host-demo-1',
+      VBDs: ['OpaqueRef:vbd-demo-2'],
+      VIFs: ['OpaqueRef:vif-demo-2'],
+      HVM_boot_policy: 'BIOS order',
+      platform: { secureboot: 'enabled' },
       tags: ['prod', 'worker'],
     },
     {
@@ -110,10 +124,17 @@ const demoDb = {
       name_description: 'Analytics frontend',
       power_state: 'Halted',
       VCPUs_at_startup: 4,
+      VCPUs_max: 4,
       memory_static_max: 12884901888,
+      memory_dynamic_max: 12884901888,
       uuid: 'vm-demo-uuid-3',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-2',
+      affinity: 'OpaqueRef:host-demo-2',
+      VBDs: ['OpaqueRef:vbd-demo-3'],
+      VIFs: ['OpaqueRef:vif-demo-3'],
+      HVM_boot_policy: 'UEFI',
+      platform: { secureboot: 'disabled' },
       tags: ['staging', 'web'],
     },
     {
@@ -122,10 +143,17 @@ const demoDb = {
       name_description: 'Edge cache appliance',
       power_state: 'Suspended',
       VCPUs_at_startup: 2,
+      VCPUs_max: 2,
       memory_static_max: 2147483648,
+      memory_dynamic_max: 2147483648,
       uuid: 'vm-demo-uuid-4',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-3',
+      affinity: 'OpaqueRef:host-demo-3',
+      VBDs: ['OpaqueRef:vbd-demo-4'],
+      VIFs: ['OpaqueRef:vif-demo-4'],
+      HVM_boot_policy: 'BIOS order',
+      platform: { firmware: 'legacy' },
       tags: ['edge', 'cache'],
     },
     {
@@ -177,11 +205,12 @@ const demoDb = {
   ],
   vdis: {
     'OpaqueRef:sr-demo-1': [
-      { ref: 'OpaqueRef:vdi-demo-1', name_label: 'billing-api-root', virtual_size: 68719476736, type: 'user', managed: true },
-      { ref: 'OpaqueRef:vdi-demo-2', name_label: 'analytics-data', virtual_size: 274877906944, type: 'user', managed: true },
+      { ref: 'OpaqueRef:vdi-demo-1', uuid: 'vdi-demo-uuid-1', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-api-root', virtual_size: 68719476736, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-1'] },
+      { ref: 'OpaqueRef:vdi-demo-2', uuid: 'vdi-demo-uuid-2', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-worker-root', virtual_size: 42949672960, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-2'] },
+      { ref: 'OpaqueRef:vdi-demo-3', uuid: 'vdi-demo-uuid-3', SR: 'OpaqueRef:sr-demo-1', name_label: 'analytics-data', virtual_size: 274877906944, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-3'] },
     ],
     'OpaqueRef:sr-demo-2': [
-      { ref: 'OpaqueRef:vdi-demo-3', name_label: 'branch-cache-root', virtual_size: 21474836480, type: 'user', managed: true },
+      { ref: 'OpaqueRef:vdi-demo-4', uuid: 'vdi-demo-uuid-4', SR: 'OpaqueRef:sr-demo-2', name_label: 'branch-cache-root', virtual_size: 21474836480, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-4'] },
     ],
   },
   networks: [
@@ -192,6 +221,7 @@ const demoDb = {
       managed: true,
       uuid: 'net-demo-uuid-1',
       PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-3'],
+      VIFs: ['OpaqueRef:vif-demo-1', 'OpaqueRef:vif-demo-2', 'OpaqueRef:vif-demo-3'],
       tags: ['prod', 'management'],
       default_locking_mode: 'network_default',
       other_config: { vlan: '120' },
@@ -203,6 +233,7 @@ const demoDb = {
       managed: true,
       uuid: 'net-demo-uuid-2',
       PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
+      VIFs: ['OpaqueRef:vif-demo-4'],
       tags: ['storage', 'replication'],
       default_locking_mode: 'locked',
       other_config: { vlan: '240' },
@@ -370,6 +401,13 @@ function clone(value) {
 
 function nextDemoId(collection) {
   return collection.reduce((max, item) => Math.max(max, Number(item.id || 0)), 0) + 1;
+}
+
+let demoOpaqueCounter = 100;
+
+function nextDemoOpaqueRef(prefix) {
+  demoOpaqueCounter += 1;
+  return `OpaqueRef:${prefix}-demo-${demoOpaqueCounter}`;
 }
 
 function sortTasks(tasks) {
@@ -626,6 +664,65 @@ function demoRequest(method, url, body) {
   if (method === 'GET' && path.startsWith('/api/vms/')) {
     const ref = decodeURIComponent(path.split('/')[3] || '');
     return clone(demoDb.vms.find((vm) => vm.ref === ref) || {});
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/vms/') && path.endsWith('/config')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+
+    Object.assign(vm, {
+      name_label: body.nameLabel,
+      name_description: body.nameDescription || '',
+      VCPUs_at_startup: Number(body.vcpus || 1),
+      VCPUs_max: Number(body.vcpus || 1),
+      memory_static_max: Number(body.memoryStaticMax || 0),
+      memory_dynamic_max: Number(body.memoryStaticMax || 0),
+      tags: Array.isArray(body.tags) ? body.tags : [],
+    });
+
+    return clone(vm);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/') && path.endsWith('/disks')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+
+    const vbdRef = nextDemoOpaqueRef('vbd');
+    const vdiRef = nextDemoOpaqueRef('vdi');
+    const srRef = body.srRef;
+    const vdi = {
+      ref: vdiRef,
+      uuid: vdiRef.replace('OpaqueRef:', '') + '-uuid',
+      SR: srRef,
+      name_label: body.nameLabel,
+      virtual_size: Number(body.sizeBytes || 0),
+      type: 'user',
+      managed: true,
+      VBDs: [vbdRef],
+    };
+
+    if (!demoDb.vdis[srRef]) {
+      demoDb.vdis[srRef] = [];
+    }
+
+    demoDb.vdis[srRef].push(vdi);
+    vm.VBDs = [...(vm.VBDs || []), vbdRef];
+    return { success: true, vdiRef, vbdRef };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/') && path.endsWith('/nics')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    const network = demoDb.networks.find((entry) => entry.ref === body.networkRef);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    if (!network) throw new Error('NETWORK_NOT_FOUND');
+
+    const vifRef = nextDemoOpaqueRef('vif');
+    vm.VIFs = [...(vm.VIFs || []), vifRef];
+    network.VIFs = [...(network.VIFs || []), vifRef];
+    return { success: true, vifRef };
   }
 
   if (method === 'POST' && path.startsWith('/api/vms/')) {

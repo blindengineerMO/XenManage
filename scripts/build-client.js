@@ -74,6 +74,8 @@ function buildAppBundle() {
     'assets/js/components/forms/ConnectionLoginForm.js',
     'assets/js/components/forms/PoolRegistrationForm.js',
     'assets/js/components/forms/HostRegistrationForm.js',
+    'assets/js/components/forms/VMConfigForm.js',
+    'assets/js/components/forms/VMDeviceForm.js',
     'assets/js/views/LoginView.js',
     'assets/js/views/DashboardView.js',
     'assets/js/views/TemplatesView.js',

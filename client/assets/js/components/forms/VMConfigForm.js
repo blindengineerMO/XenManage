@@ -1,3 +1,14 @@
+function buildVmConfigDraft(value = {}) {
+  const memoryBytes = Number(value.memory_static_max || value.memoryStaticMax || 0);
+  return {
+    nameLabel: value.name_label || value.nameLabel || '',
+    nameDescription: value.name_description || value.nameDescription || '',
+    vcpus: Number(value.VCPUs_at_startup || value.vcpus || 1) || 1,
+    memoryGiB: Math.max(1, Math.round(memoryBytes / (1024 ** 3)) || 1),
+    tags: Array.isArray(value.tags) ? value.tags.join(', ') : String(value.tags || ''),
+  };
+}
+
 const VMConfigForm = {
   props: ['initialValue', 'submitLabel', 'saving'],
   emits: ['submit'],
@@ -41,28 +52,18 @@ const VMConfigForm = {
   `,
   data() {
     return {
-      draft: this.buildDraft(this.initialValue),
+      draft: buildVmConfigDraft(this.initialValue),
     };
   },
   watch: {
     initialValue: {
       deep: true,
       handler(value) {
-        this.draft = this.buildDraft(value);
+        this.draft = buildVmConfigDraft(value);
       },
     },
   },
   methods: {
-    buildDraft(value = {}) {
-      const memoryBytes = Number(value.memory_static_max || value.memoryStaticMax || 0);
-      return {
-        nameLabel: value.name_label || value.nameLabel || '',
-        nameDescription: value.name_description || value.nameDescription || '',
-        vcpus: Number(value.VCPUs_at_startup || value.vcpus || 1) || 1,
-        memoryGiB: Math.max(1, Math.round(memoryBytes / (1024 ** 3)) || 1),
-        tags: Array.isArray(value.tags) ? value.tags.join(', ') : String(value.tags || ''),
-      };
-    },
     handleSubmit() {
       this.$emit('submit', {
         nameLabel: this.draft.nameLabel.trim(),

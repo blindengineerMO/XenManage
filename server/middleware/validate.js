@@ -71,6 +71,23 @@ const schemas = {
     paused: Joi.boolean().default(false),
     force: Joi.boolean().default(false),
   }),
+  vmConfigUpdate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    vcpus: Joi.number().integer().min(1).max(128).required(),
+    memoryStaticMax: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+  }),
+  vmDiskCreate: Joi.object({
+    srRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    sizeBytes: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
+  }),
+  vmNicCreate: Joi.object({
+    networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    deviceLabel: Joi.string().allow('').max(12).default(''),
+    mac: Joi.string().allow('').max(64).default(''),
+  }),
   paginate: Joi.object({
     page: Joi.number().integer().min(1).default(1),
     pageSize: Joi.number().integer().min(1).max(500).default(50),

@@ -50,6 +50,33 @@ router.get('/:ref', async (req, res) => {
   }
 });
 
+router.put('/:ref/config', validate(schemas.vmConfigUpdate), async (req, res) => {
+  try {
+    const record = await req.xenApi.updateVMConfig(req.params.ref, req.body);
+    res.json({ ref: req.params.ref, ...record });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:ref/disks', validate(schemas.vmDiskCreate), async (req, res) => {
+  try {
+    const result = await req.xenApi.addVMDisk(req.params.ref, req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:ref/nics', validate(schemas.vmNicCreate), async (req, res) => {
+  try {
+    const result = await req.xenApi.addVMNic(req.params.ref, req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/start', validate(schemas.vmLifecycle), async (req, res) => {
   try {
     await req.xenApi.startVM(req.body.ref, req.body.paused, req.body.force);

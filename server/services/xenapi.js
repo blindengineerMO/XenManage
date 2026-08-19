@@ -155,6 +155,83 @@ class XenAPI {
     return this.getRecord('VM_metrics', metricsRef);
   }
 
+  async updateVMConfig(ref, { nameLabel, nameDescription = '', vcpus, memoryStaticMax, tags = [] }) {
+    await this.setField('VM', ref, 'name_label', nameLabel);
+    await this.setField('VM', ref, 'name_description', nameDescription);
+    await this.setField('VM', ref, 'VCPUs_max', String(vcpus));
+    await this.setField('VM', ref, 'VCPUs_at_startup', String(vcpus));
+    await this.setField('VM', ref, 'memory_static_max', String(memoryStaticMax));
+    await this.setField('VM', ref, 'memory_dynamic_max', String(memoryStaticMax));
+    await this.setField('VM', ref, 'tags', tags);
+    return this.getRecord('VM', ref);
+  }
+
+  async addVMDisk(ref, { srRef, nameLabel, sizeBytes }) {
+    const vm = await this.getRecord('VM', ref);
+    const userdevice = String(Array.isArray(vm.VBDs) ? vm.VBDs.length : 0);
+
+    const vdiRef = await this.create('VDI', {
+      name_label: nameLabel,
+      name_description: '',
+      SR: srRef,
+      virtual_size: String(sizeBytes),
+      type: 'user',
+      sharable: false,
+      read_only: false,
+      other_config: {},
+      xenstore_data: {},
+      sm_config: {},
+      tags: [],
+    });
+
+    const vbdRef = await this.create('VBD', {
+      VM: ref,
+      VDI: vdiRef,
+      userdevice,
+      bootable: false,
+      mode: 'RW',
+      type: 'Disk',
+      unpluggable: true,
+      empty: false,
+      other_config: {},
+      qos_algorithm_type: '',
+      qos_algorithm_params: {},
+    });
+
+    try {
+      await this.call('VBD', 'plug', [vbdRef]);
+    } catch (error) {
+      // Plugging may fail if the guest is halted or the platform defers activation until next boot.
+    }
+
+    return { success: true, vdiRef, vbdRef };
+  }
+
+  async addVMNic(ref, { networkRef, deviceLabel = '', mac = '' }) {
+    const vm = await this.getRecord('VM', ref);
+    const device = deviceLabel || String(Array.isArray(vm.VIFs) ? vm.VIFs.length : 0);
+
+    const vifRef = await this.create('VIF', {
+      device: String(device),
+      network: networkRef,
+      VM: ref,
+      MAC: mac,
+      MTU: '1500',
+      other_config: {},
+      qos_algorithm_type: '',
+      qos_algorithm_params: {},
+      locking_mode: 'network_default',
+    });
+
+    try {
+      await this.call('VIF', 'plug', [vifRef]);
+    } catch (error) {
+      // Some guests require activation on the next boot or only support plugging while running.
+    }
+
+    return { success: true, vifRef };
+  }
+
   async getHostMetrics(ref) {
     const metricsRef = await this.getField('host', ref, 'metrics');
     return this.getRecord('host_metrics', metricsRef);

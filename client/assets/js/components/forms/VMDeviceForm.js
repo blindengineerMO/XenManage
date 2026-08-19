@@ -1,3 +1,14 @@
+function buildVmDeviceDraft(mode, storageOptions = [], networkOptions = []) {
+  return {
+    srRef: storageOptions[0]?.ref || '',
+    nameLabel: '',
+    sizeGiB: 20,
+    networkRef: networkOptions[0]?.ref || '',
+    deviceLabel: '',
+    mac: '',
+  };
+}
+
 const VMDeviceForm = {
   props: ['mode', 'storageOptions', 'networkOptions', 'submitLabel', 'saving'],
   emits: ['submit'],
@@ -57,12 +68,12 @@ const VMDeviceForm = {
   `,
   data() {
     return {
-      draft: this.buildDraft(),
+      draft: buildVmDeviceDraft(this.mode, this.storageOptions, this.networkOptions),
     };
   },
   watch: {
     mode() {
-      this.draft = this.buildDraft();
+      this.draft = buildVmDeviceDraft(this.mode, this.storageOptions, this.networkOptions);
     },
     storageOptions: {
       deep: true,
@@ -82,16 +93,6 @@ const VMDeviceForm = {
     },
   },
   methods: {
-    buildDraft() {
-      return {
-        srRef: this.storageOptions?.[0]?.ref || '',
-        nameLabel: '',
-        sizeGiB: 20,
-        networkRef: this.networkOptions?.[0]?.ref || '',
-        deviceLabel: '',
-        mac: '',
-      };
-    },
     handleSubmit() {
       if (this.mode === 'disk') {
         this.$emit('submit', {
@@ -99,7 +100,7 @@ const VMDeviceForm = {
           nameLabel: this.draft.nameLabel.trim(),
           sizeBytes: Math.max(1, Number(this.draft.sizeGiB || 1)) * (1024 ** 3),
         });
-        this.draft = this.buildDraft();
+        this.draft = buildVmDeviceDraft(this.mode, this.storageOptions, this.networkOptions);
         return;
       }
 
@@ -108,7 +109,7 @@ const VMDeviceForm = {
         deviceLabel: this.draft.deviceLabel.trim(),
         mac: this.draft.mac.trim(),
       });
-      this.draft = this.buildDraft();
+      this.draft = buildVmDeviceDraft(this.mode, this.storageOptions, this.networkOptions);
     },
   },
 };

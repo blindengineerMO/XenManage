@@ -444,7 +444,7 @@ async function stubAuthenticatedRoutes(page) {
       body: JSON.stringify({
         total: 1,
         data: [
-          { ref: 'OpaqueRef:vdi1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true },
+          { ref: 'OpaqueRef:vdi1', SR: 'OpaqueRef:sr1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd1'] },
         ],
       }),
     });
@@ -463,8 +463,19 @@ async function stubAuthenticatedRoutes(page) {
             bridge: 'xenbr0',
             managed: true,
             uuid: 'net-uuid-1',
+            VIFs: ['OpaqueRef:vif1'],
             PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif3'],
             other_config: { vlan: '120' },
+          },
+          {
+            ref: 'OpaqueRef:net2',
+            name_label: 'Backup Network',
+            bridge: 'xenbr1',
+            managed: true,
+            uuid: 'net-uuid-2',
+            VIFs: [],
+            PIFs: ['OpaqueRef:pif2', 'OpaqueRef:pif4'],
+            other_config: { vlan: '220' },
           },
         ],
       }),
@@ -526,7 +537,36 @@ test('dashboard loads after login and shows aggregated metrics', async ({ page }
 
 test('vm operations open a floating window and submit lifecycle actions', async ({ page }) => {
   let shutdownCalled = false;
+  let configSaved = false;
+  let diskAdded = false;
+  let nicAdded = false;
   await stubAuthenticatedRoutes(page);
+
+  const vmRecord = {
+    ref: 'OpaqueRef:vm1',
+    name_label: 'app-01',
+    name_description: 'Primary application node',
+    power_state: 'Running',
+    VCPUs_at_startup: 4,
+    VCPUs_max: 4,
+    memory_static_max: 8589934592,
+    memory_dynamic_max: 8589934592,
+    uuid: 'vm-uuid-1',
+    tags: ['prod'],
+    resident_on: 'OpaqueRef:host1',
+    affinity: 'OpaqueRef:host1',
+    VBDs: ['OpaqueRef:vbd1'],
+    VIFs: ['OpaqueRef:vif1'],
+    HVM_boot_policy: 'UEFI',
+    platform: { secureboot: 'enabled' },
+  };
+  const vdis = [
+    { ref: 'OpaqueRef:vdi1', SR: 'OpaqueRef:sr1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd1'] },
+  ];
+  const networks = [
+    { ref: 'OpaqueRef:net1', name_label: 'VM Network', bridge: 'xenbr0', managed: true, uuid: 'net-uuid-1', VIFs: ['OpaqueRef:vif1'], PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif3'], other_config: { vlan: '120' } },
+    { ref: 'OpaqueRef:net2', name_label: 'Backup Network', bridge: 'xenbr1', managed: true, uuid: 'net-uuid-2', VIFs: [], PIFs: ['OpaqueRef:pif2', 'OpaqueRef:pif4'], other_config: { vlan: '220' } },
+  ];
 
   await page.route('**/api/vms', async (route) => {
     await route.fulfill({
@@ -534,23 +574,104 @@ test('vm operations open a floating window and submit lifecycle actions', async 
       contentType: 'application/json',
       body: JSON.stringify({
         total: 1,
-        data: [
-          {
-            ref: 'OpaqueRef:vm1',
-            name_label: 'app-01',
-            power_state: 'Running',
-            VCPUs_at_startup: 4,
-            memory_static_max: 8589934592,
-            uuid: 'vm-uuid-1',
-            tags: ['prod'],
-          },
-        ],
+        data: [vmRecord],
       }),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(vmRecord),
+    });
+  });
+
+  await page.route('**/api/storage/OpaqueRef%3Asr1/vdis', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: vdis.length,
+        data: vdis,
+      }),
+    });
+  });
+
+  await page.route('**/api/networks', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: networks.length,
+        data: networks,
+      }),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1/config', async (route) => {
+    const payload = route.request().postDataJSON();
+    configSaved = true;
+    Object.assign(vmRecord, {
+      name_label: payload.nameLabel,
+      name_description: payload.nameDescription,
+      VCPUs_at_startup: payload.vcpus,
+      VCPUs_max: payload.vcpus,
+      memory_static_max: payload.memoryStaticMax,
+      memory_dynamic_max: payload.memoryStaticMax,
+      tags: payload.tags,
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(vmRecord),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1/disks', async (route) => {
+    const payload = route.request().postDataJSON();
+    diskAdded = true;
+    const nextVbd = `OpaqueRef:vbd${vdis.length + 1}`;
+    const nextVdi = `OpaqueRef:vdi${vdis.length + 1}`;
+    vmRecord.VBDs = [...vmRecord.VBDs, nextVbd];
+    vdis.push({
+      ref: nextVdi,
+      SR: payload.srRef,
+      name_label: payload.nameLabel,
+      virtual_size: payload.sizeBytes,
+      type: 'user',
+      managed: true,
+      VBDs: [nextVbd],
+    });
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, vdiRef: nextVdi, vbdRef: nextVbd }),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1/nics', async (route) => {
+    const payload = route.request().postDataJSON();
+    nicAdded = true;
+    const nextVif = `OpaqueRef:vif${vmRecord.VIFs.length + 1}`;
+    vmRecord.VIFs = [...vmRecord.VIFs, nextVif];
+    const targetNetwork = networks.find((network) => network.ref === payload.networkRef);
+    if (targetNetwork) {
+      targetNetwork.VIFs = [...targetNetwork.VIFs, nextVif];
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, vifRef: nextVif }),
     });
   });
 
   await page.route('**/api/vms/shutdown', async (route) => {
     shutdownCalled = true;
+    vmRecord.power_state = 'Halted';
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -568,7 +689,27 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await expect(page).toHaveURL(/\/vms$/);
   await page.getByText('app-01').click();
 
-  await expect(page.getByText('VM Properties')).toBeVisible();
+  await expect(page.getByText('VM Details')).toBeVisible();
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Config' }).click();
+  await page.getByLabel('VM Name').fill('app-01-renamed');
+  await page.getByRole('button', { name: 'Save VM Config' }).click();
+  await expect.poll(() => configSaved).toBe(true);
+  await expect(page.getByRole('heading', { name: 'app-01-renamed' })).toBeVisible();
+
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Add Devices' }).click();
+  await page.getByLabel('Disk Name').fill('data-disk-02');
+  await page.getByRole('button', { name: 'Add Disk Device' }).click();
+  await expect.poll(() => diskAdded).toBe(true);
+
+  await page.getByLabel('Network').selectOption('OpaqueRef:net2');
+  await page.getByLabel('Device Slot').fill('1');
+  await page.getByRole('button', { name: 'Add Network Device' }).click();
+  await expect.poll(() => nicAdded).toBe(true);
+
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Resources' }).click();
+  await expect(page.getByText('data-disk-02')).toBeVisible();
+  await expect(page.getByText('Backup Network')).toBeVisible();
+
   await page.getByRole('button', { name: 'Shutdown' }).click();
 
   await expect.poll(() => shutdownCalled).toBe(true);
