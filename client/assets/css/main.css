@@ -1,0 +1,173 @@
+/* ============================================
+   XenMange - Post Modern Futuristic Theme
+   Matrix meets Hackers - Dark Liquid Glassmorphic
+   ============================================ */
+
+:root {
+  /* Core palette */
+  --bg-void: #040709;
+  --bg-primary: #0a0f14;
+  --bg-secondary: #0d1218;
+  --bg-tertiary: #111820;
+  --bg-elevated: #151d27;
+
+  /* Accent colors */
+  --neon-green: #00ff41;
+  --neon-green-dim: #00cc33;
+  --neon-green-glow: rgba(0, 255, 65, 0.15);
+  --neon-cyan: #00e5ff;
+  --neon-cyan-dim: #00b8d4;
+  --neon-red: #ff0040;
+  --neon-amber: #ffab00;
+  --neon-purple: #b388ff;
+
+  /* Text */
+  --text-primary: #e0e6ed;
+  --text-secondary: #8899aa;
+  --text-muted: #556677;
+  --text-accent: var(--neon-green);
+
+  /* Glass */
+  --glass-bg: rgba(10, 15, 20, 0.75);
+  --glass-border: rgba(0, 255, 65, 0.12);
+  --glass-border-hover: rgba(0, 255, 65, 0.25);
+  --glass-blur: 16px;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 20px rgba(0, 255, 65, 0.1);
+
+  /* Layout */
+  --topnav-height: 48px;
+  --sidenav-width: 260px;
+  --sidenav-collapsed: 48px;
+  --statusbar-height: 28px;
+
+  /* Z-index layers */
+  --z-base: 1;
+  --z-nav: 100;
+  --z-topnav: 200;
+  --z-dropdown: 300;
+  --z-modal: 500;
+  --z-toast: 600;
+  --z-tooltip: 700;
+
+  /* Fonts */
+  --font-mono: 'Share Tech Mono', 'Fira Code', monospace;
+  --font-heading: 'Rajdhani', 'Exo 2', sans-serif;
+  --font-body: 'Exo 2', 'Rajdhani', sans-serif;
+}
+
+/* Reset */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-void);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 65, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 65, 0.35);
+}
+
+/* Selection */
+::selection {
+  background: rgba(0, 255, 65, 0.25);
+  color: #fff;
+}
+
+/* Links */
+a {
+  color: var(--neon-green);
+  text-decoration: none;
+  transition: color 0.2s, text-shadow 0.2s;
+}
+a:hover {
+  color: #fff;
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+}
+
+/* Utility */
+.mono { font-family: var(--font-mono); }
+.heading { font-family: var(--font-heading); }
+
+.text-green { color: var(--neon-green); }
+.text-cyan { color: var(--neon-cyan); }
+.text-red { color: var(--neon-red); }
+.text-amber { color: var(--neon-amber); }
+.text-muted { color: var(--text-muted); }
+
+/* Glass panel base */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: 2px;
+}
+
+.glass-hover:hover {
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Glow borders */
+.glow-border {
+  position: relative;
+}
+.glow-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid rgba(0, 255, 65, 0.08);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* App shell */
+#app {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: var(--z-base);
+}
