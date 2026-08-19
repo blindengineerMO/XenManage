@@ -38,6 +38,10 @@ const SideNav = {
           <span class="tree-label" v-if="!collapsed">Networking</span>
           <span class="tree-count" v-if="!collapsed && inventory.networks.length">{{ inventory.networks.length }}</span>
         </div>
+        <div class="tree-item" :class="{ active: $route.path === '/inventory' }" @click="$router.push('/inventory')">
+          <span class="mdi mdi-sitemap-outline"></span>
+          <span class="tree-label" v-if="!collapsed">Inventory</span>
+        </div>
         <div class="tree-item" :class="{ active: $route.path === '/lifecycle' }" @click="$router.push('/lifecycle')">
           <span class="mdi mdi-shield-sync-outline"></span>
           <span class="tree-label" v-if="!collapsed">Lifecycle</span>
@@ -208,4 +212,3 @@ const SideNav = {
     },
   },
 };
-

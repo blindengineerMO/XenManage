@@ -37,6 +37,32 @@ const schemas = {
     port: Joi.number().integer().min(1).max(65535).default(443),
     isDefault: Joi.boolean().default(false),
   }),
+  hostTargetCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    host: Joi.string().trim().required().min(1).max(255),
+    username: Joi.string().trim().required().min(1).max(100),
+    port: Joi.number().integer().min(1).max(65535).default(443),
+    mode: Joi.string().valid('standalone', 'pool-member').default('standalone'),
+    poolConnectionId: Joi.alternatives().conditional('mode', {
+      is: 'pool-member',
+      then: Joi.number().integer().min(1).required(),
+      otherwise: Joi.allow(null).default(null),
+    }),
+    notes: Joi.string().allow('').max(500).default(''),
+  }),
+  hostTargetUpdate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    host: Joi.string().trim().required().min(1).max(255),
+    username: Joi.string().trim().required().min(1).max(100),
+    port: Joi.number().integer().min(1).max(65535).default(443),
+    mode: Joi.string().valid('standalone', 'pool-member').default('standalone'),
+    poolConnectionId: Joi.alternatives().conditional('mode', {
+      is: 'pool-member',
+      then: Joi.number().integer().min(1).required(),
+      otherwise: Joi.allow(null).default(null),
+    }),
+    notes: Joi.string().allow('').max(500).default(''),
+  }),
   vmAction: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
   }),

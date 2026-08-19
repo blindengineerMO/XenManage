@@ -37,6 +37,10 @@ const DashboardView = {
               <span class="mdi mdi-chart-areaspline"></span>
               Open Capacity
             </button>
+            <button class="btn" @click="$router.push('/inventory')">
+              <span class="mdi mdi-sitemap-outline"></span>
+              Open Inventory
+            </button>
             <button class="btn" @click="$router.push('/resilience')">
               <span class="mdi mdi-shield-lock-outline"></span>
               Resilience
@@ -282,4 +286,3 @@ const DashboardView = {
     },
   },
 };
-

@@ -39,6 +39,7 @@ const TopNav = {
         '/hosts': 'Hosts',
         '/storage': 'Storage',
         '/networking': 'Networking',
+        '/inventory': 'Inventory',
         '/lifecycle': 'Lifecycle',
         '/capacity': 'Capacity',
         '/resilience': 'Resilience',
@@ -65,4 +66,3 @@ const TopNav = {
     return { currentPage, handleLogout, store };
   },
 };
-

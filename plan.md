@@ -307,9 +307,11 @@ XenMange/
   Prism activity consolidation and the broader enterprise console expectation for operational traceability.
 
 ### 8. Global Inventory & Multi-Cluster Navigation
-- Status: Planned
+- Status: Partially shipped
+- Shipped in app:
+  A new `/inventory` workbench now provides universal search across live pools/templates/VMs/hosts/storage/networks/alerts/tasks, exposes saved connection targets from SQLite, and supports saved operator workspaces via local presets.
 - Required capabilities:
-  Multi-connection inventory federation, universal search, tags/categories, cross-cluster health rollups, and saved operational workspaces.
+  True multi-connection live federation, cross-cluster health rollups, richer target-switch orchestration, and shared team workspaces beyond browser-local storage.
 - Inspiration:
   Prism multi-cluster management and vCenter-style central administration.
 
@@ -387,5 +389,5 @@ XenMange/
 | Phase 2: API Integration | 🟨 In Progress | Core auth/resource routes implemented; connection validation/defaulting, template inventory access, task/activity data, and resilience synthesis endpoint added |
 | Phase 3: UI Core | 🟨 In Progress | Floating windows, saved targets, live inventory tree, SSR auth bootstrap, stronger visual shell layering, and modular client source extraction into core/components/views/forms added |
 | Phase 4: Dashboard | 🟨 In Progress | Summary drag/reorder support, operational panels, alert triage, recent task visibility, and dashboard action rails into capacity/activity/templates/alerts added |
-| Phase 5: Resource Views | 🟨 In Progress | Pools view, templates view, alerts/activity/lifecycle/capacity/resilience workbenches, and richer host/storage floating windows added |
+| Phase 5: Resource Views | 🟨 In Progress | Pools view, templates view, inventory/alerts/activity/lifecycle/capacity/resilience workbenches, and richer host/storage floating windows added |
 | Phase 6: Polish & Testing | 🟨 In Progress | Unit and Playwright E2E coverage added; client component unit depth and broader operational route coverage still remain |

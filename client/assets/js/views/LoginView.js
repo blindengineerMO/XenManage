@@ -15,7 +15,6 @@ const LoginView = {
           :host="host"
           :username="username"
           :password="password"
-          :remember-target="rememberTarget"
           :loading="loading"
           :error="error"
           @submit="handleLogin"
@@ -23,8 +22,7 @@ const LoginView = {
           @update:connection-name="connectionName = $event"
           @update:host="host = $event"
           @update:username="username = $event"
-          @update:password="password = $event"
-          @update:remember-target="rememberTarget = $event">
+          @update:password="password = $event">
         </connection-login-form>
 
         <div class="saved-connections" v-if="connections.length">
@@ -58,7 +56,6 @@ const LoginView = {
       username: 'root',
       password: '',
       connectionName: '',
-      rememberTarget: true,
       loading: false,
       error: null,
       connectionsLoading: false,
@@ -96,27 +93,6 @@ const LoginView = {
 
       try {
         await api.login(this.host, this.username, this.password);
-
-        if (this.rememberTarget) {
-          try {
-            const alreadySaved = this.connections.some((connection) =>
-              connection.host === this.host && connection.username === this.username
-            );
-
-            if (!alreadySaved) {
-              await api.saveConnection({
-                name: this.connectionName || this.host,
-                host: this.host,
-                username: this.username,
-                port: 443,
-                isDefault: false,
-              });
-              await this.loadConnections();
-            }
-          } catch (saveError) {
-            // Do not block login if local persistence fails.
-          }
-        }
 
         store.authenticated = true;
         store.demoMode = false;

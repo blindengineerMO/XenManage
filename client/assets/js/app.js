@@ -7,6 +7,7 @@ const routes = [
   { path: '/hosts', component: HostsView },
   { path: '/storage', component: StorageView },
   { path: '/networking', component: NetworkingView },
+  { path: '/inventory', component: InventoryView },
   { path: '/lifecycle', component: LifecycleView },
   { path: '/capacity', component: CapacityView },
   { path: '/resilience', component: ResilienceView },

@@ -17,6 +17,7 @@ const poolRoutes = require('./routes/pools');
 const taskRoutes = require('./routes/tasks');
 const resilienceRoutes = require('./routes/resilience');
 const apiRoutes = require('./routes/api');
+const hostTargetRoutes = require('./routes/host-targets');
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use('/api/pools', requireAuth, poolRoutes);
 app.use('/api/tasks', requireAuth, taskRoutes);
 app.use('/api/resilience', requireAuth, resilienceRoutes);
 app.use('/api/connections', apiRoutes);
+app.use('/api/host-targets', hostTargetRoutes);
 
 // Vue SPA - serve index.html for all non-API routes
 app.get('/{*splat}', (req, res) => {

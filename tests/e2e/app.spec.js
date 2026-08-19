@@ -1,14 +1,184 @@
 const { test, expect } = require('@playwright/test');
 
 async function stubAuthenticatedRoutes(page) {
+  const connections = [
+    { id: 1, name: 'Production Pool', host: '10.0.0.1', username: 'root', port: 443, is_default: 1 },
+  ];
+  const hostTargets = [
+    { id: 1, name: 'branch-host-r4', host: '10.0.0.25', username: 'root', port: 443, mode: 'standalone', pool_connection_id: null, pool_name: null, notes: '' },
+  ];
+
   await page.route('**/api/connections', async (route) => {
+    const method = route.request().method();
+    if (method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(connections),
+      });
+      return;
+    }
+
+    if (method === 'POST') {
+      const payload = route.request().postDataJSON();
+      const record = {
+        id: connections.length + 1,
+        name: payload.name,
+        host: payload.host,
+        username: payload.username,
+        port: payload.port || 443,
+        is_default: payload.isDefault ? 1 : 0,
+      };
+      if (record.is_default) {
+        connections.forEach((connection) => { connection.is_default = 0; });
+      }
+      connections.push(record);
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(record),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([
-        { id: 1, name: 'Production Pool', host: '10.0.0.1', username: 'root', port: 443, is_default: 1 },
-      ]),
+      body: JSON.stringify(connections),
     });
+  });
+
+  await page.route('**/api/connections/*', async (route) => {
+    const url = new URL(route.request().url());
+    const parts = url.pathname.split('/');
+    const id = Number(parts[3]);
+    const method = route.request().method();
+
+    if (method === 'PUT') {
+      const payload = route.request().postDataJSON();
+      const record = connections.find((connection) => connection.id === id);
+      Object.assign(record, {
+        name: payload.name,
+        host: payload.host,
+        username: payload.username,
+        port: payload.port || 443,
+        is_default: payload.isDefault ? 1 : 0,
+      });
+      if (record.is_default) {
+        connections.forEach((connection) => {
+          if (connection.id !== id) connection.is_default = 0;
+        });
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(record),
+      });
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const index = connections.findIndex((connection) => connection.id === id);
+      if (index !== -1) connections.splice(index, 1);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+      return;
+    }
+
+    if (method === 'POST' && url.pathname.endsWith('/default')) {
+      connections.forEach((connection) => { connection.is_default = connection.id === id ? 1 : 0; });
+      const record = connections.find((connection) => connection.id === id);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(record),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+  });
+
+  await page.route('**/api/host-targets', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(hostTargets),
+      });
+      return;
+    }
+
+    if (method === 'POST') {
+      const payload = route.request().postDataJSON();
+      const pool = connections.find((connection) => connection.id === Number(payload.poolConnectionId || 0));
+      const record = {
+        id: hostTargets.length + 1,
+        name: payload.name,
+        host: payload.host,
+        username: payload.username,
+        port: payload.port || 443,
+        mode: payload.mode,
+        pool_connection_id: payload.mode === 'pool-member' ? Number(payload.poolConnectionId) : null,
+        pool_name: payload.mode === 'pool-member' ? pool?.name || null : null,
+        notes: payload.notes || '',
+      };
+      hostTargets.push(record);
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(record),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+  });
+
+  await page.route('**/api/host-targets/*', async (route) => {
+    const url = new URL(route.request().url());
+    const id = Number(url.pathname.split('/')[3]);
+    const method = route.request().method();
+
+    if (method === 'PUT') {
+      const payload = route.request().postDataJSON();
+      const record = hostTargets.find((target) => target.id === id);
+      const pool = connections.find((connection) => connection.id === Number(payload.poolConnectionId || 0));
+      Object.assign(record, {
+        name: payload.name,
+        host: payload.host,
+        username: payload.username,
+        port: payload.port || 443,
+        mode: payload.mode,
+        pool_connection_id: payload.mode === 'pool-member' ? Number(payload.poolConnectionId) : null,
+        pool_name: payload.mode === 'pool-member' ? pool?.name || null : null,
+        notes: payload.notes || '',
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(record),
+      });
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const index = hostTargets.findIndex((target) => target.id === id);
+      if (index !== -1) hostTargets.splice(index, 1);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
   });
 
   await page.route('**/api/auth/login', async (route) => {
@@ -161,6 +331,8 @@ async function stubAuthenticatedRoutes(page) {
             ref: 'OpaqueRef:pool1',
             name_label: 'Production Pool',
             uuid: 'pool-uuid',
+            master: 'OpaqueRef:host1',
+            slaves: ['OpaqueRef:host2'],
             tags: ['prod'],
             default_SR: 'OpaqueRef:sr1',
             migration_network: 'OpaqueRef:net1',
@@ -182,7 +354,12 @@ async function stubAuthenticatedRoutes(page) {
             name_label: 'alpha-xen',
             address: '10.0.0.11',
             uuid: 'host-uuid-1',
+            pool: 'OpaqueRef:pool1',
             enabled: true,
+            tags: ['prod'],
+            PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif2'],
+            PBDs: ['OpaqueRef:pbd1'],
+            cpu_info: { cpu_count: '24', modelname: 'AMD EPYC' },
             resident_VMs: ['OpaqueRef:vm1'],
           },
           {
@@ -190,7 +367,12 @@ async function stubAuthenticatedRoutes(page) {
             name_label: 'beta-xen',
             address: '10.0.0.12',
             uuid: 'host-uuid-2',
+            pool: 'OpaqueRef:pool1',
             enabled: true,
+            tags: ['prod'],
+            PIFs: ['OpaqueRef:pif3', 'OpaqueRef:pif4'],
+            PBDs: ['OpaqueRef:pbd1'],
+            cpu_info: { cpu_count: '24', modelname: 'AMD EPYC' },
             resident_VMs: ['OpaqueRef:vm2'],
           },
         ],
@@ -248,6 +430,7 @@ async function stubAuthenticatedRoutes(page) {
             physical_size: 32212254720,
             virtual_allocation: 21474836480,
             uuid: 'sr-uuid-1',
+            PBDs: ['OpaqueRef:pbd1'],
           },
         ],
       }),
@@ -280,6 +463,8 @@ async function stubAuthenticatedRoutes(page) {
             bridge: 'xenbr0',
             managed: true,
             uuid: 'net-uuid-1',
+            PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif3'],
+            other_config: { vlan: '120' },
           },
         ],
       }),
@@ -389,7 +574,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await expect.poll(() => shutdownCalled).toBe(true);
 });
 
-test('templates, alerts, lifecycle, capacity, and resilience workbenches render after login', async ({ page }) => {
+test('pool and host registration flows live alongside the broader operator workbenches', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
   await page.goto('/');
@@ -397,6 +582,34 @@ test('templates, alerts, lifecycle, capacity, and resilience workbenches render 
   await page.getByLabel('Username').fill('root');
   await page.getByLabel('Password').fill('secret');
   await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Pools').first().click();
+  await expect(page).toHaveURL(/\/pools$/);
+  await page.getByRole('button', { name: 'Register Pool' }).click();
+  await page.getByLabel('Profile Name').fill('DR Pool');
+  await page.getByLabel('Pool Address').fill('10.0.0.55');
+  await page.getByRole('button', { name: 'Save Pool Target' }).click();
+  await expect(page.getByText('DR Pool')).toBeVisible();
+  await page.locator('.data-table').getByText('Production Pool', { exact: true }).click();
+  await expect(page.getByText('Associated Hosts')).toBeVisible();
+  await expect(page.getByText('alpha-xen')).toBeVisible();
+  await page.locator('.floating-window').getByRole('button').last().click();
+
+  await page.getByText('Hosts').first().click();
+  await expect(page).toHaveURL(/\/hosts$/);
+  await page.getByRole('button', { name: 'Register Host' }).click();
+  await page.getByLabel('Host Name').fill('gamma-xen');
+  await page.getByLabel('Host Address').fill('10.0.0.13');
+  await page.getByLabel('Registration Mode').selectOption('pool-member');
+  await page.getByLabel('Target Pool').selectOption('1');
+  await page.getByRole('button', { name: 'Save Host Target' }).click();
+  await expect(page.getByText('gamma-xen')).toBeVisible();
+  await page.locator('.data-table').getByText('alpha-xen', { exact: true }).first().click();
+  await expect(page.getByText('Pool Membership')).toBeVisible();
+  await expect(page.getByText('Related Host Inventory')).toBeVisible();
+  await expect(page.getByText('Primary SR')).toBeVisible();
+  await expect(page.getByText('VM Network')).toBeVisible();
+  await page.locator('.floating-window').getByRole('button').last().click();
 
   await page.getByText('Templates').first().click();
   await expect(page).toHaveURL(/\/templates$/);
@@ -412,6 +625,14 @@ test('templates, alerts, lifecycle, capacity, and resilience workbenches render 
   await expect(page).toHaveURL(/\/activity$/);
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
   await expect(page.getByText('Patch compliance scan')).toBeVisible();
+
+  await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
+  await page.getByPlaceholder('Search live inventory, alerts, tasks, UUIDs, and tags...').fill('alpha');
+  await page.getByPlaceholder('Name this search preset...').fill('Host Alpha');
+  await page.getByRole('button', { name: 'Save Workspace' }).click();
+  await expect(page.getByText('Host Alpha')).toBeVisible();
 
   await page.getByText('Lifecycle').first().click();
   await expect(page).toHaveURL(/\/lifecycle$/);

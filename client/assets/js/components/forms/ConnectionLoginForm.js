@@ -4,7 +4,6 @@ const ConnectionLoginForm = {
     'host',
     'username',
     'password',
-    'rememberTarget',
     'loading',
     'error',
   ],
@@ -15,7 +14,6 @@ const ConnectionLoginForm = {
     'update:host',
     'update:username',
     'update:password',
-    'update:rememberTarget',
   ],
   template: `
     <form @submit.prevent="$emit('submit')">
@@ -60,13 +58,6 @@ const ConnectionLoginForm = {
                required>
       </div>
 
-      <label class="form-toggle">
-        <input type="checkbox"
-               :checked="rememberTarget"
-               @change="$emit('update:rememberTarget', $event.target.checked)">
-        <span>Remember this target locally</span>
-      </label>
-
       <div class="form-actions">
         <button class="form-btn" type="submit" :disabled="loading">
           <span v-if="loading" class="loading-spinner" style="margin-right:8px"></span>
@@ -77,7 +68,7 @@ const ConnectionLoginForm = {
           Open Demo Dashboard
         </button>
       </div>
-      <div class="login-meta-note">Demo mode loads mock pools, hosts, VMs, storage, networking, templates, and alerts for UI testing.</div>
+      <div class="login-meta-note">Pool target registration now lives in the Pools workspace. Demo mode still loads mock pools, hosts, VMs, storage, networking, templates, and alerts for UI testing.</div>
       <div class="form-error" v-if="error">{{ error }}</div>
     </form>
   `,

@@ -42,6 +42,13 @@ const api = {
   getPools: () => api.request('GET', '/api/pools'),
   getConnections: () => api.request('GET', '/api/connections'),
   saveConnection: (payload) => api.request('POST', '/api/connections', payload),
+  updateConnection: (id, payload) => api.request('PUT', `/api/connections/${id}`, payload),
+  deleteConnection: (id) => api.request('DELETE', `/api/connections/${id}`),
+  setDefaultConnection: (id) => api.request('POST', `/api/connections/${id}/default`),
+  getHostTargets: () => api.request('GET', '/api/host-targets'),
+  saveHostTarget: (payload) => api.request('POST', '/api/host-targets', payload),
+  updateHostTarget: (id, payload) => api.request('PUT', `/api/host-targets/${id}`, payload),
+  deleteHostTarget: (id) => api.request('DELETE', `/api/host-targets/${id}`),
 };
 
 const store = reactive({
@@ -173,4 +180,3 @@ function getUtilizationStatus(value, thresholds = {}) {
   if (percent >= warning) return 'warning';
   return 'info';
 }
-

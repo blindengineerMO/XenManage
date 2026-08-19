@@ -12,6 +12,8 @@ const demoDb = {
       name_label: 'Demo Production Pool',
       name_description: 'Primary shared virtualization pool',
       uuid: 'pool-demo-uuid-1',
+      master: 'OpaqueRef:host-demo-1',
+      slaves: ['OpaqueRef:host-demo-2'],
       tags: ['production', 'ha', 'demo'],
       default_SR: 'OpaqueRef:sr-demo-1',
       migration_network: 'OpaqueRef:net-demo-1',
@@ -22,6 +24,8 @@ const demoDb = {
       name_label: 'Demo Edge Pool',
       name_description: 'Latency-sensitive edge pool',
       uuid: 'pool-demo-uuid-2',
+      master: 'OpaqueRef:host-demo-3',
+      slaves: [],
       tags: ['edge', 'branch'],
       default_SR: 'OpaqueRef:sr-demo-2',
       migration_network: 'OpaqueRef:net-demo-2',
@@ -35,9 +39,13 @@ const demoDb = {
       hostname: 'xen-host-a01.lab.local',
       address: '10.42.0.11',
       uuid: 'host-demo-uuid-1',
+      pool: 'OpaqueRef:pool-demo-1',
       enabled: true,
       tags: ['production', 'compute'],
+      PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-2'],
+      PBDs: ['OpaqueRef:pbd-demo-1'],
       resident_VMs: ['OpaqueRef:vm-demo-1', 'OpaqueRef:vm-demo-2'],
+      cpu_info: { cpu_count: '32', socket_count: '2', modelname: 'AMD EPYC 7543P' },
       other_config: { rack: 'R1', profile: 'gpu-ready' },
     },
     {
@@ -46,9 +54,13 @@ const demoDb = {
       hostname: 'xen-host-a02.lab.local',
       address: '10.42.0.12',
       uuid: 'host-demo-uuid-2',
+      pool: 'OpaqueRef:pool-demo-1',
       enabled: true,
       tags: ['production', 'compute'],
+      PIFs: ['OpaqueRef:pif-demo-3', 'OpaqueRef:pif-demo-4'],
+      PBDs: ['OpaqueRef:pbd-demo-1'],
       resident_VMs: ['OpaqueRef:vm-demo-3'],
+      cpu_info: { cpu_count: '32', socket_count: '2', modelname: 'AMD EPYC 7543P' },
       other_config: { rack: 'R1', lifecycle: 'patched' },
     },
     {
@@ -57,9 +69,13 @@ const demoDb = {
       hostname: 'xen-host-b01.lab.local',
       address: '10.43.0.21',
       uuid: 'host-demo-uuid-3',
+      pool: 'OpaqueRef:pool-demo-2',
       enabled: false,
       tags: ['edge', 'maintenance'],
+      PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
+      PBDs: ['OpaqueRef:pbd-demo-2'],
       resident_VMs: ['OpaqueRef:vm-demo-4'],
+      cpu_info: { cpu_count: '16', socket_count: '1', modelname: 'Intel Xeon Silver 4310' },
       other_config: { rack: 'R4', maintenance_window: 'Sun 02:00' },
     },
   ],
@@ -73,6 +89,7 @@ const demoDb = {
       memory_static_max: 8589934592,
       uuid: 'vm-demo-uuid-1',
       is_a_template: false,
+      resident_on: 'OpaqueRef:host-demo-1',
       tags: ['prod', 'api'],
     },
     {
@@ -84,6 +101,7 @@ const demoDb = {
       memory_static_max: 4294967296,
       uuid: 'vm-demo-uuid-2',
       is_a_template: false,
+      resident_on: 'OpaqueRef:host-demo-1',
       tags: ['prod', 'worker'],
     },
     {
@@ -95,6 +113,7 @@ const demoDb = {
       memory_static_max: 12884901888,
       uuid: 'vm-demo-uuid-3',
       is_a_template: false,
+      resident_on: 'OpaqueRef:host-demo-2',
       tags: ['staging', 'web'],
     },
     {
@@ -106,6 +125,7 @@ const demoDb = {
       memory_static_max: 2147483648,
       uuid: 'vm-demo-uuid-4',
       is_a_template: false,
+      resident_on: 'OpaqueRef:host-demo-3',
       tags: ['edge', 'cache'],
     },
     {
@@ -141,6 +161,7 @@ const demoDb = {
       physical_size: 1374389534720,
       virtual_allocation: 901943132160,
       uuid: 'sr-demo-uuid-1',
+      PBDs: ['OpaqueRef:pbd-demo-1'],
       tags: ['flash', 'performance'],
     },
     {
@@ -150,6 +171,7 @@ const demoDb = {
       physical_size: 549755813888,
       virtual_allocation: 188978561024,
       uuid: 'sr-demo-uuid-2',
+      PBDs: ['OpaqueRef:pbd-demo-2'],
       tags: ['archive', 'edge'],
     },
   ],
@@ -169,6 +191,7 @@ const demoDb = {
       bridge: 'xenbr0',
       managed: true,
       uuid: 'net-demo-uuid-1',
+      PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-3'],
       tags: ['prod', 'management'],
       default_locking_mode: 'network_default',
       other_config: { vlan: '120' },
@@ -179,6 +202,7 @@ const demoDb = {
       bridge: 'xenbr2',
       managed: true,
       uuid: 'net-demo-uuid-2',
+      PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
       tags: ['storage', 'replication'],
       default_locking_mode: 'locked',
       other_config: { vlan: '240' },
@@ -294,10 +318,58 @@ const demoDb = {
       resident_on: 'OpaqueRef:host-demo-2',
     },
   ],
+  connections: [
+    {
+      id: 1,
+      name: 'Demo Production Pool',
+      host: '10.42.0.11',
+      username: 'root',
+      port: 443,
+      is_default: 1,
+      last_connected_at: '2026-08-19T15:00:00.000Z',
+    },
+    {
+      id: 2,
+      name: 'Demo Edge Pool',
+      host: '10.43.0.21',
+      username: 'root',
+      port: 443,
+      is_default: 0,
+      last_connected_at: '',
+    },
+  ],
+  hostTargets: [
+    {
+      id: 1,
+      name: 'branch-host-r4',
+      host: '10.43.0.22',
+      username: 'root',
+      port: 443,
+      mode: 'standalone',
+      pool_connection_id: null,
+      pool_name: null,
+      notes: 'Standalone edge hypervisor candidate',
+    },
+    {
+      id: 2,
+      name: 'compute-node-b03',
+      host: '10.42.0.13',
+      username: 'root',
+      port: 443,
+      mode: 'pool-member',
+      pool_connection_id: 1,
+      pool_name: 'Demo Production Pool',
+      notes: 'Pending registration as production pool member',
+    },
+  ],
 };
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function nextDemoId(collection) {
+  return collection.reduce((max, item) => Math.max(max, Number(item.id || 0)), 0) + 1;
 }
 
 function sortTasks(tasks) {
@@ -584,9 +656,114 @@ function demoRequest(method, url, body) {
   }
 
   if (method === 'GET' && path === '/api/connections') {
-    return [];
+    return clone(demoDb.connections);
+  }
+
+  if (method === 'POST' && path === '/api/connections') {
+    const nextRecord = {
+      id: nextDemoId(demoDb.connections),
+      name: body.name,
+      host: body.host,
+      username: body.username,
+      port: body.port || 443,
+      is_default: body.isDefault ? 1 : 0,
+      last_connected_at: '',
+    };
+
+    if (nextRecord.is_default) {
+      demoDb.connections.forEach((connection) => { connection.is_default = 0; });
+    }
+
+    demoDb.connections.push(nextRecord);
+    return clone(nextRecord);
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/connections/')) {
+    const id = Number(path.split('/')[3]);
+    const record = demoDb.connections.find((connection) => connection.id === id);
+    if (!record) throw new Error('CONNECTION_NOT_FOUND');
+
+    Object.assign(record, {
+      name: body.name,
+      host: body.host,
+      username: body.username,
+      port: body.port || 443,
+      is_default: body.isDefault ? 1 : 0,
+    });
+
+    if (record.is_default) {
+      demoDb.connections.forEach((connection) => {
+        if (connection.id !== id) connection.is_default = 0;
+      });
+    }
+
+    return clone(record);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/connections/') && path.endsWith('/default')) {
+    const id = Number(path.split('/')[3]);
+    const record = demoDb.connections.find((connection) => connection.id === id);
+    if (!record) throw new Error('CONNECTION_NOT_FOUND');
+
+    demoDb.connections.forEach((connection) => { connection.is_default = connection.id === id ? 1 : 0; });
+    return clone(record);
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/connections/')) {
+    const id = Number(path.split('/')[3]);
+    const index = demoDb.connections.findIndex((connection) => connection.id === id);
+    if (index === -1) throw new Error('CONNECTION_NOT_FOUND');
+    demoDb.connections.splice(index, 1);
+    return { success: true };
+  }
+
+  if (method === 'GET' && path === '/api/host-targets') {
+    return clone(demoDb.hostTargets);
+  }
+
+  if (method === 'POST' && path === '/api/host-targets') {
+    const pool = demoDb.connections.find((connection) => connection.id === Number(body.poolConnectionId || 0));
+    const record = {
+      id: nextDemoId(demoDb.hostTargets),
+      name: body.name,
+      host: body.host,
+      username: body.username,
+      port: body.port || 443,
+      mode: body.mode || 'standalone',
+      pool_connection_id: body.mode === 'pool-member' ? Number(body.poolConnectionId || 0) || null : null,
+      pool_name: body.mode === 'pool-member' ? (pool?.name || null) : null,
+      notes: body.notes || '',
+    };
+    demoDb.hostTargets.push(record);
+    return clone(record);
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/host-targets/')) {
+    const id = Number(path.split('/')[3]);
+    const record = demoDb.hostTargets.find((target) => target.id === id);
+    const pool = demoDb.connections.find((connection) => connection.id === Number(body.poolConnectionId || 0));
+    if (!record) throw new Error('HOST_TARGET_NOT_FOUND');
+
+    Object.assign(record, {
+      name: body.name,
+      host: body.host,
+      username: body.username,
+      port: body.port || 443,
+      mode: body.mode || 'standalone',
+      pool_connection_id: body.mode === 'pool-member' ? Number(body.poolConnectionId || 0) || null : null,
+      pool_name: body.mode === 'pool-member' ? (pool?.name || null) : null,
+      notes: body.notes || '',
+    });
+    return clone(record);
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/host-targets/')) {
+    const id = Number(path.split('/')[3]);
+    const index = demoDb.hostTargets.findIndex((target) => target.id === id);
+    if (index === -1) throw new Error('HOST_TARGET_NOT_FOUND');
+    demoDb.hostTargets.splice(index, 1);
+    return { success: true };
   }
 
   throw new Error(`DEMO_ROUTE_UNSUPPORTED: ${method} ${path}`);
 }
-

@@ -33,6 +33,20 @@ function initializeSchema() {
       last_connected_at DATETIME
     );
 
+    CREATE TABLE IF NOT EXISTS host_targets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      host TEXT NOT NULL,
+      username TEXT NOT NULL,
+      port INTEGER DEFAULT 443,
+      mode TEXT NOT NULL DEFAULT 'standalone',
+      pool_connection_id INTEGER,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_connected_at DATETIME,
+      FOREIGN KEY (pool_connection_id) REFERENCES connections(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT,
@@ -114,6 +128,87 @@ const connectionModel = {
   },
 };
 
+const hostTargetModel = {
+  getAll() {
+    return getDb().prepare(`
+      SELECT host_targets.*, connections.name AS pool_name
+      FROM host_targets
+      LEFT JOIN connections ON connections.id = host_targets.pool_connection_id
+      ORDER BY host_targets.name
+    `).all();
+  },
+
+  getById(id) {
+    return getDb().prepare(`
+      SELECT host_targets.*, connections.name AS pool_name
+      FROM host_targets
+      LEFT JOIN connections ON connections.id = host_targets.pool_connection_id
+      WHERE host_targets.id = ?
+    `).get(id);
+  },
+
+  findByFingerprint(host, username, port = 443) {
+    return getDb().prepare(
+      'SELECT * FROM host_targets WHERE host = ? AND username = ? AND port = ?'
+    ).get(host, username, port);
+  },
+
+  create({ name, host, username, port = 443, mode = 'standalone', poolConnectionId = null, notes = '' }) {
+    const db = getDb();
+    const existing = this.findByFingerprint(host, username, port);
+
+    if (existing) {
+      return this.update(existing.id, {
+        name,
+        host,
+        username,
+        port,
+        mode,
+        poolConnectionId,
+        notes,
+      });
+    }
+
+    const result = db.prepare(`
+      INSERT INTO host_targets (name, host, username, port, mode, pool_connection_id, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      name,
+      host,
+      username,
+      port,
+      mode,
+      mode === 'pool-member' ? poolConnectionId : null,
+      notes || ''
+    );
+
+    return this.getById(result.lastInsertRowid);
+  },
+
+  update(id, { name, host, username, port, mode, poolConnectionId = null, notes = '' }) {
+    getDb().prepare(`
+      UPDATE host_targets
+      SET name = ?, host = ?, username = ?, port = ?, mode = ?, pool_connection_id = ?, notes = ?
+      WHERE id = ?
+    `).run(
+      name,
+      host,
+      username,
+      port,
+      mode,
+      mode === 'pool-member' ? poolConnectionId : null,
+      notes || '',
+      id
+    );
+
+    return this.getById(id);
+  },
+
+  delete(id) {
+    getDb().prepare('DELETE FROM host_targets WHERE id = ?').run(id);
+  },
+};
+
 // Settings CRUD
 const settingsModel = {
   get(key) {
@@ -133,4 +228,4 @@ const settingsModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, settingsModel };
+module.exports = { getDb, connectionModel, hostTargetModel, settingsModel };

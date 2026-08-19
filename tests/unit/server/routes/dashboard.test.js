@@ -1,4 +1,4 @@
-const { connectionModel, settingsModel, getDb } = require('../../../../server/models/connection');
+const { connectionModel, hostTargetModel, settingsModel, getDb } = require('../../../../server/models/connection');
 const path = require('path');
 const fs = require('fs');
 
@@ -132,5 +132,79 @@ describe('Settings Model', () => {
     const all = settingsModel.getAll();
     expect(all.key1).toBe('val1');
     expect(all.key2).toBe('val2');
+  });
+});
+
+describe('Host Target Model', () => {
+  afterAll(() => {
+    if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
+  });
+
+  it('should create a standalone host target', () => {
+    const target = hostTargetModel.create({
+      name: 'Standalone Host',
+      host: '10.10.10.10',
+      username: 'root',
+      port: 443,
+      mode: 'standalone',
+      notes: 'Edge node',
+    });
+
+    expect(target).toBeDefined();
+    expect(target.id).toBeDefined();
+    expect(target.mode).toBe('standalone');
+    expect(target.pool_connection_id).toBeNull();
+  });
+
+  it('should create a pool-member host target', () => {
+    const pool = connectionModel.create({
+      name: 'Pool For Hosts',
+      host: '10.10.10.1',
+      username: 'root',
+      port: 443,
+    });
+
+    const target = hostTargetModel.create({
+      name: 'Pool Member Host',
+      host: '10.10.10.11',
+      username: 'root',
+      port: 443,
+      mode: 'pool-member',
+      poolConnectionId: pool.id,
+      notes: 'Pending add to pool',
+    });
+
+    expect(target.mode).toBe('pool-member');
+    expect(target.pool_connection_id).toBe(pool.id);
+    expect(target.pool_name).toBe('Pool For Hosts');
+  });
+
+  it('should list host targets', () => {
+    const targets = hostTargetModel.getAll();
+    expect(targets.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('should update a host target', () => {
+    const target = hostTargetModel.getAll()[0];
+    const updated = hostTargetModel.update(target.id, {
+      name: 'Updated Host Target',
+      host: target.host,
+      username: target.username,
+      port: target.port,
+      mode: 'standalone',
+      poolConnectionId: null,
+      notes: 'Updated note',
+    });
+
+    expect(updated.name).toBe('Updated Host Target');
+    expect(updated.notes).toBe('Updated note');
+  });
+
+  it('should delete a host target', () => {
+    const before = hostTargetModel.getAll().length;
+    const target = hostTargetModel.getAll()[0];
+    hostTargetModel.delete(target.id);
+    const after = hostTargetModel.getAll().length;
+    expect(after).toBe(before - 1);
   });
 });

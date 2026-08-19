@@ -4,7 +4,7 @@ const FloatingWindow = {
   template: `
     <div class="floating-window"
          v-if="show"
-         :style="{ width: width + 'px', left: posX + 'px', top: posY + 'px', zIndex }"
+         :style="{ width: resolvedWidth + 'px', left: posX + 'px', top: posY + 'px', zIndex, maxHeight: maxWindowHeight + 'px' }"
          @mousedown="bringToFront">
       <div class="fw-header" @mousedown="startDrag">
         <span class="mdi mdi-window-restore" style="font-size:14px;color:var(--text-muted)"></span>
@@ -13,7 +13,7 @@ const FloatingWindow = {
           <span class="mdi mdi-close"></span>
         </button>
       </div>
-      <div class="fw-body" :style="{ height: height ? height + 'px' : 'auto' }">
+      <div class="fw-body" :style="{ height: resolvedBodyHeight + 'px' }">
         <slot></slot>
       </div>
     </div>
@@ -21,21 +21,50 @@ const FloatingWindow = {
   data() {
     return {
       posX: this.x || 200,
-      posY: this.y || 100,
+      posY: this.y || 80,
       dragging: false,
       dragOffsetX: 0,
       dragOffsetY: 0,
       zIndex: windowManager.next(),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
     };
+  },
+  computed: {
+    resolvedWidth() {
+      const requested = Number(this.width || 560);
+      return Math.min(requested, this.viewportWidth - 24);
+    },
+    maxWindowHeight() {
+      return Math.max(220, this.viewportHeight - 88 - 28);
+    },
+    resolvedBodyHeight() {
+      const headerHeight = 40;
+      const requested = Number(this.height || 320);
+      const available = this.viewportHeight - this.posY - headerHeight - 28 - 18;
+      return Math.max(160, Math.min(requested, available));
+    },
   },
   watch: {
     show(value) {
       if (value) {
         this.bringToFront();
+        this.syncViewport();
+        this.constrainPosition();
       }
     },
   },
   methods: {
+    syncViewport() {
+      this.viewportWidth = window.innerWidth;
+      this.viewportHeight = window.innerHeight;
+    },
+    constrainPosition() {
+      const maxX = Math.max(12, this.viewportWidth - this.resolvedWidth - 12);
+      const maxY = Math.max(60, this.viewportHeight - this.resolvedBodyHeight - 40 - 28 - 12);
+      this.posX = Math.min(Math.max(12, this.posX), maxX);
+      this.posY = Math.min(Math.max(60, this.posY), maxY);
+    },
     startDrag(event) {
       this.dragging = true;
       this.dragOffsetX = event.clientX - this.posX;
@@ -46,8 +75,9 @@ const FloatingWindow = {
     },
     onDrag(event) {
       if (!this.dragging) return;
-      this.posX = Math.max(12, event.clientX - this.dragOffsetX);
-      this.posY = Math.max(60, event.clientY - this.dragOffsetY);
+      this.posX = event.clientX - this.dragOffsetX;
+      this.posY = event.clientY - this.dragOffsetY;
+      this.constrainPosition();
     },
     stopDrag() {
       this.dragging = false;
@@ -57,9 +87,17 @@ const FloatingWindow = {
     bringToFront() {
       this.zIndex = windowManager.next();
     },
+    onResize() {
+      this.syncViewport();
+      this.constrainPosition();
+    },
+  },
+  mounted() {
+    window.addEventListener('resize', this.onResize);
+    this.constrainPosition();
   },
   beforeUnmount() {
     this.stopDrag();
+    window.removeEventListener('resize', this.onResize);
   },
 };
-

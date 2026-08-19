@@ -1,0 +1,89 @@
+const HostRegistrationForm = {
+  props: ['initialValue', 'poolOptions', 'submitLabel'],
+  emits: ['submit'],
+  template: `
+    <form @submit.prevent="handleSubmit">
+      <div class="form-group">
+        <label for="host-target-name">Host Name</label>
+        <input id="host-target-name" class="form-input" v-model="draft.name" placeholder="compute-node-b03" required>
+      </div>
+      <div class="form-group">
+        <label for="host-target-address">Host Address</label>
+        <input id="host-target-address" class="form-input" v-model="draft.host" placeholder="10.42.0.13" required>
+      </div>
+      <div class="form-group">
+        <label for="host-target-username">Username</label>
+        <input id="host-target-username" class="form-input" v-model="draft.username" placeholder="root" required>
+      </div>
+      <div class="form-group">
+        <label for="host-target-port">Port</label>
+        <input id="host-target-port" class="form-input" v-model.number="draft.port" type="number" min="1" max="65535" required>
+      </div>
+      <div class="form-group">
+        <label for="host-target-mode">Registration Mode</label>
+        <select id="host-target-mode" class="form-input" v-model="draft.mode">
+          <option value="standalone">Standalone Host</option>
+          <option value="pool-member">Pool Member</option>
+        </select>
+      </div>
+      <div class="form-group" v-if="draft.mode === 'pool-member'">
+        <label for="host-target-pool">Target Pool</label>
+        <select id="host-target-pool" class="form-input" v-model.number="draft.poolConnectionId" required>
+          <option :value="null" disabled>Select a registered pool</option>
+          <option v-for="pool in poolOptions" :key="pool.id" :value="pool.id">
+            {{ pool.name }} · {{ pool.host }}
+          </option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="host-target-notes">Notes</label>
+        <textarea id="host-target-notes" class="form-input" v-model="draft.notes" rows="4" placeholder="Maintenance plan, rack note, onboarding status..."></textarea>
+      </div>
+      <div class="form-actions">
+        <button class="form-btn" type="submit">{{ submitLabel || 'Save Host Target' }}</button>
+      </div>
+    </form>
+  `,
+  data() {
+    return {
+      draft: this.buildDraft(this.initialValue),
+    };
+  },
+  watch: {
+    initialValue: {
+      deep: true,
+      handler(value) {
+        this.draft = this.buildDraft(value);
+      },
+    },
+    poolOptions() {
+      if (this.draft.mode === 'pool-member' && !this.draft.poolConnectionId && this.poolOptions.length) {
+        this.draft.poolConnectionId = this.poolOptions[0].id;
+      }
+    },
+  },
+  methods: {
+    buildDraft(value) {
+      return {
+        name: value?.name || '',
+        host: value?.host || '',
+        username: value?.username || 'root',
+        port: Number(value?.port || 443),
+        mode: value?.mode || 'standalone',
+        poolConnectionId: value?.pool_connection_id || value?.poolConnectionId || null,
+        notes: value?.notes || '',
+      };
+    },
+    handleSubmit() {
+      this.$emit('submit', {
+        name: this.draft.name.trim(),
+        host: this.draft.host.trim(),
+        username: this.draft.username.trim(),
+        port: Number(this.draft.port || 443),
+        mode: this.draft.mode,
+        poolConnectionId: this.draft.mode === 'pool-member' ? Number(this.draft.poolConnectionId || 0) : null,
+        notes: this.draft.notes.trim(),
+      });
+    },
+  },
+};

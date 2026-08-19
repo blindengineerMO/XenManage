@@ -182,6 +182,7 @@ DB_PATH=./data/xenmange.db
 - The login and authenticated shell now use project-owned AI-generated background art instead of external visual dependencies.
 - The dashboard supports draggable summary cards with persisted order in `localStorage`, plus alert triage and direct action rails into templates, alerts, activity history, and the new capacity workspace.
 - Pools, hosts, storage, networking, and VM detail views now open in custom floating windows instead of browser alerts.
+- A dedicated inventory workbench now exposes universal search across live infrastructure objects, saved connection targets, top tags, and browser-local workspace presets for repeatable operator navigation.
 - Template inventory and alerts history are now exposed as dedicated routes for repeatable provisioning and operator triage workflows.
 - A dedicated activity workbench now exposes recent XenServer task history, progress, completion states, and error details.
 - A dedicated lifecycle workbench now exposes maintenance posture, lifecycle-oriented task tracking, heuristic compliance/drift signals, and remediation guidance inspired by vCenter and SCVMM.
@@ -189,4 +190,4 @@ DB_PATH=./data/xenmange.db
 - A dedicated resilience workbench now exposes derived protection coverage, failover readiness, evacuation targets, recovery-plan guidance, and recent resilience events.
 - Host property windows now pull live metric records so operators can inspect memory state without leaving the app.
 - The login surface can reuse locally saved connection targets from the SQLite-backed connection store, with dedupe/default support on the backend.
-- Playwright E2E coverage now exercises login rendering, dashboard hydration, VM lifecycle actions, and the templates/alerts/activity/lifecycle/capacity/resilience workbenches with mocked API responses.
+- Playwright E2E coverage now exercises login rendering, dashboard hydration, VM lifecycle actions, and the inventory/templates/alerts/activity/lifecycle/capacity/resilience workbenches with mocked API responses.
