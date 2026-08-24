@@ -26,7 +26,13 @@ const api = {
 
     return data;
   },
-  login: (host, username, password) => api.request('POST', '/api/auth/login', { host, username, password }),
+  login: (username, password) => api.request('POST', '/api/auth/login', { username, password }),
+  xenLogin: (host, username, password, options = {}) => api.request('POST', '/api/auth/xen-login', {
+    host,
+    username,
+    password,
+    vaultCredentialId: options.vaultCredentialId || null,
+  }),
   logout: () => api.request('POST', '/api/auth/logout'),
   status: () => api.request('GET', '/api/auth/status'),
   dashboard: () => api.request('GET', '/api/dashboard'),
@@ -47,7 +53,18 @@ const api = {
   updateRemediationTemplate: (id, payload) => api.request('PUT', `/api/tasks/remediation/templates/${encodeURIComponent(id)}`, payload),
   deleteRemediationTemplate: (id) => api.request('DELETE', `/api/tasks/remediation/templates/${encodeURIComponent(id)}`),
   getAuditLog: () => api.request('GET', '/api/audit'),
+  getLogs: () => api.request('GET', '/api/logs'),
+  getClusterMetrics: (range = '24h') => api.request('GET', `/api/metrics/cluster?range=${encodeURIComponent(range)}`),
+  collectMetricsSnapshot: () => api.request('POST', '/api/metrics/collect'),
+  getHostMetricHistory: (ref, range = '24h') => api.request('GET', `/api/metrics/hosts/${encodeURIComponent(ref)}?range=${encodeURIComponent(range)}`),
+  getVmMetricHistory: (ref, range = '24h') => api.request('GET', `/api/metrics/vms/${encodeURIComponent(ref)}?range=${encodeURIComponent(range)}`),
+  getStorageMetricHistory: (ref, range = '24h') => api.request('GET', `/api/metrics/storage/${encodeURIComponent(ref)}?range=${encodeURIComponent(range)}`),
   getGovernance: () => api.request('GET', '/api/governance'),
+  getSystemConfig: () => api.request('GET', '/api/settings'),
+  saveSystemConfigSection: (section, payload) => api.request('PUT', `/api/settings/${encodeURIComponent(section)}`, payload),
+  previewRetentionSweep: (domain = '') => api.request('GET', `/api/settings/retention/preview${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`),
+  runRetentionSweep: (payload = {}) => api.request('POST', '/api/settings/retention/run', payload),
+  saveRetentionPolicy: (domain, payload) => api.request('PUT', `/api/settings/retention/policies/${encodeURIComponent(domain)}`, payload),
   saveGovernancePolicy: (payload) => api.request('PUT', '/api/governance/policy', payload),
   setGovernanceRole: (role) => api.request('PUT', '/api/governance/role', { role }),
   saveGovernanceQuota: (ref, payload) => api.request('PUT', `/api/governance/quotas/${encodeURIComponent(ref)}`, payload),
@@ -81,6 +98,7 @@ const api = {
   getSRVDIs: (ref) => api.request('GET', `/api/storage/${encodeURIComponent(ref)}/vdis`),
   getNetworks: () => api.request('GET', '/api/networks'),
   getPools: () => api.request('GET', '/api/pools'),
+  getCredentials: () => api.request('GET', '/api/credentials'),
   getConnections: () => api.request('GET', '/api/connections'),
   saveConnection: (payload) => api.request('POST', '/api/connections', payload),
   updateConnection: (id, payload) => api.request('PUT', `/api/connections/${id}`, payload),
@@ -98,9 +116,12 @@ const api = {
 
 const store = reactive({
   authenticated: false,
+  connected: false,
   demoMode: false,
   host: '',
   username: '',
+  authMode: 'local',
+  user: null,
   governance: {
     currentRole: 'admin',
     policy: {

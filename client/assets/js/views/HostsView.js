@@ -1,5 +1,5 @@
 const HostsView = {
-  components: { DataTable, StatusBadge, FloatingWindow, HostRegistrationForm },
+  components: { DataTable, StatusBadge, FloatingWindow, HostRegistrationForm, 'metric-trend-card': MetricTrendCard },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -32,6 +32,7 @@ const HostsView = {
                 <div class="text-muted mono" style="font-size:11px">{{ target.host }} · {{ target.username }} · :{{ target.port || 443 }}</div>
                 <div class="text-muted" style="font-size:12px;margin-top:6px">
                   {{ target.mode === 'pool-member' ? `Pool member of ${target.pool_name || 'registered pool'}` : 'Standalone host target' }}
+                  <span v-if="target.vault_credential_id"> · vault credential linked</span>
                 </div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
@@ -97,6 +98,17 @@ const HostsView = {
           </div>
 
           <div class="detail-section">
+            <div class="detail-section-title">Historical Memory Trend</div>
+            <metric-trend-card
+              title="Host Memory Utilization"
+              subtitle="Persisted memory-pressure history for this host."
+              :series="hostMetricSeries('memory_used_percent')"
+              value-kind="percent"
+              :accent-status="historyStatus(hostMetricSeries('memory_used_percent'), { warning: 70, critical: 85 })">
+            </metric-trend-card>
+          </div>
+
+          <div class="detail-section">
             <div class="detail-section-title">Related Host Inventory</div>
             <div class="stack-item" v-if="inventoryLoading">
               <span class="loading-spinner"></span>
@@ -139,6 +151,7 @@ const HostsView = {
         <host-registration-form
           :initial-value="hostTargetDraft"
           :pool-options="connections"
+          :credential-options="credentials"
           :submit-label="editingTargetId ? 'Update Host Target' : 'Save Host Target'"
           @submit="submitTarget">
         </host-registration-form>
@@ -151,6 +164,7 @@ const HostsView = {
       hosts: [],
       hostTargets: [],
       connections: [],
+      credentials: [],
       selectedHost: null,
       showProps: false,
       showRegistration: false,
@@ -162,6 +176,7 @@ const HostsView = {
       inventoryError: null,
       targetError: null,
       hostMetrics: {},
+      hostMetricHistory: { metrics: [] },
       lastAppliedFocusKey: '',
       relatedPools: [],
       relatedVMs: [],
@@ -298,8 +313,18 @@ const HostsView = {
     formatPercent,
     truncateList,
     summarizeCount,
+    hostMetricSeries(metricName) {
+      return (this.hostMetricHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
+    },
+    historyStatus(series, thresholds = {}) {
+      const points = Array.isArray(series) ? series : [];
+      const latest = Number(points[points.length - 1]?.value || 0);
+      if (thresholds.critical !== undefined && latest >= thresholds.critical) return 'critical';
+      if (thresholds.warning !== undefined && latest >= thresholds.warning) return 'warning';
+      return 'success';
+    },
     async loadAll() {
-      await Promise.all([this.loadHosts(), this.loadHostTargets(), this.loadConnections()]);
+      await Promise.all([this.loadHosts(), this.loadHostTargets(), this.loadConnections(), this.loadCredentials()]);
     },
     async loadHosts() {
       this.loading = true;
@@ -327,12 +352,21 @@ const HostsView = {
         this.connections = [];
       }
     },
+    async loadCredentials() {
+      try {
+        const result = await api.getCredentials();
+        this.credentials = result.data || [];
+      } catch (error) {
+        this.credentials = [];
+      }
+    },
     async openProperties(row) {
       this.selectedHost = row;
       this.showProps = true;
       this.metricsLoading = true;
       this.metricsError = null;
       this.hostMetrics = {};
+      this.hostMetricHistory = { metrics: [] };
       this.inventoryLoading = true;
       this.inventoryError = null;
       this.relatedPools = [];
@@ -340,8 +374,9 @@ const HostsView = {
       this.relatedStorage = [];
       this.relatedNetworks = [];
 
-      const [metricsResult, poolsResult, vmsResult, storageResult, networksResult] = await Promise.allSettled([
+      const [metricsResult, metricHistoryResult, poolsResult, vmsResult, storageResult, networksResult] = await Promise.allSettled([
         api.getHostMetrics(row.ref),
+        api.getHostMetricHistory(row.ref),
         api.getPools(),
         api.getVMs(),
         api.getSRs(),
@@ -352,6 +387,9 @@ const HostsView = {
         this.hostMetrics = metricsResult.value;
       } else {
         this.metricsError = metricsResult.reason?.message || 'Unable to load metrics';
+      }
+      if (metricHistoryResult.status === 'fulfilled') {
+        this.hostMetricHistory = metricHistoryResult.value;
       }
       this.metricsLoading = false;
 
@@ -447,6 +485,7 @@ const HostsView = {
         name: '',
         host: '',
         username: 'root',
+        vault_credential_id: null,
         port: 443,
         mode: 'standalone',
         pool_connection_id: this.connections[0]?.id || null,

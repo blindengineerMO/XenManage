@@ -3,6 +3,7 @@ const VMsView = {
     DataTable,
     StatusBadge,
     FloatingWindow,
+    'metric-trend-card': MetricTrendCard,
     'vm-config-form': VMConfigForm,
     'vm-device-form': VMDeviceForm,
   },
@@ -150,6 +151,17 @@ const VMsView = {
                   <div class="dash-card-value" :class="card.valueClass || ''">{{ card.value }}</div>
                   <div class="text-muted mono" style="margin-top:8px;font-size:11px">{{ card.detail }}</div>
                 </div>
+              </div>
+
+              <div class="detail-section">
+                <div class="detail-section-title">Historical VM Footprint</div>
+                <metric-trend-card
+                  title="VM Memory Utilization"
+                  subtitle="Persisted workload memory demand relative to configured memory."
+                  :series="vmMetricSeries('memory_usage_percent')"
+                  value-kind="percent"
+                  :accent-status="historyStatus(vmMetricSeries('memory_usage_percent'), { warning: 75, critical: 90 })">
+                </metric-trend-card>
               </div>
             </div>
 
@@ -333,6 +345,7 @@ const VMsView = {
       relatedStorage: [],
       relatedNetworks: [],
       relatedVdis: [],
+      vmMetricHistory: { metrics: [] },
       tabs: [
         { key: 'overview', label: 'Overview', icon: 'mdi-card-account-details-outline' },
         { key: 'resources', label: 'Resources', icon: 'mdi-vector-link' },
@@ -474,6 +487,16 @@ const VMsView = {
   methods: {
     formatBytes,
     truncateList,
+    vmMetricSeries(metricName) {
+      return (this.vmMetricHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
+    },
+    historyStatus(series, thresholds = {}) {
+      const points = Array.isArray(series) ? series : [];
+      const latest = Number(points[points.length - 1]?.value || 0);
+      if (thresholds.critical !== undefined && latest >= thresholds.critical) return 'critical';
+      if (thresholds.warning !== undefined && latest >= thresholds.warning) return 'warning';
+      return 'success';
+    },
     async loadVMs() {
       this.loading = true;
       try {
@@ -501,13 +524,15 @@ const VMsView = {
     async loadVmDetail(ref) {
       this.detailLoading = true;
       this.detailError = null;
+      this.vmMetricHistory = { metrics: [] };
       try {
-        const [vm, hosts, pools, storage, networks] = await Promise.all([
+        const [vm, hosts, pools, storage, networks, metricHistory] = await Promise.all([
           api.getVM(ref),
           api.getHosts().catch(() => ({ data: [] })),
           api.getPools().catch(() => ({ data: [] })),
           api.getSRs().catch(() => ({ data: [] })),
           api.getNetworks().catch(() => ({ data: [] })),
+          api.getVmMetricHistory(ref).catch(() => ({ metrics: [] })),
         ]);
 
         this.selectedVM = { ...(this.selectedVM || {}), ...(vm || {}) };
@@ -515,6 +540,7 @@ const VMsView = {
         this.relatedPools = pools.data || [];
         this.relatedStorage = storage.data || [];
         this.relatedNetworks = networks.data || [];
+        this.vmMetricHistory = metricHistory || { metrics: [] };
 
         const vdiResults = await Promise.all(
           this.relatedStorage.map((sr) =>

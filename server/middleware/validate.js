@@ -52,11 +52,24 @@ function validate(schema, source = 'body') {
 }
 
 const schemas = {
-  login: Joi.object({
-    host: Joi.string().required().min(1).max(255),
+  appLogin: Joi.object({
     username: Joi.string().required().min(1).max(100),
     password: Joi.string().required().min(1).max(255),
   }),
+  xenLogin: Joi.object({
+    host: Joi.string().required().min(1).max(255),
+    username: Joi.string().required().min(1).max(100),
+    password: Joi.string().allow('').max(255).default(''),
+    vaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
+  }).custom((value, helpers) => {
+    if (!String(value.password || '').trim() && !value.vaultCredentialId) {
+      return helpers.error('any.invalid');
+    }
+    return value;
+  }, 'xen auth source validation'),
   connectionId: Joi.object({
     id: Joi.number().integer().min(1).required(),
   }),
@@ -70,6 +83,10 @@ const schemas = {
     name: Joi.string().trim().required().min(1).max(120),
     host: Joi.string().trim().required().min(1).max(255),
     username: Joi.string().trim().required().min(1).max(100),
+    vaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     port: Joi.number().integer().min(1).max(65535).default(443),
     isDefault: Joi.boolean().default(false),
   }),
@@ -77,13 +94,37 @@ const schemas = {
     name: Joi.string().trim().required().min(1).max(120),
     host: Joi.string().trim().required().min(1).max(255),
     username: Joi.string().trim().required().min(1).max(100),
+    vaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     port: Joi.number().integer().min(1).max(65535).default(443),
     isDefault: Joi.boolean().default(false),
+  }),
+  credentialCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    scope: Joi.string().valid('private', 'shared').default('private'),
+    targetType: Joi.string().valid('pool', 'host').required(),
+    targetHint: Joi.string().allow('').max(180).default(''),
+    username: Joi.string().trim().required().min(1).max(100),
+    password: Joi.string().required().min(1).max(255),
+  }),
+  credentialUpdate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    scope: Joi.string().valid('private', 'shared').default('private'),
+    targetType: Joi.string().valid('pool', 'host').required(),
+    targetHint: Joi.string().allow('').max(180).default(''),
+    username: Joi.string().trim().required().min(1).max(100),
+    password: Joi.string().allow('').max(255).default(''),
   }),
   hostTargetCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     host: Joi.string().trim().required().min(1).max(255),
     username: Joi.string().trim().required().min(1).max(100),
+    vaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     port: Joi.number().integer().min(1).max(65535).default(443),
     mode: Joi.string().valid('standalone', 'pool-member').default('standalone'),
     poolConnectionId: Joi.alternatives().conditional('mode', {
@@ -97,6 +138,10 @@ const schemas = {
     name: Joi.string().trim().required().min(1).max(120),
     host: Joi.string().trim().required().min(1).max(255),
     username: Joi.string().trim().required().min(1).max(100),
+    vaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     port: Joi.number().integer().min(1).max(65535).default(443),
     mode: Joi.string().valid('standalone', 'pool-member').default('standalone'),
     poolConnectionId: Joi.alternatives().conditional('mode', {
@@ -333,6 +378,58 @@ const schemas = {
   governanceApprovalDecision: Joi.object({
     decision: Joi.string().valid('approved', 'rejected').required(),
     notes: Joi.string().allow('').max(500).default(''),
+  }),
+  systemConfigSectionParam: Joi.object({
+    section: Joi.string().valid('general', 'network', 'security', 'logging', 'retention').required(),
+  }),
+  systemConfigGeneralUpdate: Joi.object({
+    appName: Joi.string().trim().required().min(1).max(120),
+    timezone: Joi.string().trim().required().min(1).max(120),
+  }),
+  systemConfigNetworkUpdate: Joi.object({
+    publicBaseUrl: Joi.string().allow('').uri({ scheme: ['http', 'https'] }).max(240).default(''),
+    trustProxy: Joi.boolean().default(false),
+  }),
+  systemConfigSecurityUpdate: Joi.object({
+    sessionMaxAgeMs: Joi.number().integer().min(60000).max(2592000000).default(86400000),
+    failedLoginWindowMinutes: Joi.number().integer().min(1).max(1440).default(15),
+    failedLoginMaxAttempts: Joi.number().integer().min(1).max(100).default(20),
+  }),
+  systemConfigLoggingUpdate: Joi.object({
+    level: Joi.string().valid('trace', 'debug', 'info', 'warn', 'error').default('info'),
+    structuredJson: Joi.boolean().default(false),
+  }),
+  systemConfigRetentionUpdate: Joi.object({
+    sweepIntervalHours: Joi.number().integer().min(1).max(168).default(24),
+    vacuumAfterSweep: Joi.boolean().default(true),
+  }),
+  retentionDomainParam: Joi.object({
+    domain: Joi.string().valid('audit-log', 'remediation-tasks', 'auth-events').required(),
+  }),
+  retentionPolicyUpdate: Joi.object({
+    retentionDays: Joi.number().integer().min(1).max(3650).required(),
+    enabled: Joi.boolean().default(true),
+  }),
+  retentionRun: Joi.object({
+    domain: Joi.string().allow('').valid('', 'audit-log', 'remediation-tasks', 'auth-events').default(''),
+    dryRun: Joi.boolean().default(false),
+  }),
+  logsListQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    pageSize: Joi.number().integer().min(1).max(500).default(50),
+    search: Joi.string().allow('').max(200).default(''),
+    source: Joi.string().valid('all', 'audit', 'auth', 'alert', 'remediation-task', 'xen-task').default('all'),
+    severity: Joi.string().valid('all', 'success', 'pending', 'warning', 'failure', 'critical', 'info', 'notice').default('all'),
+  }),
+  logsExport: Joi.object({
+    ids: Joi.array().items(Joi.string().trim().min(1).max(160)).max(500).default([]),
+    format: Joi.string().valid('json', 'html', 'pdf').required(),
+    search: Joi.string().allow('').max(200).default(''),
+    source: Joi.string().valid('all', 'audit', 'auth', 'alert', 'remediation-task', 'xen-task').default('all'),
+    severity: Joi.string().valid('all', 'success', 'pending', 'warning', 'failure', 'critical', 'info', 'notice').default('all'),
+  }),
+  metricRangeQuery: Joi.object({
+    range: Joi.string().valid('1h', '6h', '24h', '7d', '30d').default('24h'),
   }),
   inventoryWorkspaceUpdate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),

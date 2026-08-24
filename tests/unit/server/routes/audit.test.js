@@ -88,9 +88,8 @@ describe('Audit Routes', () => {
 
   async function login() {
     return request('POST', '/api/auth/login', {
-      host: '192.168.1.100',
-      username: 'root',
-      password: 'pass',
+      username: 'admin',
+      password: 'admin123!',
     });
   }
 

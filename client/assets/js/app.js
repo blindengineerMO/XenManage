@@ -9,6 +9,7 @@ const routes = [
   { path: '/networking', component: NetworkingView },
   { path: '/inventory', component: InventoryView },
   { path: '/governance', component: GovernanceView },
+  { path: '/settings', component: SettingsView },
   { path: '/lifecycle', component: LifecycleView },
   { path: '/capacity', component: CapacityView },
   { path: '/resilience', component: ResilienceView },
@@ -33,7 +34,7 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.path === '/login' && store.authenticated) {
-    next('/');
+    next(store.connected ? '/' : '/pools');
     return;
   }
 
@@ -81,25 +82,34 @@ async function bootstrapSession() {
 
   if (bootstrap && typeof bootstrap === 'object') {
     store.authenticated = Boolean(bootstrap.authenticated);
+    store.connected = Boolean(bootstrap.connected);
     store.demoMode = false;
     store.host = bootstrap.host || '';
     store.username = bootstrap.username || '';
+    store.authMode = bootstrap.authMode || 'local';
+    store.user = bootstrap.user || null;
     store.governance = bootstrap.governance || store.governance;
     store.bootMessage = store.authenticated ? 'Restoring control surface' : 'Preparing connection console';
   } else {
     try {
       const status = await api.status();
       store.authenticated = Boolean(status.authenticated);
+      store.connected = Boolean(status.connected);
       store.demoMode = Boolean(status.demoMode);
       store.host = status.host || '';
       store.username = status.username || '';
+      store.authMode = status.authMode || 'local';
+      store.user = status.user || null;
       store.governance = status.governance || store.governance;
       store.bootMessage = status.authenticated ? 'Restoring control surface' : 'Preparing connection console';
     } catch (error) {
       store.authenticated = false;
+      store.connected = false;
       store.demoMode = false;
       store.host = '';
       store.username = '';
+      store.authMode = 'local';
+      store.user = null;
       store.governance = {
         currentRole: 'admin',
         policy: {
@@ -115,7 +125,7 @@ async function bootstrapSession() {
   store.ready = true;
 
   if (store.authenticated && router.currentRoute.value.path === '/login') {
-    router.replace('/');
+    router.replace(store.connected ? '/' : '/pools');
   }
 
   if (!store.authenticated && router.currentRoute.value.path !== '/login') {

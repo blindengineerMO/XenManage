@@ -1,5 +1,5 @@
 const CapacityView = {
-  components: { FloatingWindow, StatusBadge },
+  components: { FloatingWindow, StatusBadge, 'metric-trend-card': MetricTrendCard },
   template: `
     <div class="animate-fade-in">
       <div v-if="loading" class="empty-state">
@@ -51,6 +51,48 @@ const CapacityView = {
             <div class="dash-card-icon mdi" :class="card.icon"></div>
             <div class="text-muted mono" style="margin-top:8px;font-size:11px">{{ card.detail }}</div>
           </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <div class="dash-card">
+            <div class="dash-card-label">Telemetry Window</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button v-for="range in historyRanges"
+                      :key="range.value"
+                      class="btn btn-sm"
+                      :class="{ 'btn-primary': historyRange === range.value }"
+                      @click="changeHistoryRange(range.value)">
+                {{ range.label }}
+              </button>
+            </div>
+            <div class="text-muted mono" style="font-size:11px;margin-top:10px">
+              {{ historyLoading ? 'Refreshing persisted telemetry history...' : 'Trend cards now reflect persisted telemetry history captured in the local perf database.' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <metric-trend-card
+            title="Cluster Memory Trend"
+            subtitle="Summed host-memory pressure across the current telemetry window."
+            :series="clusterMetricSeries('cluster_memory_used_percent')"
+            value-kind="percent"
+            :accent-status="historyStatus(clusterMetricSeries('cluster_memory_used_percent'), { warning: 70, critical: 85 })">
+          </metric-trend-card>
+          <metric-trend-card
+            title="Storage Utilization Trend"
+            subtitle="Aggregated SR allocation pressure across the current telemetry window."
+            :series="clusterMetricSeries('cluster_storage_utilization_percent')"
+            value-kind="percent"
+            :accent-status="historyStatus(clusterMetricSeries('cluster_storage_utilization_percent'), { warning: 75, critical: 90 })">
+          </metric-trend-card>
+          <metric-trend-card
+            title="VM Memory Demand Trend"
+            subtitle="Current workload memory footprint persisted over time."
+            :series="clusterMetricSeries('cluster_vm_memory_actual_bytes')"
+            value-kind="bytes"
+            accent-status="info">
+          </metric-trend-card>
         </div>
 
         <div class="dashboard-panels">
@@ -298,6 +340,17 @@ const CapacityView = {
               </div>
             </div>
 
+            <div class="detail-section">
+              <div class="detail-section-title">Historical Telemetry</div>
+              <metric-trend-card
+                title="Host Memory Utilization"
+                subtitle="Persisted host-memory pressure for the selected telemetry window."
+                :series="inspectorMetricSeries('memory_used_percent')"
+                value-kind="percent"
+                :accent-status="historyStatus(inspectorMetricSeries('memory_used_percent'), { warning: 70, critical: 85 })">
+              </metric-trend-card>
+            </div>
+
             <div class="detail-section" v-if="selectedEntity.assignedVms && selectedEntity.assignedVms.length">
               <div class="detail-section-title">Dominant Workloads</div>
               <div class="stack-list">
@@ -332,6 +385,17 @@ const CapacityView = {
                 <p>{{ storageRecommendation(selectedEntity) }}</p>
               </div>
             </div>
+
+            <div class="detail-section">
+              <div class="detail-section-title">Historical Utilization</div>
+              <metric-trend-card
+                title="SR Allocation Trend"
+                subtitle="Persisted storage pressure for the selected repository."
+                :series="inspectorMetricSeries('utilization_percent')"
+                value-kind="percent"
+                :accent-status="historyStatus(inspectorMetricSeries('utilization_percent'), { warning: 75, critical: 90 })">
+              </metric-trend-card>
+            </div>
           </div>
 
           <div v-if="selectedEntityType === 'vm' && selectedEntity">
@@ -353,6 +417,17 @@ const CapacityView = {
                 <p>{{ vmRecommendation(selectedEntity) }}</p>
               </div>
             </div>
+
+            <div class="detail-section">
+              <div class="detail-section-title">Historical Footprint</div>
+              <metric-trend-card
+                title="VM Memory Utilization"
+                subtitle="Persisted workload memory demand relative to configured memory."
+                :series="inspectorMetricSeries('memory_usage_percent')"
+                value-kind="percent"
+                :accent-status="historyStatus(inspectorMetricSeries('memory_usage_percent'), { warning: 75, critical: 90 })">
+              </metric-trend-card>
+            </div>
           </div>
         </floating-window>
       </template>
@@ -366,6 +441,18 @@ const CapacityView = {
       vms: [],
       messages: [],
       tasks: [],
+      clusterHistory: { metrics: [] },
+      inspectorHistory: { metrics: [] },
+      historyLoading: false,
+      inspectorHistoryLoading: false,
+      historyRange: '24h',
+      historyRanges: [
+        { value: '1h', label: '1h' },
+        { value: '6h', label: '6h' },
+        { value: '24h', label: '24h' },
+        { value: '7d', label: '7d' },
+        { value: '30d', label: '30d' },
+      ],
       selectedEntity: null,
       selectedEntityType: '',
       showInspector: false,
@@ -654,11 +741,68 @@ const CapacityView = {
       this.selectedEntityType = type;
       this.selectedEntity = entity;
       this.showInspector = true;
+      this.loadInspectorHistory();
     },
     closeInspector() {
       this.showInspector = false;
       this.selectedEntity = null;
       this.selectedEntityType = '';
+      this.inspectorHistory = { metrics: [] };
+    },
+    clusterMetricSeries(metricName) {
+      return (this.clusterHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
+    },
+    inspectorMetricSeries(metricName) {
+      return (this.inspectorHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
+    },
+    historyStatus(series, thresholds = {}) {
+      const points = Array.isArray(series) ? series : [];
+      const latest = Number(points[points.length - 1]?.value || 0);
+      if (thresholds.critical !== undefined && latest >= thresholds.critical) return 'critical';
+      if (thresholds.warning !== undefined && latest >= thresholds.warning) return 'warning';
+      return 'success';
+    },
+    async changeHistoryRange(range) {
+      this.historyRange = range;
+      await this.loadClusterHistory();
+      if (this.showInspector && this.selectedEntity) {
+        await this.loadInspectorHistory();
+      }
+    },
+    async loadClusterHistory() {
+      this.historyLoading = true;
+      try {
+        this.clusterHistory = await api.getClusterMetrics(this.historyRange);
+      } catch (error) {
+        console.error(error);
+        this.clusterHistory = { metrics: [] };
+      } finally {
+        this.historyLoading = false;
+      }
+    },
+    async loadInspectorHistory() {
+      if (!this.selectedEntity?.ref) {
+        this.inspectorHistory = { metrics: [] };
+        return;
+      }
+
+      this.inspectorHistoryLoading = true;
+      try {
+        if (this.selectedEntityType === 'host') {
+          this.inspectorHistory = await api.getHostMetricHistory(this.selectedEntity.ref, this.historyRange);
+        } else if (this.selectedEntityType === 'storage') {
+          this.inspectorHistory = await api.getStorageMetricHistory(this.selectedEntity.ref, this.historyRange);
+        } else if (this.selectedEntityType === 'vm') {
+          this.inspectorHistory = await api.getVmMetricHistory(this.selectedEntity.ref, this.historyRange);
+        } else {
+          this.inspectorHistory = { metrics: [] };
+        }
+      } catch (error) {
+        console.error(error);
+        this.inspectorHistory = { metrics: [] };
+      } finally {
+        this.inspectorHistoryLoading = false;
+      }
     },
     async loadCapacity() {
       this.loading = true;
@@ -714,6 +858,7 @@ const CapacityView = {
         this.vms = vmsResult.data || [];
         this.messages = alertsResult || [];
         this.tasks = tasksResult.data || [];
+        await this.loadClusterHistory();
       } catch (error) {
         console.error(error);
         this.hosts = [];
@@ -721,6 +866,7 @@ const CapacityView = {
         this.vms = [];
         this.messages = [];
         this.tasks = [];
+        this.clusterHistory = { metrics: [] };
       } finally {
         this.loading = false;
       }

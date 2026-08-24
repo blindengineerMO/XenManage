@@ -704,14 +704,20 @@ const InventoryView = {
       try {
         window.sessionStorage.setItem('xenmange.pendingLoginTarget', JSON.stringify({
           connectionId: Number(connection.id),
+          connectionName: connection.name || '',
+          host: connection.host || '',
+          username: connection.username || '',
           returnTo: '/inventory',
         }));
         if (store.authenticated) {
           await api.logout().catch(() => ({ success: true }));
           store.authenticated = false;
+          store.connected = false;
           store.demoMode = false;
           store.host = '';
           store.username = '';
+          store.authMode = 'local';
+          store.user = null;
         }
         await this.$router.push({
           path: '/login',

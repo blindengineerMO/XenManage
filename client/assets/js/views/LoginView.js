@@ -10,132 +10,152 @@ const LoginView = {
           <p>XenServer Management Interface</p>
         </div>
 
-        <connection-login-form
-          :connection-name="connectionName"
-          :host="host"
-          :username="username"
-          :password="password"
-          :loading="loading"
-          :error="error"
-          @submit="handleLogin"
-          @launch-demo="launchDemo"
-          @update:connection-name="connectionName = $event"
-          @update:host="host = $event"
-          @update:username="username = $event"
-          @update:password="password = $event">
-        </connection-login-form>
-
-        <div class="saved-connections" v-if="connections.length">
-          <div class="saved-connections-head">
-            <span>Saved Targets</span>
-            <button class="btn btn-sm" @click="loadConnections" :disabled="connectionsLoading">
-              <span class="mdi mdi-refresh"></span>
-              Sync
-            </button>
-          </div>
-          <button class="saved-connection"
-                  v-for="connection in connections"
-                  :key="connection.id"
-                  @click="useConnection(connection)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          <button class="btn btn-sm"
+                  :class="{ 'btn-primary': authMode === 'local' }"
+                  @click="authMode = 'local'">
+            <span class="mdi mdi-shield-account-outline"></span>
+            XenMange Sign In
+          </button>
+          <button class="btn btn-sm"
+                  :class="{ 'btn-primary': authMode === 'xen' }"
+                  @click="authMode = 'xen'">
             <span class="mdi mdi-server-network"></span>
-            <span class="saved-connection-meta">
-              <strong>
-                {{ connection.name }}
-                <span v-if="connection.is_default" class="saved-connection-default">DEFAULT</span>
-              </strong>
-              <span>{{ connection.host }} · {{ connection.username }}</span>
-            </span>
+            Direct Xen Login
           </button>
         </div>
+
+        <form v-if="authMode === 'local'" @submit.prevent="handleAppLogin">
+          <div class="form-group">
+            <label for="app-username">Username</label>
+            <input id="app-username"
+                   class="form-input"
+                   v-model="appUsername"
+                   autocomplete="username"
+                   placeholder="admin"
+                   required>
+          </div>
+          <div class="form-group">
+            <label for="app-password">Password</label>
+            <input id="app-password"
+                   class="form-input"
+                   v-model="appPassword"
+                   type="password"
+                   autocomplete="current-password"
+                   placeholder="Password"
+                   required>
+          </div>
+
+          <div class="form-actions">
+            <button class="form-btn" type="submit" :disabled="loading">
+              <span v-if="loading" class="loading-spinner" style="margin-right:8px"></span>
+              {{ loading ? 'Signing In...' : 'Sign In to XenMange' }}
+            </button>
+            <button class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="launchDemo">
+              <span class="mdi mdi-flask-outline"></span>
+              Open Demo Dashboard
+            </button>
+          </div>
+          <div class="login-meta-note">Bootstrap control-plane credentials default to <span class="mono">admin / admin123!</span> unless overridden by environment configuration.</div>
+          <div class="form-error" v-if="error">{{ error }}</div>
+        </form>
+
+        <template v-else>
+          <connection-login-form
+            :connection-name="connectionName"
+            :host="host"
+            :username="username"
+            :password="password"
+            :loading="loading"
+            :error="error"
+            @submit="handleXenLogin"
+            @launch-demo="launchDemo"
+            @update:connection-name="connectionName = $event"
+            @update:host="host = $event"
+            @update:username="username = $event"
+            @update:password="password = $event">
+          </connection-login-form>
+        </template>
       </div>
     </div>
   `,
   data() {
     return {
+      authMode: 'local',
+      appUsername: 'admin',
+      appPassword: '',
       host: '',
       username: 'root',
       password: '',
       connectionName: '',
       loading: false,
       error: null,
-      connectionsLoading: false,
-      connections: [],
     };
   },
-  async mounted() {
-    await this.loadConnections();
-  },
-  watch: {
-    '$route.query.connectionId': {
-      handler() {
-        this.applyRouteConnection();
-      },
-    },
+  mounted() {
+    this.applyPendingLoginTarget();
   },
   methods: {
-    getPendingTarget() {
+    getPendingLoginTarget() {
       try {
-        const stored = window.sessionStorage.getItem('xenmange.pendingLoginTarget');
-        if (!stored) return null;
-        const parsed = JSON.parse(stored);
-        return parsed && typeof parsed === 'object' ? parsed : null;
+        const raw = window.sessionStorage.getItem('xenmange.pendingLoginTarget');
+        return raw ? JSON.parse(raw) : null;
       } catch (error) {
         return null;
       }
     },
-    clearPendingTarget() {
+    clearPendingLoginTarget() {
       window.sessionStorage.removeItem('xenmange.pendingLoginTarget');
     },
-    async loadConnections() {
-      this.connectionsLoading = true;
-      try {
-        this.connections = await api.getConnections();
-        this.applyRouteConnection();
-      } catch (error) {
-        this.connections = [];
-      } finally {
-        this.connectionsLoading = false;
-      }
+    applyPendingLoginTarget() {
+      const pendingTarget = this.getPendingLoginTarget();
+      if (!pendingTarget || !pendingTarget.host) return;
+
+      this.authMode = 'xen';
+      this.connectionName = pendingTarget.connectionName || pendingTarget.name || '';
+      this.host = pendingTarget.host || '';
+      this.username = pendingTarget.username || this.username;
     },
-    applyRouteConnection() {
-      const requestedId = Number(this.$route.query.connectionId || 0);
-      const pendingTarget = this.getPendingTarget();
-      const pendingId = Number(pendingTarget?.connectionId || 0);
-      const requestedConnection = requestedId
-        ? this.connections.find((connection) => Number(connection.id) === requestedId)
-        : null;
-      const pendingConnection = !requestedConnection && pendingId
-        ? this.connections.find((connection) => Number(connection.id) === pendingId)
-        : null;
-      const defaultConnection = this.connections.find((connection) => connection.is_default);
-      const target = requestedConnection || pendingConnection || (!this.host ? defaultConnection : null);
-      if (target) {
-        this.useConnection(target);
-      }
-    },
-    useConnection(connection) {
-      this.connectionName = connection.name || '';
-      this.host = connection.host || '';
-      this.username = connection.username || 'root';
-      this.password = '';
-      this.error = null;
-    },
-    async handleLogin() {
+    async handleAppLogin() {
       this.loading = true;
       this.error = null;
 
       try {
-        const result = await api.login(this.host, this.username, this.password);
+        const result = await api.login(this.appUsername, this.appPassword);
 
         store.authenticated = true;
+        store.connected = Boolean(result.connected);
         store.demoMode = false;
-        store.host = this.host;
-        store.username = this.username;
+        store.host = result.host || '';
+        store.username = result.username || this.appUsername;
+        store.authMode = result.authMode || 'local';
+        store.user = result.user || null;
         store.governance = result.governance || store.governance;
-        const pendingTarget = this.getPendingTarget();
-        const returnTo = String(this.$route.query.returnTo || pendingTarget?.returnTo || '/').trim();
-        this.clearPendingTarget();
-        this.$router.push(returnTo.startsWith('/') ? returnTo : '/');
+        this.$router.push('/pools');
+      } catch (error) {
+        this.error = error.message || 'Unable to sign in';
+      } finally {
+        this.loading = false;
+      }
+    },
+    async handleXenLogin() {
+      this.loading = true;
+      this.error = null;
+
+      try {
+        const pendingTarget = this.getPendingLoginTarget();
+        const result = await api.xenLogin(this.host, this.username, this.password);
+
+        store.authenticated = true;
+        store.connected = Boolean(result.connected);
+        store.demoMode = false;
+        store.host = result.host || this.host;
+        store.username = result.username || this.username;
+        store.authMode = result.authMode || 'legacy-xen';
+        store.user = result.user || store.user;
+        store.governance = result.governance || store.governance;
+        this.clearPendingLoginTarget();
+        this.$router.push(pendingTarget?.returnTo || this.$route.query.returnTo || '/');
       } catch (error) {
         this.error = error.message || 'Connection failed';
       } finally {
@@ -149,9 +169,17 @@ const LoginView = {
       this.username = 'demo';
       this.connectionName = 'Demo Fabric';
       store.authenticated = true;
+      store.connected = true;
       store.demoMode = true;
       store.host = 'Demo Fabric';
       store.username = 'demo';
+      store.authMode = 'demo';
+      store.user = {
+        id: 'demo',
+        username: 'demo',
+        displayName: 'Demo Operator',
+        role: 'admin',
+      };
       store.governance = {
         currentRole: 'admin',
         policy: {
@@ -160,6 +188,7 @@ const LoginView = {
           approvalTtlMinutes: 240,
         },
       };
+      this.clearPendingLoginTarget();
       this.$router.push('/');
     },
   },

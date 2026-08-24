@@ -717,6 +717,167 @@ const demoDb = {
   ],
 };
 
+const DEMO_RANGE_TO_MS = {
+  '1h': 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
+const DEMO_RANGE_POINTS = {
+  '1h': 6,
+  '6h': 8,
+  '24h': 12,
+  '7d': 10,
+  '30d': 12,
+};
+
+function normalizeDemoMetricRange(range = '24h') {
+  return DEMO_RANGE_TO_MS[range] ? range : '24h';
+}
+
+function demoMetricPercent(numerator, denominator) {
+  const top = Number(numerator || 0);
+  const bottom = Number(denominator || 0);
+  if (!bottom) return 0;
+  return Math.max(0, Math.min(100, (top / bottom) * 100));
+}
+
+function metricSeed(value = '') {
+  return String(value || '')
+    .split('')
+    .reduce((sum, character, index) => sum + (character.charCodeAt(0) * (index + 1)), 0);
+}
+
+function buildDemoTrendPoints(range, latestValue, options = {}) {
+  const normalizedRange = normalizeDemoMetricRange(range);
+  const pointCount = DEMO_RANGE_POINTS[normalizedRange] || 8;
+  const totalMs = DEMO_RANGE_TO_MS[normalizedRange];
+  const stepMs = Math.round(totalMs / Math.max(1, pointCount - 1));
+  const now = Date.now();
+  const amplitude = Number(options.amplitude ?? Math.max(1, Number(latestValue || 0) * 0.08));
+  const floor = Number(options.floor ?? 0);
+  const ceiling = Number(options.ceiling ?? Number.MAX_SAFE_INTEGER);
+  const seed = metricSeed(options.seed || latestValue);
+
+  return Array.from({ length: pointCount }, (_, index) => {
+    const wave = Math.sin((index + 1) * 0.85 + seed / 25) * amplitude;
+    const drift = (index - (pointCount / 2)) * (amplitude / Math.max(pointCount, 1)) * 0.18;
+    const value = Math.max(floor, Math.min(ceiling, Number(latestValue || 0) + wave + drift));
+
+    return {
+      ts: now - ((pointCount - index - 1) * stepMs),
+      value: Math.round(value * 100) / 100,
+    };
+  });
+}
+
+function buildDemoClusterMetrics(range = '24h') {
+  const normalizedRange = normalizeDemoMetricRange(range);
+  const totalMemory = demoDb.hosts.reduce((sum, host) => sum + Number(demoDb.hostMetrics[host.ref]?.memory_total || 0), 0);
+  const freeMemory = demoDb.hosts.reduce((sum, host) => sum + Number(demoDb.hostMetrics[host.ref]?.memory_free || 0), 0);
+  const usedMemory = Math.max(0, totalMemory - freeMemory);
+  const totalStorage = demoDb.srs.reduce((sum, sr) => sum + Number(sr.physical_size || 0), 0);
+  const usedStorage = demoDb.srs.reduce((sum, sr) => sum + Number(sr.virtual_allocation || 0), 0);
+  const vmMemory = demoDb.vms
+    .filter((vm) => !vm.is_a_template)
+    .reduce((sum, vm) => sum + Number(vm.memory_static_max || 0), 0);
+
+  return {
+    range: normalizedRange,
+    generatedAt: new Date().toISOString(),
+    metrics: [
+      {
+        metricName: 'cluster_memory_used_percent',
+        points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(usedMemory, totalMemory), {
+          amplitude: 6,
+          floor: 20,
+          ceiling: 98,
+          seed: 'cluster-memory',
+        }),
+      },
+      {
+        metricName: 'cluster_storage_utilization_percent',
+        points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(usedStorage, totalStorage), {
+          amplitude: 4,
+          floor: 15,
+          ceiling: 98,
+          seed: 'cluster-storage',
+        }),
+      },
+      {
+        metricName: 'cluster_vm_memory_actual_bytes',
+        points: buildDemoTrendPoints(normalizedRange, vmMemory * 0.82, {
+          amplitude: vmMemory * 0.06,
+          floor: 0,
+          seed: 'cluster-vm-memory',
+        }),
+      },
+    ],
+  };
+}
+
+function buildDemoHostMetricHistory(ref, range = '24h') {
+  const normalizedRange = normalizeDemoMetricRange(range);
+  const metrics = demoDb.hostMetrics[ref] || { memory_total: 0, memory_free: 0 };
+  const total = Number(metrics.memory_total || 0);
+  const free = Number(metrics.memory_free || 0);
+  const used = Math.max(0, total - free);
+
+  return {
+    entityType: 'host',
+    entityRef: ref,
+    range: normalizedRange,
+    generatedAt: new Date().toISOString(),
+    metrics: [
+      { metricName: 'memory_total_bytes', points: buildDemoTrendPoints(normalizedRange, total, { amplitude: 0, floor: 0, seed: `${ref}-total` }) },
+      { metricName: 'memory_free_bytes', points: buildDemoTrendPoints(normalizedRange, free, { amplitude: Math.max(1, total * 0.05), floor: 0, ceiling: total, seed: `${ref}-free` }) },
+      { metricName: 'memory_used_bytes', points: buildDemoTrendPoints(normalizedRange, used, { amplitude: Math.max(1, total * 0.04), floor: 0, ceiling: total, seed: `${ref}-used` }) },
+      { metricName: 'memory_used_percent', points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(used, total), { amplitude: 6, floor: 0, ceiling: 100, seed: `${ref}-used-percent` }) },
+    ],
+  };
+}
+
+function buildDemoVmMetricHistory(ref, range = '24h') {
+  const normalizedRange = normalizeDemoMetricRange(range);
+  const vm = demoDb.vms.find((entry) => entry.ref === ref) || {};
+  const configured = Number(vm.memory_static_max || vm.memory_dynamic_max || 0);
+  const actual = vm.power_state === 'Halted' ? configured * 0.08 : vm.power_state === 'Suspended' ? configured * 0.24 : configured * 0.78;
+
+  return {
+    entityType: 'vm',
+    entityRef: ref,
+    range: normalizedRange,
+    generatedAt: new Date().toISOString(),
+    metrics: [
+      { metricName: 'memory_actual_bytes', points: buildDemoTrendPoints(normalizedRange, actual, { amplitude: Math.max(1, configured * 0.09), floor: 0, ceiling: configured, seed: `${ref}-actual` }) },
+      { metricName: 'memory_static_max_bytes', points: buildDemoTrendPoints(normalizedRange, configured, { amplitude: 0, floor: 0, seed: `${ref}-static` }) },
+      { metricName: 'memory_usage_percent', points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(actual, configured), { amplitude: 8, floor: 0, ceiling: 100, seed: `${ref}-usage` }) },
+      { metricName: 'vcpu_count', points: buildDemoTrendPoints(normalizedRange, Number(vm.VCPUs_at_startup || 0), { amplitude: 0, floor: 0, seed: `${ref}-vcpu` }) },
+    ],
+  };
+}
+
+function buildDemoStorageMetricHistory(ref, range = '24h') {
+  const normalizedRange = normalizeDemoMetricRange(range);
+  const sr = demoDb.srs.find((entry) => entry.ref === ref) || {};
+  const allocation = Number(sr.virtual_allocation || 0);
+  const physical = Number(sr.physical_size || 0);
+
+  return {
+    entityType: 'sr',
+    entityRef: ref,
+    range: normalizedRange,
+    generatedAt: new Date().toISOString(),
+    metrics: [
+      { metricName: 'allocation_bytes', points: buildDemoTrendPoints(normalizedRange, allocation, { amplitude: Math.max(1, physical * 0.03), floor: 0, ceiling: physical, seed: `${ref}-allocation` }) },
+      { metricName: 'physical_bytes', points: buildDemoTrendPoints(normalizedRange, physical, { amplitude: 0, floor: 0, seed: `${ref}-physical` }) },
+      { metricName: 'utilization_percent', points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(allocation, physical), { amplitude: 4, floor: 0, ceiling: 100, seed: `${ref}-utilization` }) },
+    ],
+  };
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -773,6 +934,87 @@ function recordDemoAudit(entry = {}) {
   demoDb.auditLog.unshift(record);
   demoDb.auditLog = demoDb.auditLog.slice(0, 200);
   return record;
+}
+
+function buildDemoLogEntries() {
+  const auditEntries = demoDb.auditLog.map((entry) => ({
+    id: `audit:${entry.id}`,
+    source: 'audit',
+    category: entry.category || 'operations',
+    timestamp: entry.happenedAt || '',
+    actor: entry.operator || 'demo',
+    operator: entry.operator || 'demo',
+    entityType: entry.entityType || 'record',
+    entityRef: entry.entityRef || '',
+    entityName: entry.entityName || '',
+    message: entry.summary || entry.detail || entry.actionLabel || entry.action || 'Audit entry',
+    detail: entry.detail || '',
+    severity: String(entry.status || 'success').toLowerCase(),
+    route: entry.route || '',
+    status: entry.status || 'success',
+    action: entry.action || '',
+    raw: clone(entry),
+  }));
+
+  const alertEntries = listDemoAlerts().map((entry) => ({
+    id: `alert:${entry.ref}`,
+    source: 'alert',
+    category: 'alerts',
+    timestamp: entry.timestamp || '',
+    actor: entry.acknowledgedBy || entry.policyName || 'demo',
+    operator: entry.acknowledgedBy || entry.policyName || 'demo',
+    entityType: 'alert',
+    entityRef: entry.ref || '',
+    entityName: entry.summary || entry.ref || '',
+    message: entry.summary || entry.name || entry.body || 'Alert',
+    detail: entry.body || entry.notes || '',
+    severity: String(entry.effectiveSeverity || entry.baseSeverity || 'notice').toLowerCase(),
+    route: entry.targetRoute || '/alerts',
+    status: entry.stateLabel || 'open',
+    action: entry.healthAction || '',
+    raw: clone(entry),
+  }));
+
+  const remediationEntries = demoDb.remediationTasks.map((entry) => ({
+    id: `remediation-task:${entry.ref}`,
+    source: 'remediation-task',
+    category: 'tasks',
+    timestamp: entry.finished || entry.updated_at || entry.created || '',
+    actor: entry.created_by || entry.assignee || 'demo',
+    operator: entry.created_by || entry.assignee || 'demo',
+    entityType: 'task',
+    entityRef: entry.ref || '',
+    entityName: entry.name_label || '',
+    message: entry.name_label || 'Remediation task',
+    detail: entry.result || entry.name_description || '',
+    severity: String(entry.status || 'pending').toLowerCase(),
+    route: '/activity',
+    status: entry.status || 'pending',
+    action: entry.action_type || '',
+    raw: clone(entry),
+  }));
+
+  const xenTaskEntries = demoDb.tasks.map((entry) => ({
+    id: `xen-task:${entry.ref}`,
+    source: 'xen-task',
+    category: 'tasks',
+    timestamp: entry.finished || entry.created || '',
+    actor: 'xenserver',
+    operator: 'xenserver',
+    entityType: 'task',
+    entityRef: entry.ref || '',
+    entityName: entry.name_label || '',
+    message: entry.name_label || 'Xen task',
+    detail: entry.result || (Array.isArray(entry.error_info) ? entry.error_info.join(' | ') : ''),
+    severity: String(entry.status || 'pending').toLowerCase(),
+    route: '/activity',
+    status: entry.status || 'pending',
+    action: entry.name_label || '',
+    raw: clone(entry),
+  }));
+
+  return [...auditEntries, ...alertEntries, ...remediationEntries, ...xenTaskEntries]
+    .sort((left, right) => new Date(right.timestamp || 0) - new Date(left.timestamp || 0));
 }
 
 function getDemoGovernanceState() {
@@ -1480,6 +1722,7 @@ function demoRequest(method, url, body) {
   const parsedUrl = new URL(url, window.location.origin);
   const path = parsedUrl.pathname;
   const search = parsedUrl.searchParams.get('search');
+  const range = parsedUrl.searchParams.get('range') || '24h';
 
   if (method === 'POST' && path === '/api/auth/logout') {
     return { success: true };
@@ -1861,6 +2104,55 @@ function demoRequest(method, url, body) {
 
   if (method === 'GET' && path === '/api/audit') {
     return { total: demoDb.auditLog.length, data: clone(demoDb.auditLog) };
+  }
+
+  if (method === 'GET' && path === '/api/logs') {
+    const entries = buildDemoLogEntries();
+    return {
+      total: entries.length,
+      page: 1,
+      pageSize: 50,
+      data: clone(entries),
+      summary: {
+        sourceCounts: {
+          audit: entries.filter((entry) => entry.source === 'audit').length,
+          auth: 0,
+          alert: entries.filter((entry) => entry.source === 'alert').length,
+          'remediation-task': entries.filter((entry) => entry.source === 'remediation-task').length,
+          'xen-task': entries.filter((entry) => entry.source === 'xen-task').length,
+        },
+      },
+    };
+  }
+
+  if (method === 'GET' && path === '/api/metrics/cluster') {
+    return clone(buildDemoClusterMetrics(range));
+  }
+
+  if (method === 'POST' && path === '/api/metrics/collect') {
+    return {
+      captured: true,
+      ts: Date.now(),
+      sampleCount: (demoDb.hosts.length * 4) + (demoDb.vms.filter((vm) => !vm.is_a_template).length * 4) + (demoDb.srs.length * 3),
+      hostCount: demoDb.hosts.length,
+      vmCount: demoDb.vms.filter((vm) => !vm.is_a_template).length,
+      srCount: demoDb.srs.length,
+    };
+  }
+
+  if (method === 'GET' && path.startsWith('/api/metrics/hosts/')) {
+    const ref = decodeURIComponent(path.split('/')[4] || '');
+    return clone(buildDemoHostMetricHistory(ref, range));
+  }
+
+  if (method === 'GET' && path.startsWith('/api/metrics/vms/')) {
+    const ref = decodeURIComponent(path.split('/')[4] || '');
+    return clone(buildDemoVmMetricHistory(ref, range));
+  }
+
+  if (method === 'GET' && path.startsWith('/api/metrics/storage/')) {
+    const ref = decodeURIComponent(path.split('/')[4] || '');
+    return clone(buildDemoStorageMetricHistory(ref, range));
   }
 
   if (method === 'GET' && path === '/api/governance') {

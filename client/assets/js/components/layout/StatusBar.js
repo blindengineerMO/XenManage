@@ -7,11 +7,11 @@ const StatusBar = {
       </div>
       <div class="statusbar-item">
         <span class="mdi mdi-server-network"></span>
-        <span>{{ store.authenticated ? store.host : 'No connection' }}</span>
+        <span>{{ connectionLabel }}</span>
       </div>
       <div class="statusbar-item">
         <span class="mdi mdi-radar"></span>
-        <span>{{ store.ready ? (store.demoMode ? 'Demo shell online' : 'Interactive shell online') : 'Bootstrap in progress' }}</span>
+        <span>{{ shellLabel }}</span>
       </div>
       <div class="statusbar-item" style="margin-left:auto">
         <span class="mdi mdi-clock-outline"></span>
@@ -38,9 +38,19 @@ const StatusBar = {
     },
   },
   computed: {
+    connectionLabel() {
+      if (!store.authenticated) return 'No connection';
+      if (store.demoMode) return 'Demo Fabric';
+      if (store.connected) return store.host || 'Connected';
+      return 'No Xen target';
+    },
+    shellLabel() {
+      if (!store.ready) return 'Bootstrap in progress';
+      if (store.demoMode) return 'Demo shell online';
+      return store.connected ? 'Interactive shell online' : 'Control-plane session online';
+    },
     store() {
       return store;
     },
   },
 };
-

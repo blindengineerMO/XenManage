@@ -1,5 +1,5 @@
 const HostRegistrationForm = {
-  props: ['initialValue', 'poolOptions', 'submitLabel'],
+  props: ['initialValue', 'poolOptions', 'submitLabel', 'credentialOptions'],
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
@@ -14,6 +14,18 @@ const HostRegistrationForm = {
       <div class="form-group">
         <label for="host-target-username">Username</label>
         <input id="host-target-username" class="form-input" v-model="draft.username" placeholder="root" required>
+      </div>
+      <div class="form-group">
+        <label for="host-target-vault-credential">Saved Vault Credential</label>
+        <select id="host-target-vault-credential" class="form-input" v-model.number="draft.vaultCredentialId">
+          <option :value="null">Use manual password later</option>
+          <option v-for="credential in filteredCredentialOptions" :key="credential.id" :value="credential.id">
+            {{ credential.name }} · {{ credential.username }} · {{ credential.scope }}
+          </option>
+        </select>
+        <div class="login-meta-note" v-if="selectedCredential">
+          This host target is linked to the saved vault credential for <span class="mono">{{ selectedCredential.username }}</span>.
+        </div>
       </div>
       <div class="form-group">
         <label for="host-target-port">Port</label>
@@ -49,6 +61,14 @@ const HostRegistrationForm = {
       draft: this.buildDraft(this.initialValue),
     };
   },
+  computed: {
+    filteredCredentialOptions() {
+      return (this.credentialOptions || []).filter((credential) => credential.targetType === 'host');
+    },
+    selectedCredential() {
+      return this.filteredCredentialOptions.find((credential) => Number(credential.id) === Number(this.draft.vaultCredentialId || 0)) || null;
+    },
+  },
   watch: {
     initialValue: {
       deep: true,
@@ -61,6 +81,12 @@ const HostRegistrationForm = {
         this.draft.poolConnectionId = this.poolOptions[0].id;
       }
     },
+    'draft.vaultCredentialId'(value) {
+      const credential = this.filteredCredentialOptions.find((entry) => Number(entry.id) === Number(value || 0));
+      if (credential) {
+        this.draft.username = credential.username || this.draft.username;
+      }
+    },
   },
   methods: {
     buildDraft(value) {
@@ -68,6 +94,7 @@ const HostRegistrationForm = {
         name: value?.name || '',
         host: value?.host || '',
         username: value?.username || 'root',
+        vaultCredentialId: value?.vault_credential_id || value?.vaultCredentialId || null,
         port: Number(value?.port || 443),
         mode: value?.mode || 'standalone',
         poolConnectionId: value?.pool_connection_id || value?.poolConnectionId || null,
@@ -79,6 +106,7 @@ const HostRegistrationForm = {
         name: this.draft.name.trim(),
         host: this.draft.host.trim(),
         username: this.draft.username.trim(),
+        vaultCredentialId: this.draft.vaultCredentialId ? Number(this.draft.vaultCredentialId) : null,
         port: Number(this.draft.port || 443),
         mode: this.draft.mode,
         poolConnectionId: this.draft.mode === 'pool-member' ? Number(this.draft.poolConnectionId || 0) : null,

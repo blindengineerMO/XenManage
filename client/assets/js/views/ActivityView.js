@@ -13,7 +13,7 @@ const ActivityView = {
             <span class="mdi mdi-timeline-clock-outline"></span>
             Activity
           </h2>
-          <p class="section-subtitle">Task history, operator audit entries, exportable change records, and recent-change drill-downs across the XenMange control plane.</p>
+          <p class="section-subtitle">Task history, centralized logs, operator audit entries, exportable records, and recent-change drill-downs across the XenMange control plane.</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button
@@ -32,7 +32,28 @@ const ActivityView = {
             @click="activeFilter = filter">
             {{ filter }}
           </button>
-          <button class="btn btn-sm" v-if="viewMode !== 'tasks'" @click="downloadAuditLog">
+          <button v-if="viewMode === 'logs'"
+                  class="btn btn-sm"
+                  @click="exportLogs('json')"
+                  :disabled="exportingFormat === 'json'">
+            <span class="mdi mdi-code-json"></span>
+            {{ exportingFormat === 'json' ? 'Exporting...' : 'Export JSON' }}
+          </button>
+          <button v-if="viewMode === 'logs'"
+                  class="btn btn-sm"
+                  @click="exportLogs('html')"
+                  :disabled="exportingFormat === 'html'">
+            <span class="mdi mdi-language-html5"></span>
+            {{ exportingFormat === 'html' ? 'Exporting...' : 'Export HTML' }}
+          </button>
+          <button v-if="viewMode === 'logs' && !store.demoMode"
+                  class="btn btn-sm"
+                  @click="exportLogs('pdf')"
+                  :disabled="exportingFormat === 'pdf'">
+            <span class="mdi mdi-file-pdf-box"></span>
+            {{ exportingFormat === 'pdf' ? 'Exporting...' : 'Export PDF' }}
+          </button>
+          <button class="btn btn-sm" v-else-if="viewMode !== 'tasks'" @click="downloadAuditLog">
             <span class="mdi mdi-download"></span>
             Export Audit
           </button>
@@ -86,6 +107,37 @@ const ActivityView = {
         </div>
       </div>
 
+      <div class="dashboard-panels" v-if="viewMode === 'logs'">
+        <div class="dash-card">
+          <div class="dash-card-label">Log Sources</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button v-for="source in logSources"
+                    :key="source.value"
+                    class="btn btn-sm"
+                    :class="{ 'btn-primary': logSource === source.value }"
+                    @click="logSource = source.value">
+              {{ source.label }}
+            </button>
+          </div>
+          <div class="text-muted mono" style="font-size:11px;margin-top:10px">
+            {{ selectedLogIds.length ? `${selectedLogIds.length} selected for export` : 'Select rows to export specific records, or export the current filtered source view.' }}
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-card-label">Source Coverage</div>
+          <div class="stack-list">
+            <div class="stack-item" v-for="row in logSourceRows" :key="row.source">
+              <div>
+                <strong>{{ row.label }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ row.count }} record{{ row.count === 1 ? '' : 's' }}</div>
+              </div>
+              <span class="badge badge-info">{{ row.tone }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <data-table v-if="viewMode === 'tasks'"
                   :columns="taskColumns"
                   :data="filteredTasks"
@@ -134,6 +186,33 @@ const ActivityView = {
         </template>
         <template #cell-operator="{ row }">
           <span class="mono">{{ row.operator || 'system' }}</span>
+        </template>
+      </data-table>
+
+      <data-table v-else-if="viewMode === 'logs'"
+                  :columns="logColumns"
+                  :data="filteredLogs"
+                  :loading="loading"
+                  :searchable="true"
+                  :selectable="true"
+                  :selected-keys="selectedLogIds"
+                  row-key="id"
+                  @row-click="openLogProperties"
+                  @selection-change="handleLogSelection">
+        <template #cell-severity="{ row }">
+          <status-badge :status="row.severity || row.status || 'info'"></status-badge>
+        </template>
+        <template #cell-source="{ row }">
+          <span class="badge badge-info">{{ formatLogSourceLabel(row.source) }}</span>
+        </template>
+        <template #cell-message="{ row }">
+          <div>
+            <span style="color:var(--text-primary);font-weight:500">{{ row.message || row.entityName || 'Log Entry' }}</span>
+            <div class="text-muted mono" style="font-size:11px">{{ row.category || 'operations' }} · {{ row.actor || 'system' }}</div>
+          </div>
+        </template>
+        <template #cell-timestamp="{ row }">
+          <span class="mono">{{ formatDateTime(row.timestamp) }}</span>
         </template>
       </data-table>
 
@@ -262,15 +341,16 @@ const ActivityView = {
           </div>
         </div>
 
-        <div v-if="selectedItemType === 'audit' && selectedAudit">
+        <div v-if="(selectedItemType === 'audit' || selectedItemType === 'log') && selectedAudit">
           <div class="property-grid">
             <span class="text-muted">Status</span><status-badge :status="selectedAudit.status || 'info'"></status-badge>
-            <span class="text-muted">Summary</span><span>{{ selectedAudit.summary || '-' }}</span>
+            <span class="text-muted" v-if="selectedItemType === 'log'">Source</span><span v-if="selectedItemType === 'log'">{{ formatLogSourceLabel(selectedAudit.source) }}</span>
+            <span class="text-muted">Summary</span><span>{{ selectedAudit.summary || selectedAudit.message || '-' }}</span>
             <span class="text-muted">Action</span><span>{{ formatAuditActionLabel(selectedAudit) }}</span>
             <span class="text-muted">Operator</span><span class="mono">{{ selectedAudit.operator || 'system' }}</span>
             <span class="text-muted">Entity</span><span>{{ selectedAudit.entityType || 'record' }} · {{ selectedAudit.entityName || selectedAudit.entityRef || '-' }}</span>
             <span class="text-muted">Route</span><span>{{ selectedAudit.route || '-' }}</span>
-            <span class="text-muted">Happened At</span><span class="mono">{{ formatDateTime(selectedAudit.happenedAt) }}</span>
+            <span class="text-muted">{{ selectedItemType === 'log' ? 'Timestamp' : 'Happened At' }}</span><span class="mono">{{ formatDateTime(selectedAudit.happenedAt || selectedAudit.timestamp) }}</span>
             <span class="text-muted">Reference</span><span class="mono property-wrap">{{ selectedAudit.entityRef || '-' }}</span>
             <span class="text-muted">Detail</span><span class="property-wrap">{{ selectedAudit.detail || summarizeChangedFields(selectedAudit) }}</span>
           </div>
@@ -320,6 +400,13 @@ const ActivityView = {
               </div>
             </div>
           </div>
+
+          <div class="detail-section" v-if="selectedItemType === 'log' && selectedAudit.raw">
+            <div class="detail-section-title">Raw Record</div>
+            <div class="capacity-callout">
+              <p class="mono" style="white-space:pre-wrap">{{ toPrettyJson(selectedAudit.raw) }}</p>
+            </div>
+          </div>
         </div>
       </floating-window>
     </div>
@@ -332,11 +419,13 @@ const ActivityView = {
       filters: ['all', 'success', 'pending', 'warning', 'failure'],
       viewModes: [
         { key: 'changes', label: 'Recent Changes' },
+        { key: 'logs', label: 'Log Center' },
         { key: 'tasks', label: 'Tasks' },
         { key: 'audit', label: 'Audit Trail' },
       ],
       tasks: [],
       auditEntries: [],
+      logs: [],
       selectedTask: null,
       selectedAudit: null,
       selectedItemType: '',
@@ -344,6 +433,9 @@ const ActivityView = {
       lastAppliedFocusKey: '',
       remediationSaving: false,
       remediationError: null,
+      exportingFormat: '',
+      selectedLogIds: [],
+      logSource: 'all',
       taskColumns: [
         { key: 'status', label: 'Status' },
         { key: 'name_label', label: 'Task' },
@@ -357,7 +449,24 @@ const ActivityView = {
         { key: 'operator', label: 'Operator' },
         { key: 'happenedAt', label: 'Time' },
       ],
+      logColumns: [
+        { key: 'severity', label: 'Severity' },
+        { key: 'source', label: 'Source' },
+        { key: 'message', label: 'Message' },
+        { key: 'timestamp', label: 'Time' },
+      ],
+      logSources: [
+        { value: 'all', label: 'All Sources' },
+        { value: 'audit', label: 'Audit' },
+        { value: 'auth', label: 'Auth Events' },
+        { value: 'alert', label: 'Alerts' },
+        { value: 'remediation-task', label: 'Remediation' },
+        { value: 'xen-task', label: 'Xen Tasks' },
+      ],
     };
+  },
+  setup() {
+    return { store };
   },
   computed: {
     sortedTasks() {
@@ -386,6 +495,26 @@ const ActivityView = {
         return status === this.activeFilter;
       });
     },
+    filteredLogs() {
+      let entries = [...this.logs];
+
+      if (this.logSource !== 'all') {
+        entries = entries.filter((entry) => entry.source === this.logSource);
+      }
+
+      if (this.activeFilter !== 'all') {
+        entries = entries.filter((entry) => {
+          const severity = String(entry.severity || '').toLowerCase();
+          const status = String(entry.status || '').toLowerCase();
+          if (this.activeFilter === 'failure') {
+            return ['failure', 'critical', 'error'].includes(severity) || ['failure', 'critical', 'error'].includes(status);
+          }
+          return severity === this.activeFilter || status === this.activeFilter;
+        });
+      }
+
+      return entries;
+    },
     recentChanges() {
       return this.filteredAuditEntries;
     },
@@ -401,11 +530,11 @@ const ActivityView = {
       return [
         {
           key: 'changes',
-          label: 'Audit Entries',
-          value: String(this.auditEntries.length),
-          detail: this.auditEntries.length ? `${this.auditEntries[0].summary || 'Recent audit entry'} is the latest recorded change` : 'No operator audit entries captured yet',
+          label: 'Central Logs',
+          value: String(this.logs.length),
+          detail: this.logs.length ? `${this.logs[0].message || 'Recent log entry'} is the latest federated event` : 'No centralized log entries captured yet',
           icon: 'mdi-clipboard-text-clock-outline',
-          valueClass: this.auditEntries.length ? 'text-cyan' : '',
+          valueClass: this.logs.length ? 'text-cyan' : '',
         },
         {
           key: 'operators',
@@ -459,8 +588,22 @@ const ActivityView = {
         .sort((left, right) => right.count - left.count)
         .slice(0, 8);
     },
+    logSourceRows() {
+      return this.logSources
+        .filter((source) => source.value !== 'all')
+        .map((source) => {
+          const count = this.logs.filter((entry) => entry.source === source.value).length;
+          return {
+            source: source.value,
+            label: source.label,
+            count,
+            tone: count ? 'active' : 'idle',
+          };
+        });
+    },
     detailTitle() {
       if (this.selectedItemType === 'audit') return 'Audit Detail';
+      if (this.selectedItemType === 'log') return 'Log Detail';
       return 'Task Detail';
     },
   },
@@ -558,16 +701,19 @@ const ActivityView = {
     async loadActivity() {
       this.loading = true;
       try {
-        const [tasksResult, auditResult] = await Promise.all([
+        const [tasksResult, auditResult, logsResult] = await Promise.all([
           api.getTasks().catch(() => ({ data: [] })),
           api.getAuditLog().catch(() => ({ data: [] })),
+          api.getLogs().catch(() => ({ data: [] })),
         ]);
         this.tasks = tasksResult.data || [];
         this.auditEntries = auditResult.data || [];
+        this.logs = logsResult.data || [];
       } catch (error) {
         console.error(error);
         this.tasks = [];
         this.auditEntries = [];
+        this.logs = [];
       } finally {
         this.loading = false;
       }
@@ -585,6 +731,19 @@ const ActivityView = {
       this.selectedTask = null;
       this.selectedItemType = 'audit';
       this.showProps = true;
+    },
+    openLogProperties(row) {
+      this.selectedAudit = row;
+      this.selectedTask = null;
+      this.selectedItemType = 'log';
+      this.showProps = true;
+    },
+    handleLogSelection(keys) {
+      this.selectedLogIds = Array.isArray(keys) ? keys : [];
+    },
+    formatLogSourceLabel(value) {
+      const source = this.logSources.find((entry) => entry.value === value);
+      return source?.label || value || 'Source';
     },
     resolveAuditRecordLocation(entry) {
       if (!entry) return null;
@@ -761,6 +920,108 @@ const ActivityView = {
       anchor.download = 'xenmange-audit-log.json';
       anchor.click();
       window.URL.revokeObjectURL(url);
+    },
+    downloadBlob(content, type, filename) {
+      const blob = content instanceof Blob ? content : new Blob([content], { type });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    },
+    buildHtmlLogExport(entries) {
+      const rows = entries.map((entry) => `
+        <tr>
+          <td>${entry.timestamp || '-'}</td>
+          <td>${this.formatLogSourceLabel(entry.source)}</td>
+          <td>${entry.severity || '-'}</td>
+          <td>${entry.actor || '-'}</td>
+          <td>${entry.message || '-'}</td>
+          <td>${entry.detail || '-'}</td>
+        </tr>
+      `).join('');
+
+      return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>XenMange Log Export</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #101820; background: #f7fafc; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { border: 1px solid #d7dee8; padding: 10px 12px; text-align: left; vertical-align: top; font-size: 12px; }
+    th { background: #edf2f7; font-size: 11px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <h1>XenMange Log Export</h1>
+  <p>Generated at ${new Date().toISOString()} with ${entries.length} log record${entries.length === 1 ? '' : 's'}.</p>
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Source</th><th>Severity</th><th>Actor</th><th>Message</th><th>Detail</th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`;
+    },
+    async exportLogs(format) {
+      const selectedEntries = this.selectedLogIds.length
+        ? this.filteredLogs.filter((entry) => this.selectedLogIds.includes(entry.id))
+        : this.filteredLogs;
+
+      this.exportingFormat = format;
+
+      try {
+        if (store.demoMode) {
+          if (format === 'pdf') {
+            throw new Error('PDF export is unavailable in demo mode.');
+          }
+
+          if (format === 'json') {
+            this.downloadBlob(
+              JSON.stringify(selectedEntries, null, 2),
+              'application/json',
+              'xenmange-log-export.json'
+            );
+            return;
+          }
+
+          this.downloadBlob(
+            this.buildHtmlLogExport(selectedEntries),
+            'text/html',
+            'xenmange-log-export.html'
+          );
+          return;
+        }
+
+        const response = await fetch('/api/logs/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            ids: this.selectedLogIds,
+            format,
+            source: this.logSource,
+            severity: this.activeFilter,
+          }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.message || payload.error || 'LOG_EXPORT_FAILED');
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="([^"]+)"/);
+        this.downloadBlob(blob, blob.type || 'application/octet-stream', match?.[1] || `xenmange-log-export.${format}`);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        this.exportingFormat = '';
+      }
     },
   },
 };

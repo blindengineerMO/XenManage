@@ -1,5 +1,5 @@
 const PoolRegistrationForm = {
-  props: ['initialValue', 'submitLabel'],
+  props: ['initialValue', 'submitLabel', 'credentialOptions'],
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
@@ -14,6 +14,18 @@ const PoolRegistrationForm = {
       <div class="form-group">
         <label for="pool-username">Username</label>
         <input id="pool-username" class="form-input" v-model="draft.username" placeholder="root" required>
+      </div>
+      <div class="form-group">
+        <label for="pool-vault-credential">Saved Vault Credential</label>
+        <select id="pool-vault-credential" class="form-input" v-model.number="draft.vaultCredentialId">
+          <option :value="null">Use manual password at connect time</option>
+          <option v-for="credential in filteredCredentialOptions" :key="credential.id" :value="credential.id">
+            {{ credential.name }} · {{ credential.username }} · {{ credential.scope }}
+          </option>
+        </select>
+        <div class="login-meta-note" v-if="selectedCredential">
+          This pool target is linked to the saved vault credential for <span class="mono">{{ selectedCredential.username }}</span>.
+        </div>
       </div>
       <div class="form-group">
         <label for="pool-port">Port</label>
@@ -33,12 +45,26 @@ const PoolRegistrationForm = {
       draft: this.buildDraft(this.initialValue),
     };
   },
+  computed: {
+    filteredCredentialOptions() {
+      return (this.credentialOptions || []).filter((credential) => credential.targetType === 'pool');
+    },
+    selectedCredential() {
+      return this.filteredCredentialOptions.find((credential) => Number(credential.id) === Number(this.draft.vaultCredentialId || 0)) || null;
+    },
+  },
   watch: {
     initialValue: {
       deep: true,
       handler(value) {
         this.draft = this.buildDraft(value);
       },
+    },
+    'draft.vaultCredentialId'(value) {
+      const credential = this.filteredCredentialOptions.find((entry) => Number(entry.id) === Number(value || 0));
+      if (credential) {
+        this.draft.username = credential.username || this.draft.username;
+      }
     },
   },
   methods: {
@@ -47,6 +73,7 @@ const PoolRegistrationForm = {
         name: value?.name || '',
         host: value?.host || '',
         username: value?.username || 'root',
+        vaultCredentialId: value?.vault_credential_id || value?.vaultCredentialId || null,
         port: Number(value?.port || 443),
         isDefault: Boolean(value?.is_default || value?.isDefault),
       };
@@ -56,6 +83,7 @@ const PoolRegistrationForm = {
         name: this.draft.name.trim(),
         host: this.draft.host.trim(),
         username: this.draft.username.trim(),
+        vaultCredentialId: this.draft.vaultCredentialId ? Number(this.draft.vaultCredentialId) : null,
         port: Number(this.draft.port || 443),
         isDefault: Boolean(this.draft.isDefault),
       });

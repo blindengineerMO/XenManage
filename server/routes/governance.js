@@ -76,15 +76,17 @@ function buildQuotaRows(pools, hosts, vms, quotas) {
 
 router.get('/', async (req, res) => {
   try {
-    const [poolsResult, hostsResult, vmsResult] = await Promise.all([
-      req.xenApi.getPools(),
-      req.xenApi.getHosts(),
-      req.xenApi.getVMs(),
-    ]);
+    const [poolsResult, hostsResult, vmsResult] = req.xenApi
+      ? await Promise.all([
+        req.xenApi.getPools(),
+        req.xenApi.getHosts(),
+        req.xenApi.getVMs(),
+      ])
+      : [{ records: {} }, { records: {} }, { records: {} }];
 
-    const pools = mapPools(poolsResult.records || {});
-    const hosts = mapHosts(hostsResult.records || {});
-    const vms = mapVms(vmsResult.records || {});
+    const pools = mapPools(poolsResult?.records || {});
+    const hosts = mapHosts(hostsResult?.records || {});
+    const vms = mapVms(vmsResult?.records || {});
     const quotas = governanceService.listQuotas();
     const approvals = governanceService.listApprovals();
     const policy = governanceService.getPolicy();

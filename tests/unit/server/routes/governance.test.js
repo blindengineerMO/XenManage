@@ -123,7 +123,7 @@ describe('Governance Routes', () => {
   }
 
   async function login() {
-    return request('POST', '/api/auth/login', {
+    return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',

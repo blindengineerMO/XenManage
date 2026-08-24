@@ -12,17 +12,17 @@ describe('Validation Middleware', () => {
     next = jest.fn();
   });
 
-  describe('login schema', () => {
-    it('should pass with valid login data', () => {
-      req.body = { host: '192.168.1.100', username: 'root', password: 'pass' };
-      validate(schemas.login)(req, res, next);
+  describe('appLogin schema', () => {
+    it('should pass with valid local login data', () => {
+      req.body = { username: 'admin', password: 'admin123!' };
+      validate(schemas.appLogin)(req, res, next);
       expect(next).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('should reject missing host', () => {
-      req.body = { username: 'root', password: 'pass' };
-      validate(schemas.login)(req, res, next);
+    it('should reject missing username', () => {
+      req.body = { password: 'admin123!' };
+      validate(schemas.appLogin)(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({ error: 'VALIDATION_ERROR' })
@@ -30,14 +30,50 @@ describe('Validation Middleware', () => {
     });
 
     it('should reject empty username', () => {
-      req.body = { host: '192.168.1.100', username: '', password: 'pass' };
-      validate(schemas.login)(req, res, next);
+      req.body = { username: '', password: 'admin123!' };
+      validate(schemas.appLogin)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should strip unknown fields', () => {
+      req.body = { username: 'admin', password: 'admin123!', extra: 'data' };
+      validate(schemas.appLogin)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body).not.toHaveProperty('extra');
+    });
+  });
+
+  describe('xenLogin schema', () => {
+    it('should pass with valid xen login data', () => {
+      req.body = { host: '192.168.1.100', username: 'root', password: 'pass' };
+      validate(schemas.xenLogin)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('should pass with a saved vault credential and no password', () => {
+      req.body = { host: '192.168.1.100', username: 'root', vaultCredentialId: 7 };
+      validate(schemas.xenLogin)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.password).toBe('');
+      expect(req.body.vaultCredentialId).toBe(7);
+    });
+
+    it('should reject missing host', () => {
+      req.body = { username: 'root', password: 'pass' };
+      validate(schemas.xenLogin)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should reject xen login requests with no password or vault credential', () => {
+      req.body = { host: '192.168.1.100', username: 'root', password: '' };
+      validate(schemas.xenLogin)(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
     it('should strip unknown fields', () => {
       req.body = { host: '192.168.1.100', username: 'root', password: 'pass', extra: 'data' };
-      validate(schemas.login)(req, res, next);
+      validate(schemas.xenLogin)(req, res, next);
       expect(next).toHaveBeenCalled();
       expect(req.body).not.toHaveProperty('extra');
     });
@@ -104,6 +140,21 @@ describe('Validation Middleware', () => {
     it('should reject pageSize > 500', () => {
       req.body = { pageSize: 600 };
       validate(schemas.paginate, 'body')(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('metricRangeQuery schema', () => {
+    it('should default the metric range to 24h', () => {
+      req.query = {};
+      validate(schemas.metricRangeQuery, 'query')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.query.range).toBe('24h');
+    });
+
+    it('should reject unsupported metric ranges', () => {
+      req.query = { range: '48h' };
+      validate(schemas.metricRangeQuery, 'query')(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
     });
   });
@@ -555,6 +606,53 @@ describe('Validation Middleware', () => {
       };
       validate(schemas.governanceApprovalRequest)(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('system settings schemas', () => {
+    it('should validate system settings section params', () => {
+      req.params = { section: 'security' };
+      validate(schemas.systemConfigSectionParam, 'params')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.params.section).toBe('security');
+    });
+
+    it('should default logging settings', () => {
+      req.body = {};
+      validate(schemas.systemConfigLoggingUpdate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.level).toBe('info');
+      expect(req.body.structuredJson).toBe(false);
+    });
+
+    it('should reject invalid retention policy domains', () => {
+      req.params = { domain: 'unknown-domain' };
+      validate(schemas.retentionDomainParam, 'params')(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should validate retention run payloads', () => {
+      req.body = { domain: 'audit-log', dryRun: true };
+      validate(schemas.retentionRun)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.domain).toBe('audit-log');
+      expect(req.body.dryRun).toBe(true);
+    });
+
+    it('should validate centralized logs list queries', () => {
+      req.query = { source: 'alert', severity: 'warning', page: '2', pageSize: '100', search: 'storage' };
+      validate(schemas.logsListQuery, 'query')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.query.source).toBe('alert');
+      expect(req.query.page).toBe(2);
+      expect(req.query.pageSize).toBe(100);
+    });
+
+    it('should validate log export payloads', () => {
+      req.body = { ids: ['audit:1', 'alert:OpaqueRef:msg1'], format: 'pdf', source: 'all', severity: 'all' };
+      validate(schemas.logsExport)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.format).toBe('pdf');
     });
   });
 });

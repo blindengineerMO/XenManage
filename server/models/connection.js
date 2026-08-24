@@ -27,6 +27,7 @@ function initializeSchema() {
       name TEXT NOT NULL,
       host TEXT NOT NULL,
       username TEXT NOT NULL,
+      vault_credential_id INTEGER,
       port INTEGER DEFAULT 443,
       is_default INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -38,6 +39,7 @@ function initializeSchema() {
       name TEXT NOT NULL,
       host TEXT NOT NULL,
       username TEXT NOT NULL,
+      vault_credential_id INTEGER,
       port INTEGER DEFAULT 443,
       mode TEXT NOT NULL DEFAULT 'standalone',
       pool_connection_id INTEGER,
@@ -52,7 +54,29 @@ function initializeSchema() {
       value TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS retention_policies (
+      domain TEXT PRIMARY KEY,
+      retention_days INTEGER NOT NULL,
+      enabled INTEGER DEFAULT 1,
+      last_run_at DATETIME,
+      last_purged_count INTEGER DEFAULT 0
+    );
   `);
+
+  const connectionColumns = new Set(
+    db.prepare('PRAGMA table_info(connections)').all().map((column) => column.name)
+  );
+  if (!connectionColumns.has('vault_credential_id')) {
+    db.exec('ALTER TABLE connections ADD COLUMN vault_credential_id INTEGER');
+  }
+
+  const hostTargetColumns = new Set(
+    db.prepare('PRAGMA table_info(host_targets)').all().map((column) => column.name)
+  );
+  if (!hostTargetColumns.has('vault_credential_id')) {
+    db.exec('ALTER TABLE host_targets ADD COLUMN vault_credential_id INTEGER');
+  }
 }
 
 // Connection CRUD
@@ -71,7 +95,7 @@ const connectionModel = {
     ).get(host, username, port);
   },
 
-  create({ name, host, username, port = 443, isDefault = false }) {
+  create({ name, host, username, vaultCredentialId = null, port = 443, isDefault = false }) {
     const db = getDb();
     const existing = this.findByFingerprint(host, username, port);
 
@@ -80,6 +104,7 @@ const connectionModel = {
         name,
         host,
         username,
+        vaultCredentialId,
         port,
         isDefault: isDefault || Boolean(existing.is_default),
       });
@@ -89,19 +114,19 @@ const connectionModel = {
       db.prepare('UPDATE connections SET is_default = 0').run();
     }
     const result = db.prepare(
-      'INSERT INTO connections (name, host, username, port, is_default) VALUES (?, ?, ?, ?, ?)'
-    ).run(name, host, username, port, isDefault ? 1 : 0);
+      'INSERT INTO connections (name, host, username, vault_credential_id, port, is_default) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(name, host, username, vaultCredentialId, port, isDefault ? 1 : 0);
     return this.getById(result.lastInsertRowid);
   },
 
-  update(id, { name, host, username, port, isDefault }) {
+  update(id, { name, host, username, vaultCredentialId = null, port, isDefault }) {
     const db = getDb();
     if (isDefault) {
       db.prepare('UPDATE connections SET is_default = 0').run();
     }
     db.prepare(
-      'UPDATE connections SET name = ?, host = ?, username = ?, port = ?, is_default = ? WHERE id = ?'
-    ).run(name, host, username, port, isDefault ? 1 : 0, id);
+      'UPDATE connections SET name = ?, host = ?, username = ?, vault_credential_id = ?, port = ?, is_default = ? WHERE id = ?'
+    ).run(name, host, username, vaultCredentialId, port, isDefault ? 1 : 0, id);
     return this.getById(id);
   },
 
@@ -153,7 +178,7 @@ const hostTargetModel = {
     ).get(host, username, port);
   },
 
-  create({ name, host, username, port = 443, mode = 'standalone', poolConnectionId = null, notes = '' }) {
+  create({ name, host, username, vaultCredentialId = null, port = 443, mode = 'standalone', poolConnectionId = null, notes = '' }) {
     const db = getDb();
     const existing = this.findByFingerprint(host, username, port);
 
@@ -162,6 +187,7 @@ const hostTargetModel = {
         name,
         host,
         username,
+        vaultCredentialId,
         port,
         mode,
         poolConnectionId,
@@ -170,12 +196,13 @@ const hostTargetModel = {
     }
 
     const result = db.prepare(`
-      INSERT INTO host_targets (name, host, username, port, mode, pool_connection_id, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO host_targets (name, host, username, vault_credential_id, port, mode, pool_connection_id, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       host,
       username,
+      vaultCredentialId,
       port,
       mode,
       mode === 'pool-member' ? poolConnectionId : null,
@@ -185,15 +212,16 @@ const hostTargetModel = {
     return this.getById(result.lastInsertRowid);
   },
 
-  update(id, { name, host, username, port, mode, poolConnectionId = null, notes = '' }) {
+  update(id, { name, host, username, vaultCredentialId = null, port, mode, poolConnectionId = null, notes = '' }) {
     getDb().prepare(`
       UPDATE host_targets
-      SET name = ?, host = ?, username = ?, port = ?, mode = ?, pool_connection_id = ?, notes = ?
+      SET name = ?, host = ?, username = ?, vault_credential_id = ?, port = ?, mode = ?, pool_connection_id = ?, notes = ?
       WHERE id = ?
     `).run(
       name,
       host,
       username,
+      vaultCredentialId,
       port,
       mode,
       mode === 'pool-member' ? poolConnectionId : null,
@@ -228,4 +256,42 @@ const settingsModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, hostTargetModel, settingsModel };
+const retentionPolicyModel = {
+  getAll() {
+    return getDb().prepare(`
+      SELECT domain, retention_days, enabled, last_run_at, last_purged_count
+      FROM retention_policies
+      ORDER BY domain
+    `).all();
+  },
+
+  get(domain) {
+    return getDb().prepare(`
+      SELECT domain, retention_days, enabled, last_run_at, last_purged_count
+      FROM retention_policies
+      WHERE domain = ?
+    `).get(domain) || null;
+  },
+
+  upsert({ domain, retentionDays, enabled = true, lastRunAt = null, lastPurgedCount = 0 }) {
+    getDb().prepare(`
+      INSERT INTO retention_policies (domain, retention_days, enabled, last_run_at, last_purged_count)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(domain) DO UPDATE SET
+        retention_days = excluded.retention_days,
+        enabled = excluded.enabled,
+        last_run_at = excluded.last_run_at,
+        last_purged_count = excluded.last_purged_count
+    `).run(
+      domain,
+      retentionDays,
+      enabled ? 1 : 0,
+      lastRunAt,
+      lastPurgedCount
+    );
+
+    return this.get(domain);
+  },
+};
+
+module.exports = { getDb, connectionModel, hostTargetModel, settingsModel, retentionPolicyModel };

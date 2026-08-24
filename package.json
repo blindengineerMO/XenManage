@@ -24,6 +24,7 @@
   "dependencies": {
     "@mdi/font": "^7.4.47",
     "axios": "^1.19.0",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -33,6 +34,7 @@
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
     "joi": "^18.2.5",
+    "pdfkit": "^0.20.1",
     "uuid": "^14.0.2",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"

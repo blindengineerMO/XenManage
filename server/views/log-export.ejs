@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %></title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 32px;
+      color: #101820;
+      background: #f7fafc;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+    p {
+      margin: 0 0 16px;
+      color: #4a5568;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #d7dee8;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+    }
+    th {
+      background: #edf2f7;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    code {
+      font-family: "Courier New", monospace;
+      font-size: 11px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1><%= title %></h1>
+  <p>Generated at <%= generatedAt %> with <%= entries.length %> log record<%= entries.length === 1 ? '' : 's' %>.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Source</th>
+        <th>Severity</th>
+        <th>Actor</th>
+        <th>Entity</th>
+        <th>Message</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% entries.forEach((entry) => { %>
+        <tr>
+          <td><code><%= entry.timestamp || '-' %></code></td>
+          <td><%= entry.source || '-' %></td>
+          <td><%= entry.severity || '-' %></td>
+          <td><%= entry.actor || '-' %></td>
+          <td>
+            <strong><%= entry.entityType || 'record' %></strong><br>
+            <code><%= entry.entityName || entry.entityRef || '-' %></code>
+          </td>
+          <td><%= entry.message || '-' %></td>
+          <td><%= entry.detail || '-' %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</body>
+</html>

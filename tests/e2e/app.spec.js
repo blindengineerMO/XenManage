@@ -201,6 +201,64 @@ async function stubAuthenticatedRoutes(page) {
       usedAt: '',
     },
   ];
+  const systemConfig = {
+    general: {
+      appName: 'XenMange',
+      timezone: 'America/Chicago',
+    },
+    network: {
+      publicBaseUrl: 'https://xenmange.example.com',
+      trustProxy: true,
+    },
+    security: {
+      sessionMaxAgeMs: 7200000,
+      failedLoginWindowMinutes: 15,
+      failedLoginMaxAttempts: 20,
+    },
+    logging: {
+      level: 'info',
+      structuredJson: false,
+    },
+    retention: {
+      sweepIntervalHours: 24,
+      vacuumAfterSweep: true,
+    },
+    runtime: {
+      env: 'test',
+      port: 3000,
+      restartRequiredSettings: ['server.port', 'security.failedLoginWindowMinutes', 'security.failedLoginMaxAttempts'],
+      liveAppliedSettings: ['net.trustProxy', 'security.sessionMaxAgeMs', 'logging.level', 'logging.structuredJson', 'retention.sweepIntervalHours', 'retention.vacuumAfterSweep'],
+    },
+  };
+  const retentionPolicies = [
+    {
+      domain: 'audit-log',
+      label: 'Audit Log',
+      description: 'Historical operator and configuration change entries kept in xenmange.db.',
+      enabled: true,
+      retentionDays: 180,
+      lastRunAt: '2026-08-22T18:10:00.000Z',
+      lastPurgedCount: 2,
+    },
+    {
+      domain: 'remediation-tasks',
+      label: 'Remediation Tasks',
+      description: 'Closed remediation queue items whose follow-through has already completed.',
+      enabled: true,
+      retentionDays: 90,
+      lastRunAt: '2026-08-22T18:10:00.000Z',
+      lastPurgedCount: 1,
+    },
+    {
+      domain: 'auth-events',
+      label: 'Authentication Events',
+      description: 'Login and logout activity persisted in security.db for traceability.',
+      enabled: true,
+      retentionDays: 60,
+      lastRunAt: '',
+      lastPurgedCount: 0,
+    },
+  ];
   const resilienceRunbooks = [
     {
       poolRef: 'OpaqueRef:pool1',
@@ -283,6 +341,17 @@ async function stubAuthenticatedRoutes(page) {
       happenedAt: '2026-08-20T08:05:00.000Z',
     },
   ];
+  const authEvents = [
+    {
+      id: 'auth-seed-1',
+      username: 'root',
+      event_type: 'login_success',
+      ip_address: '10.0.0.1',
+      user_agent: 'Playwright Auth Fixture',
+      created_at: '2026-08-20T08:04:30.000Z',
+    },
+  ];
+  let targetAttached = false;
 
   const buildChangedFields = (before = null, after = null) => {
     const left = before && typeof before === 'object' ? before : {};
@@ -321,6 +390,232 @@ async function stubAuthenticatedRoutes(page) {
     };
     auditLog.unshift(record);
     return record;
+  };
+
+  const fulfillNeedsConnection = async (route) => {
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'XEN_TARGET_NOT_CONNECTED' }),
+    });
+  };
+
+  const buildLogEntries = () => {
+    const authEntries = authEvents.map((entry) => ({
+      id: `auth:${entry.id}`,
+      source: 'auth',
+      category: 'auth',
+      timestamp: entry.created_at || '',
+      actor: entry.username || 'unknown',
+      operator: entry.username || 'unknown',
+      entityType: 'session',
+      entityRef: entry.ip_address || '',
+      entityName: entry.username || 'Unknown User',
+      message: `${entry.username || 'User'} ${String(entry.event_type || 'auth_event').replace(/_/g, ' ')}`.trim(),
+      detail: `${entry.user_agent || 'Unknown client'} from ${entry.ip_address || 'unknown address'}`.trim(),
+      severity: String(entry.event_type || '').includes('failure') ? 'failure' : 'success',
+      route: '/login',
+      status: String(entry.event_type || '').includes('failure') ? 'failure' : 'success',
+      action: entry.event_type || 'auth_event',
+      raw: entry,
+    }));
+
+    const auditEntries = auditLog.map((entry) => ({
+      id: `audit:${entry.id}`,
+      source: 'audit',
+      category: entry.category || 'operations',
+      timestamp: entry.happenedAt || '',
+      actor: entry.operator || 'root',
+      operator: entry.operator || 'root',
+      entityType: entry.entityType || 'record',
+      entityRef: entry.entityRef || '',
+      entityName: entry.entityName || '',
+      message: entry.summary || entry.detail || entry.actionLabel || entry.action || 'Audit entry',
+      detail: entry.detail || '',
+      severity: String(entry.status || 'success').toLowerCase(),
+      route: entry.route || '',
+      status: entry.status || 'success',
+      action: entry.action || '',
+      raw: entry,
+    }));
+
+    const alertEntries = alertInventory.map((entry) => ({
+      id: `alert:${entry.ref}`,
+      source: 'alert',
+      category: 'alerts',
+      timestamp: entry.timestamp || '',
+      actor: 'system',
+      operator: 'system',
+      entityType: 'alert',
+      entityRef: entry.ref || '',
+      entityName: entry.name || '',
+      message: entry.name || entry.body || 'Alert',
+      detail: entry.body || '',
+      severity: entry.ref === 'OpaqueRef:msg1' ? 'warning' : 'info',
+      route: entry.cls === 'SR' ? '/storage' : '/hosts',
+      status: 'open',
+      action: '',
+      raw: entry,
+    }));
+
+    const remediationEntries = tasks
+      .filter((entry) => entry.task_kind === 'remediation' || entry.source === 'remediation')
+      .map((entry) => ({
+        id: `remediation-task:${entry.ref}`,
+        source: 'remediation-task',
+        category: 'tasks',
+        timestamp: entry.finished || entry.created || '',
+        actor: entry.created_by || entry.assignee || 'root',
+        operator: entry.created_by || entry.assignee || 'root',
+        entityType: 'task',
+        entityRef: entry.ref || '',
+        entityName: entry.name_label || '',
+        message: entry.name_label || 'Remediation task',
+        detail: entry.result || entry.name_description || '',
+        severity: String(entry.status || 'pending').toLowerCase(),
+        route: '/activity',
+        status: entry.status || 'pending',
+        action: entry.action_type || '',
+        raw: entry,
+      }));
+
+    const xenTaskEntries = tasks
+      .filter((entry) => entry.task_kind !== 'remediation' && entry.source !== 'remediation')
+      .map((entry) => ({
+        id: `xen-task:${entry.ref}`,
+        source: 'xen-task',
+        category: 'tasks',
+        timestamp: entry.finished || entry.created || '',
+        actor: 'xenserver',
+        operator: 'xenserver',
+        entityType: 'task',
+        entityRef: entry.ref || '',
+        entityName: entry.name_label || '',
+        message: entry.name_label || 'Xen task',
+        detail: entry.result || '',
+        severity: String(entry.status || 'pending').toLowerCase(),
+        route: '/activity',
+        status: entry.status || 'pending',
+        action: entry.name_label || '',
+        raw: entry,
+      }));
+
+    return [...authEntries, ...auditEntries, ...alertEntries, ...remediationEntries, ...xenTaskEntries]
+      .sort((left, right) => new Date(right.timestamp || 0) - new Date(left.timestamp || 0));
+  };
+
+  const buildTrendPoints = (latestValue, { range = '24h', amplitude = 5, floor = 0, ceiling = Number.MAX_SAFE_INTEGER, seed = 'metric' } = {}) => {
+    const pointCounts = { '1h': 6, '6h': 8, '24h': 12, '7d': 10, '30d': 12 };
+    const totalMsByRange = {
+      '1h': 60 * 60 * 1000,
+      '6h': 6 * 60 * 60 * 1000,
+      '24h': 24 * 60 * 60 * 1000,
+      '7d': 7 * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000,
+    };
+    const normalizedRange = totalMsByRange[range] ? range : '24h';
+    const count = pointCounts[normalizedRange];
+    const stepMs = totalMsByRange[normalizedRange] / (count - 1);
+    const hash = String(seed).split('').reduce((sum, character, index) => sum + (character.charCodeAt(0) * (index + 1)), 0);
+    const now = Date.parse('2026-08-24T10:30:00.000Z');
+
+    return Array.from({ length: count }, (_, index) => {
+      const wave = Math.sin((index + 1) * 0.85 + hash / 25) * amplitude;
+      const drift = (index - (count / 2)) * (amplitude / count) * 0.18;
+      const value = Math.max(floor, Math.min(ceiling, Number(latestValue || 0) + wave + drift));
+
+      return {
+        ts: Math.round(now - ((count - index - 1) * stepMs)),
+        value: Math.round(value * 100) / 100,
+      };
+    });
+  };
+
+  const buildClusterMetricHistory = (range = '24h') => {
+    const hostTotals = {
+      'OpaqueRef:host1': { total: 68719476736, free: 12884901888 },
+      'OpaqueRef:host2': { total: 68719476736, free: 25769803776 },
+    };
+    const totalMemory = Object.values(hostTotals).reduce((sum, entry) => sum + entry.total, 0);
+    const usedMemory = Object.values(hostTotals).reduce((sum, entry) => sum + (entry.total - entry.free), 0);
+    const totalStorage = storageInventory.reduce((sum, entry) => sum + Number(entry.physical_size || 0), 0);
+    const usedStorage = storageInventory.reduce((sum, entry) => sum + Number(entry.virtual_allocation || 0), 0);
+    const vmMemory = vmInventory.reduce((sum, entry) => sum + Number(entry.memory_static_max || 0), 0);
+
+    return {
+      range,
+      generatedAt: '2026-08-24T10:30:00.000Z',
+      metrics: [
+        {
+          metricName: 'cluster_memory_used_percent',
+          points: buildTrendPoints((usedMemory / totalMemory) * 100, { range, amplitude: 6, floor: 0, ceiling: 100, seed: 'cluster-memory' }),
+        },
+        {
+          metricName: 'cluster_storage_utilization_percent',
+          points: buildTrendPoints((usedStorage / totalStorage) * 100, { range, amplitude: 5, floor: 0, ceiling: 100, seed: 'cluster-storage' }),
+        },
+        {
+          metricName: 'cluster_vm_memory_actual_bytes',
+          points: buildTrendPoints(vmMemory * 0.78, { range, amplitude: vmMemory * 0.05, floor: 0, seed: 'cluster-vm-memory' }),
+        },
+      ],
+    };
+  };
+
+  const buildHostMetricHistory = (ref, range = '24h') => {
+    const metricsByRef = {
+      'OpaqueRef:host1': { total: 68719476736, free: 12884901888 },
+      'OpaqueRef:host2': { total: 68719476736, free: 25769803776 },
+    };
+    const metrics = metricsByRef[ref] || { total: 0, free: 0 };
+    const used = Math.max(0, metrics.total - metrics.free);
+    return {
+      entityType: 'host',
+      entityRef: ref,
+      range,
+      generatedAt: '2026-08-24T10:30:00.000Z',
+      metrics: [
+        { metricName: 'memory_total_bytes', points: buildTrendPoints(metrics.total, { range, amplitude: 0, seed: `${ref}-total` }) },
+        { metricName: 'memory_free_bytes', points: buildTrendPoints(metrics.free, { range, amplitude: metrics.total * 0.05, floor: 0, ceiling: metrics.total, seed: `${ref}-free` }) },
+        { metricName: 'memory_used_bytes', points: buildTrendPoints(used, { range, amplitude: metrics.total * 0.04, floor: 0, ceiling: metrics.total, seed: `${ref}-used` }) },
+        { metricName: 'memory_used_percent', points: buildTrendPoints(metrics.total ? (used / metrics.total) * 100 : 0, { range, amplitude: 6, floor: 0, ceiling: 100, seed: `${ref}-used-percent` }) },
+      ],
+    };
+  };
+
+  const buildVmMetricHistory = (ref, range = '24h') => {
+    const vm = vmInventory.find((entry) => entry.ref === ref) || {};
+    const configured = Number(vm.memory_static_max || vm.memory_dynamic_max || 0);
+    const actual = configured * 0.78;
+    return {
+      entityType: 'vm',
+      entityRef: ref,
+      range,
+      generatedAt: '2026-08-24T10:30:00.000Z',
+      metrics: [
+        { metricName: 'memory_actual_bytes', points: buildTrendPoints(actual, { range, amplitude: configured * 0.08, floor: 0, ceiling: configured, seed: `${ref}-actual` }) },
+        { metricName: 'memory_static_max_bytes', points: buildTrendPoints(configured, { range, amplitude: 0, seed: `${ref}-static` }) },
+        { metricName: 'memory_usage_percent', points: buildTrendPoints(configured ? (actual / configured) * 100 : 0, { range, amplitude: 8, floor: 0, ceiling: 100, seed: `${ref}-usage` }) },
+        { metricName: 'vcpu_count', points: buildTrendPoints(Number(vm.VCPUs_at_startup || 0), { range, amplitude: 0, seed: `${ref}-vcpu` }) },
+      ],
+    };
+  };
+
+  const buildStorageMetricHistory = (ref, range = '24h') => {
+    const sr = storageInventory.find((entry) => entry.ref === ref) || {};
+    const allocation = Number(sr.virtual_allocation || 0);
+    const physical = Number(sr.physical_size || 0);
+    return {
+      entityType: 'sr',
+      entityRef: ref,
+      range,
+      generatedAt: '2026-08-24T10:30:00.000Z',
+      metrics: [
+        { metricName: 'allocation_bytes', points: buildTrendPoints(allocation, { range, amplitude: physical * 0.03, floor: 0, ceiling: physical, seed: `${ref}-allocation` }) },
+        { metricName: 'physical_bytes', points: buildTrendPoints(physical, { range, amplitude: 0, seed: `${ref}-physical` }) },
+        { metricName: 'utilization_percent', points: buildTrendPoints(physical ? (allocation / physical) * 100 : 0, { range, amplitude: 4, floor: 0, ceiling: 100, seed: `${ref}-utilization` }) },
+      ],
+    };
   };
 
   const inferSeverity = (message) => {
@@ -698,6 +993,44 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/auth/login', async (route) => {
+    targetAttached = false;
+    recordAudit({
+      category: 'session',
+      action: 'app_session_login',
+      actionLabel: 'Signed into XenMange as',
+      entityType: 'user',
+      entityRef: '1',
+      entityName: 'admin',
+      route: '/login',
+      after: { id: 1, username: 'admin', role: 'admin' },
+      detail: 'Signed into the XenMange control plane as admin.',
+      happenedAt: '2026-08-20T08:14:00.000Z',
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        authenticated: true,
+        connected: false,
+        authMode: 'local',
+        username: 'admin',
+        user: {
+          id: 1,
+          username: 'admin',
+          displayName: 'Platform Administrator',
+          role: 'admin',
+        },
+        governance: {
+          currentRole: governanceCurrentRole,
+          policy: governancePolicy,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/auth/xen-login', async (route) => {
+    targetAttached = true;
     recordAudit({
       category: 'session',
       action: 'session_login',
@@ -715,6 +1048,9 @@ async function stubAuthenticatedRoutes(page) {
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
+        authenticated: true,
+        connected: true,
+        authMode: 'legacy-xen',
         host: '10.0.0.1',
         username: 'root',
         governance: {
@@ -726,6 +1062,7 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/auth/logout', async (route) => {
+    targetAttached = false;
     recordAudit({
       category: 'session',
       action: 'session_logout',
@@ -1362,6 +1699,178 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
+  await page.route('**/api/logs', async (route) => {
+    const entries = buildLogEntries();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: entries.length,
+        page: 1,
+        pageSize: entries.length,
+        data: entries,
+        summary: {
+          total: entries.length,
+          sourceCounts: entries.reduce((counts, entry) => {
+            counts[entry.source] = (counts[entry.source] || 0) + 1;
+            return counts;
+          }, {}),
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...systemConfig,
+        retentionPolicies,
+      }),
+    });
+  });
+
+  await page.route('**/api/settings/retention/preview*', async (route) => {
+    const url = new URL(route.request().url());
+    const requestedDomain = url.searchParams.get('domain') || '';
+    const policies = requestedDomain
+      ? retentionPolicies.filter((policy) => policy.domain === requestedDomain)
+      : retentionPolicies;
+
+    const results = policies.map((policy) => ({
+      domain: policy.domain,
+      label: policy.label,
+      cutoffDate: policy.domain === 'audit-log' ? '2026-02-26T12:00:00.000Z' : '2026-05-26T12:00:00.000Z',
+      candidateCount: policy.domain === 'auth-events' ? 1 : 0,
+    }));
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        dryRun: true,
+        generatedAt: '2026-08-24T10:15:00.000Z',
+        results,
+        totalCandidates: results.reduce((sum, entry) => sum + Number(entry.candidateCount || 0), 0),
+        totalPurged: 0,
+      }),
+    });
+  });
+
+  await page.route('**/api/settings/retention/run', async (route) => {
+    const payload = route.request().postDataJSON();
+    const requestedDomain = payload.domain || '';
+    const policies = requestedDomain
+      ? retentionPolicies.filter((policy) => policy.domain === requestedDomain)
+      : retentionPolicies;
+
+    const results = policies.map((policy) => {
+      const purgedCount = policy.domain === 'auth-events' ? 1 : 0;
+      policy.lastRunAt = '2026-08-24T10:20:00.000Z';
+      policy.lastPurgedCount = purgedCount;
+      return {
+        domain: policy.domain,
+        label: policy.label,
+        cutoffDate: policy.domain === 'audit-log' ? '2026-02-26T12:00:00.000Z' : '2026-05-26T12:00:00.000Z',
+        purgedCount,
+      };
+    });
+
+    recordAudit({
+      category: 'system',
+      action: 'retention_sweep_completed',
+      actionLabel: 'Ran retention sweep for',
+      entityType: 'retention-domain',
+      entityRef: requestedDomain || 'all',
+      entityName: requestedDomain || 'All Domains',
+      route: '/settings',
+      detail: `Retention sweep completed on Monday, August 24, 2026 with ${results.reduce((sum, entry) => sum + Number(entry.purgedCount || 0), 0)} purged records.`,
+      happenedAt: '2026-08-24T10:20:00.000Z',
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        dryRun: false,
+        generatedAt: '2026-08-24T10:20:00.000Z',
+        results,
+        totalCandidates: 0,
+        totalPurged: results.reduce((sum, entry) => sum + Number(entry.purgedCount || 0), 0),
+      }),
+    });
+  });
+
+  await page.route('**/api/settings/retention/policies/*', async (route) => {
+    const domain = decodeURIComponent(route.request().url().split('/api/settings/retention/policies/')[1] || '');
+    const payload = route.request().postDataJSON();
+    const policy = retentionPolicies.find((entry) => entry.domain === domain);
+
+    if (!policy) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    const previous = { ...policy };
+    policy.enabled = payload.enabled !== false;
+    policy.retentionDays = Number(payload.retentionDays || policy.retentionDays);
+    recordAudit({
+      category: 'system',
+      action: 'retention_policy_saved',
+      actionLabel: 'Saved retention policy for',
+      entityType: 'retention-domain',
+      entityRef: policy.domain,
+      entityName: policy.label,
+      route: '/settings',
+      before: previous,
+      after: { ...policy },
+      detail: `${policy.retentionDays} day retention with ${policy.enabled ? 'enabled' : 'disabled'} execution state.`,
+      happenedAt: '2026-08-24T10:18:00.000Z',
+    });
+
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(policy) });
+  });
+
+  await page.route('**/api/settings/*', async (route) => {
+    const section = route.request().url().split('/api/settings/')[1] || '';
+    const payload = route.request().postDataJSON();
+    if (!systemConfig[section]) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    const previous = { ...systemConfig[section] };
+    systemConfig[section] = {
+      ...systemConfig[section],
+      ...payload,
+    };
+
+    recordAudit({
+      category: 'system',
+      action: 'system_config_saved',
+      actionLabel: 'Saved system configuration for',
+      entityType: 'settings-section',
+      entityRef: section,
+      entityName: section,
+      route: '/settings',
+      before: previous,
+      after: { ...systemConfig[section] },
+      detail: `${section} settings were updated from the Settings workspace on Monday, August 24, 2026.`,
+      happenedAt: '2026-08-24T10:16:00.000Z',
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        section: systemConfig[section],
+        retentionPolicies,
+        runtime: systemConfig.runtime,
+      }),
+    });
+  });
+
   await page.route('**/api/governance', async (route) => {
     const quotaRows = connections.map((connection) => {
       const quota = governanceQuotas.find((entry) => entry.poolRef === 'OpaqueRef:pool1') || null;
@@ -1857,6 +2366,10 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/pools', async (route) => {
+    if (!targetAttached) {
+      await fulfillNeedsConnection(route);
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1879,6 +2392,10 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/hosts', async (route) => {
+    if (!targetAttached) {
+      await fulfillNeedsConnection(route);
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1901,6 +2418,64 @@ async function stubAuthenticatedRoutes(page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(metricsByRef[ref] || { live: false, memory_total: 0, memory_free: 0 }),
+    });
+  });
+
+  await page.route('**/api/metrics/cluster*', async (route) => {
+    const url = new URL(route.request().url());
+    const range = url.searchParams.get('range') || '24h';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildClusterMetricHistory(range)),
+    });
+  });
+
+  await page.route('**/api/metrics/collect', async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        captured: true,
+        ts: Date.parse('2026-08-24T10:30:00.000Z'),
+        sampleCount: 19,
+        hostCount: hostInventory.length,
+        vmCount: vmInventory.length,
+        srCount: storageInventory.length,
+      }),
+    });
+  });
+
+  await page.route('**/api/metrics/hosts/*', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[4] || '');
+    const range = url.searchParams.get('range') || '24h';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildHostMetricHistory(ref, range)),
+    });
+  });
+
+  await page.route('**/api/metrics/vms/*', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[4] || '');
+    const range = url.searchParams.get('range') || '24h';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildVmMetricHistory(ref, range)),
+    });
+  });
+
+  await page.route('**/api/metrics/storage/*', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[4] || '');
+    const range = url.searchParams.get('range') || '24h';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildStorageMetricHistory(ref, range)),
     });
   });
 
@@ -2293,22 +2868,14 @@ async function stubAuthenticatedRoutes(page) {
   };
 }
 
-test('login shell renders saved targets from the local API', async ({ page }) => {
-  await page.route('**/api/connections', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { id: 1, name: 'Production Pool', host: '10.0.0.1', username: 'root', port: 443, is_default: 1 },
-      ]),
-    });
-  });
-
+test('login shell renders the control-plane and direct xen entry points', async ({ page }) => {
   await page.goto('/');
 
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('heading', { name: 'XenMange' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Production Pool/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'XenMange Sign In' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Direct Xen Login' })).toBeVisible();
+  await expect(page.getByText('admin / admin123!')).toBeVisible();
 });
 
 test('demo button opens the dashboard with built-in mock infrastructure data', async ({ page }) => {
@@ -2334,6 +2901,7 @@ test('dashboard loads after login and shows aggregated metrics', async ({ page }
   await stubAuthenticatedRoutes(page);
   await page.goto('/');
 
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
   await page.getByLabel('Host Address').fill('10.0.0.1');
   await page.getByLabel('Username').fill('root');
   await page.getByLabel('Password').fill('secret');
@@ -2346,6 +2914,24 @@ test('dashboard loads after login and shows aggregated metrics', async ({ page }
   await expect(page.getByText('Capacity Watch')).toBeVisible();
   await expect(page.getByText('Capacity drift detected')).toBeVisible();
   await expect(page.getByText('db-01')).toBeVisible();
+});
+
+test('control-plane sign-in can attach a saved pool target from the pools workspace', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+  await page.goto('/');
+
+  await page.getByLabel('Username').fill('admin');
+  await page.getByLabel('Password').fill('admin123!');
+  await page.getByRole('button', { name: 'Sign In to XenMange' }).click();
+
+  await expect(page).toHaveURL(/\/pools$/);
+  await expect(page.getByText('Connect a registered pool target to load live topology.')).toBeVisible();
+  await page.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
+  await page.getByLabel('Pool Password').fill('secret');
+  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+
+  await expect(page.getByText('connected now')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Production Pool', { exact: true })).toBeVisible();
 });
 
 test('vm operations open a floating window and submit lifecycle actions', async ({ page }) => {
@@ -2493,6 +3079,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   });
 
   await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
   await page.getByLabel('Host Address').fill('10.0.0.1');
   await page.getByLabel('Username').fill('root');
   await page.getByLabel('Password').fill('secret');
@@ -2532,6 +3119,7 @@ test('pool and host registration flows live alongside the broader operator workb
   const fixtures = await stubAuthenticatedRoutes(page);
 
   await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
   await page.getByLabel('Host Address').fill('10.0.0.1');
   await page.getByLabel('Username').fill('root');
   await page.getByLabel('Password').fill('secret');
@@ -2628,7 +3216,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByText('Task Detail')).toBeVisible();
   await expect(page.getByText('Remediation Context')).toBeVisible();
   await expect(page.getByText('Cloud Operations', { exact: true })).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Due in 1d', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('2026-08-24', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open Source Alert' })).toBeVisible();
   await page.getByLabel('Status').selectOption('success');
   await page.getByLabel('Result / Closure Note').fill('Mitigation completed on Saturday, August 22, 2026.');
@@ -2711,6 +3299,8 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByText('Named owner accepts the remediation task.')).toBeVisible();
   await page.getByText('Capacity').first().click();
   await expect(page).toHaveURL(/\/capacity$/);
+  await expect(page.getByText('Telemetry Window', { exact: true })).toBeVisible();
+  await expect(page.getByText('Cluster Memory Trend', { exact: true })).toBeVisible();
   await expect(page.getByText('Staged Automation Queue')).toBeVisible();
   await expect(page.getByText('Due in 2d')).toBeVisible();
   await expect(page.getByText('2 evidence · 2 completion')).toBeVisible();
@@ -2729,6 +3319,14 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByText('Patch compliance scan')).toBeVisible();
   await page.getByRole('button', { name: 'Recent Changes' }).click();
   await expect(page.getByText('Saved template governance for 2026.08-lts')).toBeVisible();
+  await page.getByRole('button', { name: 'Log Center' }).click();
+  await expect(page.getByRole('button', { name: 'Auth Events' })).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Storage nearing threshold', { exact: true })).toBeVisible();
+  await page.locator('.data-table').getByText('Storage nearing threshold', { exact: true }).click();
+  await expect(page.getByText('Log Detail')).toBeVisible();
+  await expect(page.getByText('Raw Record')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open Origin Workspace' })).toBeVisible();
+  await page.locator('.floating-window .fw-close').first().click();
   await page.getByRole('button', { name: 'Audit Trail' }).click();
   await expect(page.getByText('Updated deployment validation for ubuntu-prod-01')).toBeVisible();
   await page.locator('.data-table').getByText('Updated deployment validation for ubuntu-prod-01', { exact: true }).click();
@@ -2783,6 +3381,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByText('Target Production Pool')).toBeVisible();
   await page.getByRole('button', { name: 'Open Target' }).click();
   await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByRole('button', { name: 'Direct Xen Login' })).toHaveClass(/btn-primary/);
   await expect(page.getByLabel('Host Address')).toHaveValue('10.0.0.1');
   await page.getByLabel('Password').fill('secret');
   await page.getByRole('button', { name: 'Initialize Connection' }).click();
@@ -2888,4 +3487,32 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.floating-window').last().locator('form').getByRole('button', { name: 'Log Drill' }).click();
   await expect.poll(() => fixtures.resilienceDrills[0]?.drillType || '').toBe('failover');
   await expect.poll(() => fixtures.resilienceDrills[0]?.summary || '').toBe('Failover run completed within the target envelope.');
+});
+
+test('settings workspace saves runtime configuration and previews retention', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Settings').first().click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByText('Configuration Plane')).toBeVisible();
+
+  await page.getByLabel('Application Name').fill('XenMange Ops');
+  await page.getByRole('button', { name: 'Save General Settings' }).click();
+  await expect(page.getByText('XenMange Ops')).toBeVisible();
+
+  await page.getByText('Authentication Events').click();
+  await expect(page.locator('.floating-window .fw-title').last()).toHaveText('Retention Policy');
+  await page.getByLabel('Retention Window (days)').fill('45');
+  await page.getByRole('button', { name: 'Save Retention Policy' }).click();
+  await expect(page.getByText('45 day window')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Preview This Domain' }).click();
+  await expect(page.getByText('1 record(s) would be purged.')).toBeVisible();
 });

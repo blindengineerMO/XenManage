@@ -23,6 +23,27 @@ const PoolsView = {
       </div>
 
       <div class="dashboard-panels">
+        <div class="dash-card" v-if="showConnectionGuidance">
+          <div class="dash-card-label">Control-Plane Session</div>
+          <div class="text-muted" style="line-height:1.6">
+            XenMange is signed in as <span class="mono">{{ store.user?.displayName || store.username || 'operator' }}</span>, but there is no live Xen target attached yet.
+            Connect one of the registered pool targets below to load live topology, host membership, and VM inventory into this workspace.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+            <button class="btn btn-primary"
+                    v-if="preferredConnection"
+                    @click="openConnectDialog(preferredConnection)">
+              <span class="mdi mdi-connection"></span>
+              Connect {{ preferredConnection.name || preferredConnection.host }}
+            </button>
+            <button class="btn" @click="openRegistration()">
+              <span class="mdi mdi-plus"></span>
+              Register Another Pool
+            </button>
+          </div>
+          <div class="form-error" v-if="liveDataError" style="text-align:left;margin-top:12px">{{ liveDataError }}</div>
+        </div>
+
         <div class="dash-card">
           <div class="dash-card-label">Registered Pool Targets</div>
           <div class="stack-list" v-if="connections.length">
@@ -33,10 +54,17 @@ const PoolsView = {
                 <div class="text-muted" style="font-size:12px;margin-top:6px">
                   {{ connection.is_default ? 'Default saved target' : 'Saved pool target' }}
                   <span v-if="isCurrentConnection(connection)"> · connected now</span>
+                  <span v-if="connection.vault_credential_id"> · vault credential linked</span>
                 </div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
                 <status-badge :status="isCurrentConnection(connection) ? 'connected' : (connection.is_default ? 'success' : 'notice')"></status-badge>
+                <button class="btn btn-sm"
+                        v-if="!isCurrentConnection(connection)"
+                        @click="openConnectDialog(connection)">
+                  <span class="mdi mdi-connection"></span>
+                  Connect
+                </button>
                 <button class="btn btn-sm" @click="openRegistration(connection)">
                   <span class="mdi mdi-pencil-outline"></span>
                 </button>
@@ -54,7 +82,12 @@ const PoolsView = {
         </div>
       </div>
 
-      <data-table :columns="columns" :data="pools" :loading="loading" :searchable="true" @row-click="openProperties">
+      <data-table v-if="pools.length"
+                  :columns="columns"
+                  :data="pools"
+                  :loading="loading"
+                  :searchable="true"
+                  @row-click="openProperties">
         <template #cell-name_label="{ row }">
           <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed Pool' }}</span>
         </template>
@@ -62,6 +95,10 @@ const PoolsView = {
           <span class="mono">{{ truncateList(row.tags) }}</span>
         </template>
       </data-table>
+      <div v-else class="empty-state" style="padding:24px 18px">
+        <div v-if="showConnectionGuidance">No live pool topology is available until a Xen target is connected for this session.</div>
+        <div v-else>No pools were returned by the currently attached Xen target.</div>
+      </div>
 
       <floating-window :show="showProps" title="Pool Properties" :width="820" :height="560" @close="showProps = false">
         <div v-if="selectedPool">
@@ -107,24 +144,79 @@ const PoolsView = {
                        @close="showRegistration = false">
         <pool-registration-form
           :initial-value="connectionDraft"
+          :credential-options="credentials"
           :submit-label="editingConnectionId ? 'Update Pool Target' : 'Save Pool Target'"
           @submit="submitConnection">
         </pool-registration-form>
+      </floating-window>
+
+      <floating-window :show="showConnectDialogWindow"
+                       title="Connect to Pool Target"
+                       :width="460"
+                       :height="360"
+                       @close="closeConnectDialog">
+        <form v-if="connectTarget" @submit.prevent="connectTargetSession">
+          <div class="property-grid" style="margin-bottom:18px">
+            <span class="text-muted">Pool Target</span><span>{{ connectTarget.name || '-' }}</span>
+            <span class="text-muted">Host</span><span class="mono property-wrap">{{ connectTarget.host || '-' }}</span>
+            <span class="text-muted">Username</span><span class="mono">{{ connectTarget.username || '-' }}</span>
+          </div>
+
+          <div class="form-group">
+            <label for="pool-connect-password">{{ useSavedCredential ? 'Vault Credential' : 'Pool Password' }}</label>
+            <label class="form-toggle" v-if="connectTarget.vault_credential_id" style="margin-bottom:12px">
+              <input type="checkbox" v-model="useSavedCredential">
+              <span>Use linked vault credential for this pool target</span>
+            </label>
+            <div v-if="useSavedCredential" class="empty-state" style="padding:12px 14px">
+              XenMange will resolve the linked vault credential server-side. No password will be sent back to the browser.
+            </div>
+            <input v-else
+                   id="pool-connect-password"
+                   class="form-input"
+                   v-model="connectPassword"
+                   type="password"
+                   autocomplete="current-password"
+                   placeholder="Password"
+                   required>
+          </div>
+
+          <div class="form-actions">
+            <button class="form-btn" type="submit" :disabled="connectLoading">
+              <span v-if="connectLoading" class="loading-spinner" style="margin-right:8px"></span>
+              {{ connectLoading ? 'Connecting...' : 'Connect to Pool' }}
+            </button>
+            <button class="form-btn form-btn-secondary" type="button" :disabled="connectLoading" @click="closeConnectDialog">
+              Cancel
+            </button>
+          </div>
+          <div class="login-meta-note">This attaches the selected Xen target to the current XenMange session without signing you out of the control plane.</div>
+          <div class="form-error" v-if="connectError">{{ connectError }}</div>
+        </form>
       </floating-window>
     </div>
   `,
   data() {
     return {
+      store,
       loading: true,
       pools: [],
       hosts: [],
       connections: [],
+      credentials: [],
       selectedPool: null,
       showProps: false,
       showRegistration: false,
       editingConnectionId: null,
       connectionDraft: null,
       connectionError: null,
+      liveDataError: null,
+      showConnectDialogWindow: false,
+      connectTarget: null,
+      connectPassword: '',
+      connectLoading: false,
+      connectError: null,
+      useSavedCredential: false,
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name' },
@@ -143,6 +235,12 @@ const PoolsView = {
     };
   },
   computed: {
+    showConnectionGuidance() {
+      return store.authenticated && !store.connected && !store.demoMode;
+    },
+    preferredConnection() {
+      return this.connections.find((connection) => connection.is_default) || this.connections[0] || null;
+    },
     selectedPoolHosts() {
       if (!this.selectedPool) return [];
 
@@ -176,15 +274,21 @@ const PoolsView = {
       return store.host === connection.host || store.host === connection.name;
     },
     async loadAll() {
-      await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections()]);
+      await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections(), this.loadCredentials()]);
     },
     async loadPools() {
       this.loading = true;
+      this.liveDataError = null;
       try {
         const result = await api.getPools();
         this.pools = result.data || [];
       } catch (error) {
-        console.error(error);
+        this.pools = [];
+        if (error.code === 'XEN_TARGET_NOT_CONNECTED') {
+          this.liveDataError = 'Connect a registered pool target to load live topology.';
+        } else {
+          this.liveDataError = error.message || 'Unable to load live pool topology';
+        }
       } finally {
         this.loading = false;
       }
@@ -203,6 +307,14 @@ const PoolsView = {
         this.connections = await api.getConnections();
       } catch (error) {
         this.connections = [];
+      }
+    },
+    async loadCredentials() {
+      try {
+        const result = await api.getCredentials();
+        this.credentials = result.data || [];
+      } catch (error) {
+        this.credentials = [];
       }
     },
     openProperties(row) {
@@ -278,6 +390,7 @@ const PoolsView = {
         name: '',
         host: '',
         username: 'root',
+        vault_credential_id: null,
         port: 443,
         is_default: false,
       };
@@ -311,6 +424,51 @@ const PoolsView = {
         await this.loadConnections();
       } catch (error) {
         this.connectionError = error.message || 'Unable to remove pool target';
+      }
+    },
+    openConnectDialog(connection) {
+      if (!connection) return;
+      this.connectTarget = { ...connection };
+      this.connectPassword = '';
+      this.connectError = null;
+      this.useSavedCredential = Boolean(connection.vault_credential_id);
+      this.showConnectDialogWindow = true;
+    },
+    closeConnectDialog() {
+      this.showConnectDialogWindow = false;
+      this.connectTarget = null;
+      this.connectPassword = '';
+      this.connectLoading = false;
+      this.connectError = null;
+      this.useSavedCredential = false;
+    },
+    async connectTargetSession() {
+      if (!this.connectTarget) return;
+
+      this.connectLoading = true;
+      this.connectError = null;
+
+      try {
+        const result = await api.xenLogin(
+          this.connectTarget.host,
+          this.connectTarget.username,
+          this.useSavedCredential ? '' : this.connectPassword,
+          { vaultCredentialId: this.useSavedCredential ? this.connectTarget.vault_credential_id : null }
+        );
+        store.authenticated = true;
+        store.connected = Boolean(result.connected);
+        store.demoMode = false;
+        store.host = result.host || this.connectTarget.host;
+        store.username = result.username || this.connectTarget.username;
+        store.authMode = result.authMode || store.authMode || 'local';
+        store.user = result.user || store.user;
+        store.governance = result.governance || store.governance;
+        this.closeConnectDialog();
+        await this.loadAll();
+      } catch (error) {
+        this.connectError = error.message || 'Unable to connect to the selected pool target';
+      } finally {
+        this.connectLoading = false;
       }
     },
   },

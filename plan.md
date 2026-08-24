@@ -375,6 +375,299 @@ XenMange/
 
 ---
 
+## Planned Major Initiatives — Research & Design (Not Yet Implemented)
+
+These ten items are researched and designed below, and several now have partial implementation status. As of Monday, August 24, 2026, the app does have an initial XenMange-level identity: `POST /api/auth/login` ([server/routes/auth.js](server/routes/auth.js)) now authenticates against `security.db`, seeds a bootstrap administrator, and creates a control-plane session that is separate from `POST /api/auth/xen-login` for live fabric attachment. Initiative 1 is still incomplete because user CRUD, group membership, per-user target ownership/visibility, and a true multi-target live connection registry are not finished yet, but the old hard coupling between "sign into the app" and "log directly into one Xen target" has now been broken.
+
+**Suggested build order:** 1 (Multi-User Access) → 6 (System Configuration) → 2 (Credential Vault) → 4 (Template Library) → 3 (VM Deployment System) → 7 (Retention) → 8 (Centralized Logs) → 10 (Performance Monitoring) → 5 (Storage Browser) → 9 (XenCenter parity, ongoing/parallel). 6 can also run in parallel with 1 since it touches unrelated config surface.
+
+### New Database Topology
+
+Four separate SQLite files, each opened by its own `better-sqlite3` handle following the exact `getDb()`/`initializeSchema()` pattern already used in [server/models/connection.js](server/models/connection.js). `better-sqlite3` handles multiple simultaneous file connections in one process natively, so no new dependency is required — just three new model modules (`server/models/security-db.js`, `server/models/vault-db.js`, `server/models/perf-db.js`) and three new `config.db.*Path` entries (env-overridable, same as the existing `DB_PATH`).
+
+| File | Owner module | Contents |
+|---|---|---|
+| `data/xenmange.db` (existing) | `connection.js` | Pools/hosts, templates, alerts, tasks, audit log, governance, lifecycle, resilience, template library, deployment runs, system settings, retention policies |
+| `data/security.db` (new) | `security-db.js` | Users, groups, group membership, roles/permissions, persistent session store, auth events, vault key-wrapping material |
+| `data/vault.db` (new) | `vault-db.js` | Encrypted credential blobs only (ciphertext, IV, auth tag) |
+| `data/perf.db` (new) | `perf-db.js` | Time-series metric samples + rollups |
+
+SQLite files are independent — there is no cross-file `FOREIGN KEY` enforcement, so every cross-database reference (e.g. a `vault.db` row's `owner_user_id` pointing at a `security.db` user) is an application-level soft reference, resolved in JS, not in SQL. `ATTACH DATABASE` could technically join across files but is deliberately avoided: it couples file lifecycles together and undermines the point of separating `security.db`/`vault.db` for blast-radius reduction. The one place this matters most is `security.db` and `vault.db` staying split for the Credential Vault (Initiative 2) — see below for why.
+
+---
+
+### 1. Multi-User Access
+
+**Design:** XenManage gets its own login (username/password against `security.db`), independent of any XenServer credential. Once authenticated, a user's dashboard is empty until they register pools/hosts (reusing/extending the existing `connections`/`host_targets` tables in `xenmange.db`, now with `owner_user_id` and `visibility` ('private'|'shared') columns); registering one triggers an inventory pass (existing `getAllRecords()` calls) exactly as today, just credential-driven instead of session-driven.
+
+**Expanded foundation shipped on Monday, August 24, 2026:** `security.db` now exists with the initial security/session schema, Express no longer depends on the default in-memory `MemoryStore`, Xen-target sessions can be rehydrated from a persisted Xen session ref after a Node process restart, and the control plane now has its own bootstrap-backed local login separate from Xen target attachment. The Pools workspace can also attach a saved pool target into an already-authenticated XenMange session. This still does **not** complete the multi-user initiative because user administration, groups, per-user ownership/visibility, and multi-target live concurrency are not implemented yet, but Initiative 1 is no longer just design work.
+
+- **`security.db` schema:**
+  ```sql
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    email TEXT,
+    role TEXT NOT NULL DEFAULT 'operator', -- read-only | operator | admin (extends governance.js roles)
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login_at DATETIME
+  );
+  CREATE TABLE groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+  CREATE TABLE group_members (group_id INTEGER, user_id INTEGER, PRIMARY KEY (group_id, user_id));
+  CREATE TABLE sessions (sid TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL);
+  CREATE TABLE auth_events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, event TEXT, ip TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+  ```
+- **Session store:** replace the default Express `MemoryStore` with a small custom `express-session` `Store` subclass backed by the `sessions` table above (`server/middleware/session-store.js`). This is the pragmatic choice over pulling in `connect-sqlite3` — the project already prefers hand-rolled `better-sqlite3` models over ORMs/wrappers, and a ~40-line store is easy to audit. This also fixes a real latent bug: today all sessions vanish on process restart.
+- **Connection registry becomes per-user, multi-target:** `setConnection(sessionId, xenApi)` is a single slot today. It needs to become a map keyed by `(userId, connectionId)` so a user can have several pools/hosts live at once (the existing Inventory workbench already federates across saved targets — this closes the gap called out in roadmap item 8, "true multi-connection live federation").
+- **RBAC:** promote the existing session-scoped `governanceRole` (currently switchable ad hoc in `governance.js`/`GovernanceView.js`) to a persisted `users.role`, with group-based scoping added as a later phase (e.g. a group can be restricted to a subset of pools). Existing `ensureMutationAllowed()` middleware needs almost no change — swap its `req.session.governanceRole` read for a `req.session.userId` → `security.db` lookup.
+- **Password hashing:** `bcryptjs` (pure JS, no native build step — avoids stacking a second native addon on top of `better-sqlite3`, which already needs `allowScripts` in `package.json`).
+- **Login flow change:** `POST /api/auth/login` now issues the XenMange app session, and `POST /api/auth/xen-login` attaches a live Xen target to that session (or creates a legacy direct-Xen session when no control-plane login exists yet). The remaining planned evolution is to let `POST /api/pools`/`POST /api/host-targets` complete that attach flow via credential references from the Vault (Initiative 2) instead of raw passwords.
+
+---
+
+### 2. Credential Vault
+
+**Design:** Envelope encryption, split across `vault.db` (ciphertext) and `security.db` (key material) so neither file alone is decryptable — this is what "private keys are stored in security.db, not the vault" means in practice: the vault never holds anything that alone unlocks its own contents.
+
+**Foundation shipped on Monday, August 24, 2026:** `vault.db` now exists with encrypted credential storage, `security.db` now stores wrapped DEKs in `vault_key_material`, and authenticated local XenMange users can CRUD private/shared credential metadata through `/api/credentials` without plaintext passwords being returned to the browser. The remaining work for Initiative 2 is deeper integration into the pool/host registration flows, credential selection UX, key rotation ergonomics, and production-hardening around explicit operator-visible vault management.
+
+- **Flow:** a master key comes from `VAULT_ENCRYPTION_KEY` (32-byte, base64, required env var — fail fast at boot once this feature ships, no default). Each credential gets its own random Data Encryption Key (DEK). The DEK is wrapped (AES-256-GCM) with the master key and stored in `security.db`; the credential's username/password is encrypted (AES-256-GCM) with the unwrapped DEK and stored in `vault.db`. Node's built-in `crypto` module covers this — no new dependency.
+  ```sql
+  -- security.db
+  CREATE TABLE vault_key_material (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wrapped_dek BLOB NOT NULL,
+    wrap_iv BLOB NOT NULL,
+    wrap_auth_tag BLOB NOT NULL,
+    key_version INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- vault.db
+  CREATE TABLE credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,       -- soft ref -> security.db users.id
+    scope TEXT NOT NULL DEFAULT 'private', -- private | shared (everyone, per spec)
+    target_type TEXT NOT NULL,             -- pool | host
+    target_hint TEXT,                      -- optional label, e.g. hostname
+    name TEXT NOT NULL,
+    username TEXT NOT NULL,
+    encrypted_password BLOB NOT NULL,
+    enc_iv BLOB NOT NULL,
+    enc_auth_tag BLOB NOT NULL,
+    dek_key_id INTEGER NOT NULL,           -- soft ref -> security.db vault_key_material.id
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    last_used_at DATETIME,
+    last_used_by INTEGER
+  );
+  ```
+- **Key rotation:** support an optional `VAULT_ENCRYPTION_KEY_PREVIOUS` env var. On decrypt, try the current key, fall back to the previous one; on any successful decrypt-with-previous, opportunistically re-wrap the DEK under the current key and bump `key_version`. This gives a rotation window without a bulk offline migration step.
+- **Access rules:** `private` credentials are visible only to `owner_user_id`; `shared` credentials are visible to every authenticated user (per spec — literally "everyone", not group-scoped; group-scoped sharing is a reasonable "Next" once Initiative 1's groups exist). Plaintext passwords are only ever decrypted server-side at the moment of establishing a pool/host connection and are never sent to the client, logged, or written into the audit trail (audit entries reference the credential by id/name only).
+- **Integration point:** the "add pool/host" flow from Initiative 1 gains a "use saved credential" option that passes a `vaultCredentialId` instead of a raw password; `server/services/xenapi.js`'s `login()` resolves it server-side.
+
+---
+
+### 3. Virtual Machine Deployment System (JSON "Compose" Templates)
+
+**Design:** a JSON schema that mirrors `docker-compose.yml`'s shape (top-level metadata, a map of named resources, cross-references, dependency ordering) but whose fields map directly onto XenAPI's actual create calls (`VM.create`, `VIF.create`, `VBD.create`+`VDI.create`, confirmed against current XenServer 8.4 API docs) rather than container concepts. Executed by a new orchestration service, not the client — the client only authors/validates the JSON (via Initiative 4's editor) and triggers a run.
+
+- **Schema sketch:**
+  ```json
+  {
+    "version": "1",
+    "name": "three-tier-app",
+    "variables": { "hostnamePrefix": "app01", "diskSizeGb": 40 },
+    "networks": { "front": { "ref": "network-uuid-or-name" } },
+    "storageRepositories": { "primary": { "ref": "sr-uuid-or-name" } },
+    "vms": {
+      "db": {
+        "template": "Ubuntu 22.04",
+        "nameLabel": "${hostnamePrefix}-db",
+        "memoryStaticMax": 4294967296,
+        "memoryDynamicMin": 2147483648,
+        "memoryDynamicMax": 4294967296,
+        "vcpusAtStartup": 2,
+        "vcpusMax": 4,
+        "affinity": "host-uuid",
+        "disks": [{ "sr": "primary", "sizeGb": "${diskSizeGb}", "bootable": true, "mode": "RW" }],
+        "networkInterfaces": [{ "network": "front", "device": "0" }],
+        "otherConfig": { "gov.golden-image": "true" },
+        "xenstoreData": { "vm-data/cloud-init": "..." },
+        "tags": ["tier:db"]
+      },
+      "app": {
+        "template": "Ubuntu 22.04",
+        "nameLabel": "${hostnamePrefix}-app",
+        "dependsOn": ["db"],
+        "...": "same field surface as above"
+      }
+    }
+  }
+  ```
+- **Execution engine (`server/services/deployment-engine.js`):**
+  1. Validate against a Joi schema (matches existing `middleware/validate.js` convention).
+  2. Resolve `${variable}` interpolation.
+  3. Resolve named refs (`network`/`sr`/`template` names → live XenAPI refs against the *target* pool — the same template name can resolve differently per pool, which is why resolution happens at run time, not authoring time).
+  4. Topologically sort `vms` by `dependsOn`, reject cycles.
+  5. Per VM: clone from template (`VM.clone` for CoW speed, or `VM.create` from scratch if `template` is omitted) → set memory/VCPU fields → `VIF.create` per interface → `VDI.create`+`VBD.create` per disk → set `other_config`/`xenstore_data` → `VM.provision` → `VM.start`.
+  6. Persist a `deployment_runs` + `deployment_run_steps` pair in `xenmange.db` (one row per VM, status/error/ref), surfaced through the existing Activity workbench pattern (async `Task`-style polling, matching how Xen background tasks are already merged with remediation tasks there).
+- **Dry-run mode:** resolve refs and print the execution plan without calling any `create`/`start` method — mirrors `docker compose config`, catches bad refs/quota violations (existing `governance.js` quota checks apply here too) before anything is provisioned.
+- **Governance tie-in:** deployment runs go through `ensureMutationAllowed()` like every other mutation, and pool quota enforcement (already shipped in Governance) applies per VM in the plan, not just at submission.
+
+---
+
+### 4. Template Library (Monaco-Based Editor + Explorer)
+
+**Design:** a self-hosted Monaco Editor (no CDN — the app's CSP is `script-src 'self'` with no external script hosts, so `monaco-editor` ships as a vendor asset copied by [scripts/build-client.js](scripts/build-client.js), the same way `vue`/`vue-router`/`@mdi` are copied today) plus a VS Code-style explorer panel for organizing both deployment templates (Initiative 3) and free-form guest-customization scripts.
+
+- **CSP change required:** Monaco's language workers load via `blob:` Web Workers, which isn't covered by the current [server/middleware/security.js](server/middleware/security.js) directive set (no `worker-src` is declared, and browsers do **not** fall back to `script-src` for workers in all cases). Add `worker-src: ["'self'", "blob:"]` explicitly. Use Monaco's ESM build (not the classic AMD loader) to avoid needing `'unsafe-eval'` in `script-src`.
+- **Explorer UI:** a floating window (reuses [FloatingWindow.js](client/assets/js/components/dialogs/FloatingWindow.js)), toggled by a toolbar icon in the editor, with an expandable folder tree. New `client/assets/js/components/controls/ContextMenu.js` (no such component exists yet — `DataTable.js`/`FloatingWindow.js` are the closest existing patterns to follow) supplies the right-click menu for New Folder / New Script / Rename / Move / Delete.
+- **`xenmange.db` schema:**
+  ```sql
+  CREATE TABLE template_library_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id INTEGER REFERENCES template_library_folders(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    owner_user_id INTEGER,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE template_library_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    folder_id INTEGER REFERENCES template_library_folders(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,          -- deployment-template | guest-script | snippet
+    name TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'json',
+    content TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    owner_user_id INTEGER,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME
+  );
+  CREATE TABLE template_library_item_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES template_library_items(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    saved_by INTEGER,
+    saved_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  ```
+- **Server:** `server/routes/template-library.js` + `server/services/template-library.js` — CRUD, `POST /:id/move`, tree-fetch endpoint, all wired through the existing `ensureMutationAllowed()`/`auditLogService.record()` pattern seen in [server/routes/api.js](server/routes/api.js).
+- **JSON schema validation in-editor:** register the Initiative 3 deployment-template JSON schema with Monaco's built-in `jsonDefaults.setDiagnosticsOptions` for live inline validation/autocomplete while authoring — a natural fit given Monaco already ships this feature.
+
+---
+
+### 5. Storage Browser
+
+**Research finding (important scope constraint):** XenServer's storage model is not file-oriented the way VMware VMFS/NFS datastores are. Most SR types (LVM, ext, block-backed) store VDIs as opaque VHD-chain or raw block objects — there is no arbitrary filesystem inside them to browse. The one SR type that genuinely is a file share is `content_type: 'iso'` (typically NFS/SMB/CIFS-backed ISO libraries), because XAPI just mounts the export as a filesystem. A true "Datastore Browser" can only be built honestly for that SR type; for everything else, the right analog is a VDI-object browser, not a file browser.
+
+- **ISO/file SRs:** read the SR's `device_config` (`server`/`serverpath` for NFS, or SMB equivalent) to learn the export, and have the XenManage server mount/access that same share directly (it must already be network-reachable, since it's the same export XenServer uses) rather than proxying file operations through host shell access — avoids needing SSH/shell trust on the XenServer host. Endpoints: list, `mkdir`, upload (`multer`, streamed to the mount), download (streamed response), move/rename, delete. All path operations must resolve within the SR's mount root and reject `..`/absolute-path escapes (classic path-traversal guard) before touching the filesystem.
+- **Block/VDI SRs:** an object browser instead — list VDIs with size/utilization/snapshot lineage (this already has a head start: the existing `/storage` workspace's VDI-to-VBD-to-VM relationship pane from roadmap item 10), plus VDI-level operations: create, resize, delete, clone/snapshot, and "attach as CD" for ISOs pulled from an ISO SR.
+- **Config surface:** upload size/type limits belong in System Configuration (Initiative 6); destructive delete goes through the same `ensureMutationAllowed({ destructive: true })` approval gate already used elsewhere.
+
+---
+
+### 6. System Configuration View
+
+**Design:** mostly a UI layer over infrastructure that already exists — the generic `settingsModel` key/value table in [server/models/connection.js](server/models/connection.js) — rather than a new table. A new `/settings` view with collapsible sections (reusing the existing GlassCard styling), each section backed by a namespaced key convention (`system.timezone`, `net.publicBaseUrl`, `net.trustProxy`, `security.sessionMaxAgeMs`, `logging.level`, plus a `retention.*` namespace feeding Initiative 7).
+
+**Shipped on Monday, August 24, 2026:** a dedicated `/settings` workspace now exists with persisted General, Network, Security, Logging, and Retention Runtime sections backed by `settingsModel`, plus live runtime application for `net.trustProxy` and `security.sessionMaxAgeMs`. The UI also now surfaces which settings apply live versus which remain restart-sensitive (`server.port`, current auth throttle settings), and all section saves are validated and audited through `server/routes/system-config.js`.
+
+- **Sections:** General (app name, timezone — used for consistent timestamp rendering app-wide), Network/URL (public base URL, Trust Proxy toggle wired to Express's `app.set('trust proxy', ...)`, notes for Traefik/reverse-proxy headers), Security (session timeout, password/lockout policy, vault key-rotation status readout from Initiative 2), Logging (level, structured/JSON toggle), Retention (delegates to Initiative 7's policy table).
+- **Runtime vs. restart-required:** values like log level or trust-proxy can apply live via an in-memory config-override layer read per-request; `PORT` cannot change without a process restart (it's read once at boot in [server/config.js](server/config.js)) — the UI must flag that explicitly rather than silently no-op.
+- **Server:** `server/routes/system-config.js` + `server/services/system-config.js` wrapping `settingsModel` with per-key Joi validation and change auditing (same pattern as every other settings-touching route today).
+
+---
+
+### 7. Log & Data Retention / Automatic Cleanup
+
+**Design:** a generic sweep mechanism, not one bespoke cleanup routine per data type. A `retention_policies` table (`xenmange.db`) defines a retention window per domain; a single scheduler runs all enabled policies on an interval.
+
+**Shipped on Monday, August 24, 2026:** `xenmange.db` now includes a real `retention_policies` table, `server/services/retention.js` now seeds and manages persisted policy rows, and the Settings workspace can preview and run retention sweeps manually. The first retention domains are `audit-log`, `remediation-tasks`, and `auth-events`; terminal remediation tasks are purged safely, open tasks are retained, `security.db` auth events are swept from their own database handle, and each completed sweep writes an audit summary entry. The executor also runs `VACUUM` when configured so disk usage does not silently drift upward after purges.
+
+  ```sql
+  CREATE TABLE retention_policies (
+    domain TEXT PRIMARY KEY,   -- audit_log | alerts | remediation_tasks | perf_samples | vault_access_log | ...
+    retention_days INTEGER NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    last_run_at DATETIME,
+    last_purged_count INTEGER
+  );
+  ```
+- **Executor (`server/services/retention.js`):** `runRetentionSweep()` iterates enabled policies, runs a parameterized `DELETE ... WHERE created_at < ?` against an indexed timestamp column per domain, and — critically — only targets **closed/terminal-state** rows (e.g. a remediation task must be `closed`, not merely old, before it's purged; an open lifecycle plan is never swept regardless of age). Scheduling uses a plain `setInterval` at startup (no new dependency needed for a daily sweep — matches the project's minimal-dependency posture) plus a manual "Run Now" with a dry-run row-count preview in the System Configuration Retention section.
+- **Housekeeping detail worth flagging now:** none of the `better-sqlite3` databases currently enable `PRAGMA auto_vacuum`, so `DELETE`s don't shrink the file on disk. The sweep should periodically `VACUUM` (or `PRAGMA incremental_vacuum` if `auto_vacuum` is set at db-creation time for the new databases) or file growth will silently continue despite the sweep "working."
+- Every sweep writes one audit-log summary entry (domain, cutoff date, rows purged) for traceability.
+
+---
+
+### 8. Centralized Searchable Logs + Export
+
+**Design:** a federated read layer over existing sources rather than a duplicate log table — the codebase already has this exact pattern in `InventoryView.js`/its server-side aggregation across pools/templates/VMs/hosts/etc., so `server/services/log-center.js` follows suit: query `audit_log` (`xenmange.db`), the new `auth_events` (`security.db`, Initiative 1), Xen task history (existing `tasks.js`), and alert history (existing `alerts.js`), normalize each into `{ id, source, category, timestamp, actor, entityType, entityRef, message, severity, raw }`, then merge/filter/sort/paginate in JS.
+
+**Shipped on Monday, August 24, 2026:** `server/services/log-center.js` now federates audit-log entries, `security.db` auth events, Xen task history, remediation tasks, and derived alert records into a single normalized `/api/logs` feed. The `/activity` workspace now exposes that feed through a dedicated Log Center mode with source filters, table selection, and drill-down detail, while `POST /api/logs/export` supports audited JSON, HTML, and `pdfkit`-backed PDF exports through a printable EJS report template.
+
+- **Why not `ATTACH DATABASE` for a single SQL query:** it would couple `xenmange.db` and `security.db`'s lifecycles and file-permission models together, undermining the isolation Initiative 1/2 are deliberately introducing. An application-level merge keeps `security.db` readable only by the process, on its own connection, with its own file permissions.
+- **Selection + export:** client-side multi-select (extends `DataTable.js`'s existing selection affordances) → `POST /api/logs/export { ids, format }`. JSON is a direct serialize. HTML reuses the existing EJS rendering path ([server/views](server/views)) with a printable report template. PDF needs one new dependency: `pdfkit` (pure JS, no native binary/browser dependency, unlike Puppeteer) is the pragmatic choice for a tabular report; if richer HTML-fidelity PDF rendering is wanted later, headless-Chromium-based rendering is the documented upgrade path, not the default.
+- Exporting logs is itself gated to operator/admin and is itself an audited action.
+
+---
+
+### 9. Tighter XenServer Functionality (XenCenter Parity)
+
+**Design note:** this is a coverage initiative, not a single subsystem — track it as a living parity matrix (class × operation × status) appended to this plan, updated as each gap closes, rather than one monolithic deliverable. Concrete gaps identified against the current API surface (confirmed current as of XenServer 8.4 docs) and today's forms (`VMConfigForm.js`, `VMDeviceForm.js`, `HostRegistrationForm.js`, `PoolRegistrationForm.js`):
+
+- **VM:** snapshot/checkpoint create+revert+delete, export/import (`.xva`), `VM.clone` vs `VM.copy` (CoW vs full cross-SR copy), cross-host/pool live migration (XenMotion) with explicit storage-target mapping, CPU feature-masking for mixed-hardware pool compatibility, and **console access** — XAPI exposes a `console` record with a session-authenticated proxy URL; a server-side WebSocket/HTTP proxy to that URL would be a genuinely high-value, currently-missing capability (real in-browser VNC/RDP-equivalent console).
+- **Host:** maintenance-mode entry/exit that actually executes VM evacuation (today's Lifecycle workbench only plans/derives it), reboot/shutdown, PIF/bond/VLAN creation (today's `/networking` relationship pane is read-only per roadmap item 9), multipathing config.
+- **Pool:** HA enable/configure (heartbeat SR, restart priorities — today only intent is displayed, per roadmap item 6), pool join/eject, patch/update management.
+- **Storage:** SR create/destroy across all supported types, resize/rescan.
+- **Network:** create/destroy networks, VLAN/bond creation, MTU config, per-VIF QoS.
+
+---
+
+### 10. Resource Performance Monitoring (`perf.db`)
+
+**Design:** poll XenServer's existing RRD endpoints (`/host_rrd`, `/vm_rrd`, `/rrd_updates`, already noted at the top of this plan as available but currently unused for history — this is exactly the gap the Capacity roadmap item already calls out as "Next") and persist normalized samples.
+
+**Foundation shipped on Monday, August 24, 2026:** `perf.db` now exists with a dedicated `metric_samples` table plus lookup indexes, and `server/services/metrics-history.js` now captures persisted host-memory, VM-memory, and SR-utilization snapshots from the live Xen session into that store. The new `/api/metrics/cluster`, `/api/metrics/hosts/:ref`, `/api/metrics/vms/:ref`, `/api/metrics/storage/:ref`, and `/api/metrics/collect` routes expose that history, while the Capacity workspace and Host/VM detail panes now render persisted trend cards over selectable time windows instead of relying only on one-off live metrics calls. This does **not** complete the full roadmap item yet because the background RRD collector, long-term rollups, and alert-threshold integration are still outstanding.
+
+  ```sql
+  -- perf.db
+  CREATE TABLE metric_samples (
+    entity_type TEXT NOT NULL,   -- host | vm | sr | pif | vbd
+    entity_ref TEXT NOT NULL,
+    metric_name TEXT NOT NULL,   -- cpu_usage, memory_free, network_tx, disk_iops, ...
+    ts INTEGER NOT NULL,
+    value REAL NOT NULL
+  );
+  CREATE INDEX idx_metric_lookup ON metric_samples (entity_type, entity_ref, metric_name, ts);
+  ```
+- **Collector (`server/services/metrics-collector.js`):** polls `rrd_updates` per connected pool/host on an interval (default 60s, configurable in Initiative 6's System Configuration), using the delta `start` param so each poll only pulls new points. Enable WAL + `PRAGMA synchronous = NORMAL` on `perf.db` for write throughput given the insert volume.
+- **Retention/rollup:** raw samples kept short (e.g. 7 days) with hourly-rollup aggregates kept longer (e.g. 90 days) — a dedicated domain in Initiative 7's `retention_policies`, not a separate mechanism.
+- **Client:** extends `CapacityView.js` and the existing host/VM property floating windows with real Chart.js time-series graphs (CPU%, memory, network tx/rx/errors, storage IOPS/latency) and a time-range picker (1h/6h/24h/7d/30d) against a new `server/routes/metrics.js`.
+- **Alerting tie-in:** threshold breaches on stored samples feed the existing `alerts.js` service directly — reuses the shipped Alerts Center instead of building a second notification path.
+
+---
+
+### Planned New Dependencies & Config
+
+| Type | Name | Used by |
+|---|---|---|
+| dependency | `bcryptjs` | Initiative 1 (password hashing, pure JS to avoid a second native addon) |
+| dependency | `multer` | Initiative 5 (file upload streaming) |
+| dependency | `pdfkit` | Initiative 8 (PDF export) |
+| devDependency (vendor asset) | `monaco-editor` | Initiative 4 (self-hosted, copied by `build-client.js`) |
+| env var | `SECURITY_DB_PATH`, `VAULT_DB_PATH`, `PERF_DB_PATH` | New database file locations |
+| env var | `VAULT_ENCRYPTION_KEY` (required once shipped), `VAULT_ENCRYPTION_KEY_PREVIOUS` (optional, rotation window) | Initiative 2 |
+| CSP change | `worker-src: ["'self'", "blob:"]` | Initiative 4 (Monaco workers) — [server/middleware/security.js](server/middleware/security.js) |
+
+---
+
 ## Key Design Decisions
 
 ### API-First Architecture
@@ -443,9 +736,9 @@ XenMange/
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Foundation | 🟨 In Progress | Local build pipeline, CSP-safe asset delivery, and generated project-owned background art added |
-| Phase 2: API Integration | 🟨 In Progress | Core auth/resource routes implemented; connection validation/defaulting, template inventory access, task/activity data, alert/lifecycle/governance state persistence, remediation task and remediation template creation/listing/updating, alert policy and bulk-triage endpoints, quota enforcement, approval gating, and resilience synthesis endpoint added |
-| Phase 3: UI Core | 🟨 In Progress | Floating windows, saved targets, live inventory tree, SSR auth bootstrap, stronger visual shell layering, and modular client source extraction into core/components/views/forms added |
+| Phase 1: Foundation | 🟨 In Progress | Local build pipeline, CSP-safe asset delivery, generated project-owned background art, and SQLite-backed durable session storage added |
+| Phase 2: API Integration | 🟨 In Progress | Core auth/resource routes implemented; connection validation/defaulting, template inventory access, task/activity data, centralized log aggregation/export, persisted metrics history APIs, alert/lifecycle/governance state persistence, remediation task and remediation template creation/listing/updating, alert policy and bulk-triage endpoints, quota enforcement, approval gating, resilience synthesis, and audited system-settings/retention endpoints added |
+| Phase 3: UI Core | 🟨 In Progress | Floating windows, saved targets, live inventory tree, SSR auth bootstrap, stronger visual shell layering, modular client source extraction into core/components/views/forms, a dedicated Settings workspace, the Activity log-center mode, and reusable telemetry trend cards added |
 | Phase 4: Dashboard | 🟨 In Progress | Summary drag/reorder support, operational panels, alert triage, recent task visibility, governance role surfacing, and dashboard action rails into capacity/activity/templates/alerts added |
-| Phase 5: Resource Views | 🟨 In Progress | Pools view, templates view, inventory/alerts/activity/governance/lifecycle/capacity/resilience workbenches, API-backed governance/alert policy/lifecycle planning, bulk alert triage, remediation task creation/management plus reusable templates, task-level automation staging for evidence/completion criteria, exact-record deep linking, inventory subobject indexing for VDI/VBD/VIF/PIF, and richer host/storage/network floating windows added |
-| Phase 6: Polish & Testing | 🟨 In Progress | Client bundle, 107 unit tests, and the end-to-end operator workbench flow all pass; client component unit depth and broader operational route coverage still remain |
+| Phase 5: Resource Views | 🟨 In Progress | Pools view, templates view, inventory/alerts/activity/governance/lifecycle/capacity/resilience workbenches, API-backed governance/alert policy/lifecycle planning, centralized log exports, persisted capacity/history views for cluster-host-vm-storage telemetry, bulk alert triage, remediation task creation/management plus reusable templates, task-level automation staging for evidence/completion criteria, exact-record deep linking, inventory subobject indexing for VDI/VBD/VIF/PIF, and richer host/storage/network floating windows added |
+| Phase 6: Polish & Testing | 🟨 In Progress | Client bundle, 137 Jest tests, and all 6 Playwright end-to-end operator flows pass; client component unit depth and broader operational route coverage still remain |

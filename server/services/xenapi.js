@@ -334,8 +334,24 @@ function getConnection(sessionId) {
   return connections.get(sessionId);
 }
 
+function rehydrateConnection(sessionId, host, sessionRef) {
+  if (!sessionId || !host || !sessionRef) return null;
+
+  const api = new XenAPI(host);
+  api.sessionRef = sessionRef;
+  connections.set(sessionId, api);
+  return api;
+}
+
 function setConnection(sessionId, api) {
   connections.set(sessionId, api);
+}
+
+function clearConnections() {
+  for (const api of connections.values()) {
+    api.logout?.().catch?.(() => {});
+  }
+  connections.clear();
 }
 
 function removeConnection(sessionId) {
@@ -346,4 +362,4 @@ function removeConnection(sessionId) {
   }
 }
 
-module.exports = { XenAPI, getConnection, setConnection, removeConnection };
+module.exports = { XenAPI, getConnection, rehydrateConnection, setConnection, clearConnections, removeConnection };

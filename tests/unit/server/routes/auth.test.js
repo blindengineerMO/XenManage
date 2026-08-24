@@ -1,5 +1,6 @@
 const http = require('http');
 const app = require('../../../../server/index');
+const { clearConnections } = require('../../../../server/services/xenapi');
 
 jest.mock('../../../../server/services/xenapi', () => {
   const actual = jest.requireActual('../../../../server/services/xenapi');
@@ -38,6 +39,10 @@ describe('Auth Routes', () => {
   let server;
   let port;
 
+  beforeEach(() => {
+    clearConnections();
+  });
+
   beforeAll((done) => {
     server = app.listen(0, () => {
       port = server.address().port;
@@ -48,6 +53,22 @@ describe('Auth Routes', () => {
   afterAll((done) => {
     server.close(done);
   });
+
+  function appLogin(cookie) {
+    return request('POST', '/api/auth/login', {
+      username: 'admin',
+      password: 'admin123!',
+    }, cookie);
+  }
+
+  function xenLogin(cookie, overrides = {}) {
+    return request('POST', '/api/auth/xen-login', {
+      host: '192.168.1.100',
+      username: 'root',
+      password: 'pass',
+      ...overrides,
+    }, cookie);
+  }
 
   function request(method, path, body, cookie) {
     return new Promise((resolve, reject) => {
@@ -90,6 +111,7 @@ describe('Auth Routes', () => {
       const res = await request('GET', '/api/auth/status');
       expect(res.status).toBe(200);
       expect(res.body.authenticated).toBe(false);
+      expect(res.body.connected).toBe(false);
     });
   });
 
@@ -102,21 +124,21 @@ describe('Auth Routes', () => {
 
     it('should reject invalid credentials', async () => {
       const res = await request('POST', '/api/auth/login', {
-        host: '192.168.1.100',
-        username: 'root',
+        username: 'admin',
         password: 'fail',
       });
       expect(res.status).toBe(401);
     });
 
-    it('should return success with valid credentials', async () => {
-      const res = await request('POST', '/api/auth/login', {
-        host: '192.168.1.100',
-        username: 'root',
-        password: 'pass',
-      });
+    it('should return success with valid local credentials', async () => {
+      const res = await appLogin();
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.authMode).toBe('local');
+      expect(res.body.user).toEqual(expect.objectContaining({
+        username: 'admin',
+      }));
       expect(res.body.governance).toEqual(expect.objectContaining({
         currentRole: expect.any(String),
         policy: expect.any(Object),
@@ -124,29 +146,85 @@ describe('Auth Routes', () => {
       expect(res.cookie).toBeDefined();
     });
 
-    it('should show authenticated status after login', async () => {
-      // Login first
-      const login = await request('POST', '/api/auth/login', {
-        host: '192.168.1.100',
-        username: 'root',
-        password: 'pass',
-      });
+    it('should show authenticated local status after login', async () => {
+      const login = await appLogin();
       const status = await request('GET', '/api/auth/status', null, login.cookie);
       expect(status.status).toBe(200);
       expect(status.body.authenticated).toBe(true);
-      expect(status.body.host).toBe('192.168.1.100');
+      expect(status.body.connected).toBe(false);
+      expect(status.body.host).toBe('');
+      expect(status.body.username).toBe('admin');
       expect(status.body.governance).toEqual(expect.objectContaining({
         currentRole: expect.any(String),
         policy: expect.any(Object),
       }));
     });
 
-    it('should access protected routes after login', async () => {
-      const login = await request('POST', '/api/auth/login', {
-        host: '192.168.1.100',
-        username: 'root',
-        password: 'pass',
-      });
+    it('should access control-plane routes after local login', async () => {
+      const login = await appLogin();
+      const audit = await request('GET', '/api/audit', null, login.cookie);
+      expect(audit.status).toBe(200);
+    });
+  });
+
+  describe('POST /api/auth/xen-login', () => {
+    it('should reject missing fields', async () => {
+      const res = await request('POST', '/api/auth/xen-login', {});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('VALIDATION_ERROR');
+    });
+
+    it('should reject invalid xen credentials', async () => {
+      const res = await xenLogin(null, { password: 'fail' });
+      expect(res.status).toBe(401);
+    });
+
+    it('should return success with valid xen credentials', async () => {
+      const res = await xenLogin();
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.host).toBe('192.168.1.100');
+      expect(res.body.username).toBe('root');
+      expect(res.body.governance).toEqual(expect.objectContaining({
+        currentRole: expect.any(String),
+        policy: expect.any(Object),
+      }));
+      expect(res.cookie).toBeDefined();
+    });
+
+    it('should show authenticated xen status after login', async () => {
+      const login = await xenLogin();
+      const status = await request('GET', '/api/auth/status', null, login.cookie);
+      expect(status.status).toBe(200);
+      expect(status.body.authenticated).toBe(true);
+      expect(status.body.connected).toBe(true);
+      expect(status.body.host).toBe('192.168.1.100');
+      expect(status.body.username).toBe('root');
+    });
+
+    it('should access xen-backed routes after xen login', async () => {
+      const login = await xenLogin();
+      const dash = await request('GET', '/api/dashboard', null, login.cookie);
+      expect(dash.status).toBe(200);
+    });
+
+    it('should attach a xen target to an existing local app session', async () => {
+      const local = await appLogin();
+      const xen = await xenLogin(local.cookie);
+      expect(xen.status).toBe(200);
+      expect(xen.body.connected).toBe(true);
+      expect(xen.body.user).toEqual(expect.objectContaining({
+        username: 'admin',
+      }));
+      expect(xen.body.username).toBe('admin');
+    });
+
+    it('should rehydrate a Xen connection from session data when in-memory state is lost', async () => {
+      const login = await xenLogin();
+
+      clearConnections();
+
       const dash = await request('GET', '/api/dashboard', null, login.cookie);
       expect(dash.status).toBe(200);
     });

@@ -21,8 +21,8 @@ const TopNav = {
           {{ roleLabel }}
         </button>
         <div class="topnav-status">
-          <span class="dot" :class="{ disconnected: !store.authenticated }"></span>
-          <span>{{ store.authenticated ? store.host : 'Disconnected' }}</span>
+          <span class="dot" :class="{ disconnected: !store.connected }"></span>
+          <span>{{ connectionLabel }}</span>
         </div>
         <button class="btn btn-sm" v-if="store.authenticated" @click="handleLogout">
           <span class="mdi mdi-logout"></span>
@@ -59,6 +59,12 @@ const TopNav = {
       if (value === 'operator') return 'Operator';
       return 'Admin';
     });
+    const connectionLabel = computed(() => {
+      if (!store.authenticated) return 'Disconnected';
+      if (store.demoMode) return 'Demo Fabric';
+      if (store.connected) return store.host || 'Connected';
+      return 'No Xen target';
+    });
 
     const handleLogout = async () => {
       try {
@@ -68,9 +74,12 @@ const TopNav = {
       }
 
       store.authenticated = false;
+      store.connected = false;
       store.demoMode = false;
       store.host = '';
       store.username = '';
+      store.authMode = 'local';
+      store.user = null;
       store.governance = {
         currentRole: 'admin',
         policy: {
@@ -82,6 +91,6 @@ const TopNav = {
       router.push('/login');
     };
 
-    return { currentPage, handleLogout, roleLabel, router, store };
+    return { connectionLabel, currentPage, handleLogout, roleLabel, router, store };
   },
 };
