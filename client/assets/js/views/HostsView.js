@@ -34,13 +34,17 @@ const HostsView = {
                   {{ target.mode === 'pool-member' ? `Pool member of ${target.pool_name || 'registered pool'}` : 'Standalone host target' }}
                   <span v-if="target.vault_credential_id"> · vault credential linked</span>
                 </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                  <span class="badge" :class="target.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(target.visibility) }}</span>
+                  <span class="badge badge-info" v-if="target.owner_display_name || target.owner_username">{{ ownershipLabel(target) }}</span>
+                </div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
                 <status-badge :status="target.mode === 'pool-member' ? 'pending' : 'info'"></status-badge>
-                <button class="btn btn-sm" @click="openRegistration(target)">
+                <button class="btn btn-sm" v-if="target.can_manage !== false" @click="openRegistration(target)">
                   <span class="mdi mdi-pencil-outline"></span>
                 </button>
-                <button class="btn btn-sm" @click="removeTarget(target.id)">
+                <button class="btn btn-sm" v-if="target.can_manage !== false" @click="removeTarget(target.id)">
                   <span class="mdi mdi-delete-outline"></span>
                 </button>
               </div>
@@ -146,7 +150,7 @@ const HostsView = {
       <floating-window :show="showRegistration"
                        :title="editingTargetId ? 'Edit Host Target' : 'Register Host Target'"
                        :width="620"
-                       :height="560"
+                       :height="620"
                        @close="showRegistration = false">
         <host-registration-form
           :initial-value="hostTargetDraft"
@@ -313,6 +317,13 @@ const HostsView = {
     formatPercent,
     truncateList,
     summarizeCount,
+    visibilityLabel(visibility) {
+      return visibility === 'shared' ? 'Shared' : 'Private';
+    },
+    ownershipLabel(target) {
+      if (target.is_owner) return 'Owned by you';
+      return `Owner ${target.owner_display_name || target.owner_username}`;
+    },
     hostMetricSeries(metricName) {
       return (this.hostMetricHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
     },
@@ -490,6 +501,7 @@ const HostsView = {
         mode: 'standalone',
         pool_connection_id: this.connections[0]?.id || null,
         notes: '',
+        visibility: store.user ? 'private' : 'shared',
       };
       this.showRegistration = true;
     },

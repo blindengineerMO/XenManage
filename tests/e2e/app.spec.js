@@ -304,8 +304,6 @@ async function stubAuthenticatedRoutes(page) {
       active: true,
       created_at: '2026-08-20T08:00:00.000Z',
       last_login_at: '2026-08-24T08:14:00.000Z',
-      groups: ['Platform Operations'],
-      group_count: 1,
     },
     {
       id: 2,
@@ -316,10 +314,59 @@ async function stubAuthenticatedRoutes(page) {
       active: true,
       created_at: '2026-08-21T09:00:00.000Z',
       last_login_at: '2026-08-23T15:20:00.000Z',
-      groups: ['Reporting'],
-      group_count: 1,
     },
   ];
+  const groups = [
+    {
+      id: 1,
+      name: 'Platform Operations',
+      created_at: '2026-08-20T08:15:00.000Z',
+      memberUserIds: [1],
+    },
+    {
+      id: 2,
+      name: 'Reporting',
+      created_at: '2026-08-21T09:10:00.000Z',
+      memberUserIds: [2],
+    },
+  ];
+
+  const rebuildUsersWithGroups = () => {
+    return users.map((user) => {
+      const memberships = groups.filter((group) => (group.memberUserIds || []).includes(user.id));
+      return {
+        ...user,
+        groups: memberships.map((group) => group.name),
+        group_ids: memberships.map((group) => group.id),
+        group_count: memberships.length,
+      };
+    });
+  };
+
+  const listGroups = () => {
+    return groups.map((group) => {
+      const members = users.filter((user) => (group.memberUserIds || []).includes(user.id));
+      return {
+        id: group.id,
+        name: group.name,
+        created_at: group.created_at,
+        member_count: members.length,
+        member_ids: members.map((user) => user.id),
+        members: members.map((user) => user.display_name || user.username),
+      };
+    });
+  };
+
+  const applyUserGroups = (userId, groupIds = []) => {
+    groups.forEach((group) => {
+      const memberIds = new Set(group.memberUserIds || []);
+      memberIds.delete(userId);
+      if ((groupIds || []).includes(group.id)) {
+        memberIds.add(userId);
+      }
+      group.memberUserIds = [...memberIds];
+    });
+  };
   const systemConfig = {
     general: {
       appName: 'XenMange',
@@ -2222,16 +2269,18 @@ async function stubAuthenticatedRoutes(page) {
     const method = route.request().method();
 
     if (method === 'GET') {
+      const userRows = rebuildUsersWithGroups();
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          total: users.length,
-          data: users,
+          total: userRows.length,
+          data: userRows,
           summary: {
-            totalUsers: users.length,
-            activeUsers: users.filter((entry) => entry.active !== false).length,
-            activeAdmins: users.filter((entry) => entry.active !== false && entry.role === 'admin').length,
+            totalUsers: userRows.length,
+            activeUsers: userRows.filter((entry) => entry.active !== false).length,
+            activeAdmins: userRows.filter((entry) => entry.active !== false && entry.role === 'admin').length,
+            totalGroups: groups.length,
           },
         }),
       });
@@ -2254,10 +2303,10 @@ async function stubAuthenticatedRoutes(page) {
         active: payload.active !== false,
         created_at: '2026-08-24T14:20:00.000Z',
         last_login_at: '',
-        groups: [],
-        group_count: 0,
       };
       users.push(record);
+      applyUserGroups(record.id, payload.groupIds || []);
+      const responseRecord = rebuildUsersWithGroups().find((entry) => entry.id === record.id) || record;
       recordAudit({
         category: 'governance',
         action: 'user_created',
@@ -2266,11 +2315,11 @@ async function stubAuthenticatedRoutes(page) {
         entityRef: String(record.id),
         entityName: record.username,
         route: '/governance',
-        after: record,
+        after: responseRecord,
         detail: `Created local ${record.role} account ${record.username}${record.active ? '' : ' in a disabled state'}.`,
         happenedAt: '2026-08-24T14:20:00.000Z',
       });
-      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(record) });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(responseRecord) });
       return;
     }
 
@@ -2314,20 +2363,22 @@ async function stubAuthenticatedRoutes(page) {
         role: nextRole,
         active: nextActive,
       };
+      applyUserGroups(id, payload.groupIds || []);
+      const responseRecord = rebuildUsersWithGroups().find((entry) => entry.id === id) || users[index];
       recordAudit({
         category: 'governance',
         action: 'user_updated',
         actionLabel: 'Updated local user',
         entityType: 'user',
         entityRef: String(id),
-        entityName: users[index].username,
+        entityName: responseRecord.username,
         route: '/governance',
         before: previous,
-        after: users[index],
-        detail: `Updated local account ${users[index].username} (${users[index].role}, ${users[index].active ? 'active' : 'disabled'}).`,
+        after: responseRecord,
+        detail: `Updated local account ${responseRecord.username} (${responseRecord.role}, ${responseRecord.active ? 'active' : 'disabled'}).`,
         happenedAt: '2026-08-24T14:26:00.000Z',
       });
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(users[index]) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseRecord) });
       return;
     }
 
@@ -2345,6 +2396,123 @@ async function stubAuthenticatedRoutes(page) {
         happenedAt: '2026-08-24T14:28:00.000Z',
       });
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, user: users[index] }) });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+  });
+
+  await page.route('**/api/groups', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'GET') {
+      const data = listGroups();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          total: data.length,
+          data,
+        }),
+      });
+      return;
+    }
+
+    if (method === 'POST') {
+      const payload = route.request().postDataJSON();
+      const duplicate = groups.find((entry) => String(entry.name || '').toLowerCase() === String(payload.name || '').toLowerCase());
+      if (duplicate) {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'GROUP_NAME_ALREADY_EXISTS' }) });
+        return;
+      }
+
+      const record = {
+        id: groups.length + 1,
+        name: payload.name,
+        created_at: '2026-08-24T14:21:00.000Z',
+        memberUserIds: (payload.memberUserIds || []).map((value) => Number(value || 0)).filter(Boolean),
+      };
+      groups.push(record);
+      const responseRecord = listGroups().find((entry) => entry.id === record.id) || record;
+      recordAudit({
+        category: 'governance',
+        action: 'group_created',
+        actionLabel: 'Created local group',
+        entityType: 'group',
+        entityRef: String(record.id),
+        entityName: record.name,
+        route: '/governance',
+        after: responseRecord,
+        detail: `Created local group ${record.name} with ${responseRecord.member_count || 0} assigned member${(responseRecord.member_count || 0) === 1 ? '' : 's'}.`,
+        happenedAt: '2026-08-24T14:21:00.000Z',
+      });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(responseRecord) });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+  });
+
+  await page.route('**/api/groups/*', async (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const id = Number(url.split('/api/groups/')[1] || 0);
+    const index = groups.findIndex((entry) => entry.id === id);
+
+    if (index === -1) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'GROUP_NOT_FOUND' }) });
+      return;
+    }
+
+    if (method === 'PUT') {
+      const payload = route.request().postDataJSON();
+      const duplicate = groups.find((entry) => entry.id !== id && String(entry.name || '').toLowerCase() === String(payload.name || '').toLowerCase());
+      if (duplicate) {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'GROUP_NAME_ALREADY_EXISTS' }) });
+        return;
+      }
+
+      const previous = listGroups().find((entry) => entry.id === id) || null;
+      groups[index] = {
+        ...groups[index],
+        name: payload.name,
+        memberUserIds: (payload.memberUserIds || []).map((value) => Number(value || 0)).filter(Boolean),
+      };
+      const responseRecord = listGroups().find((entry) => entry.id === id) || groups[index];
+      recordAudit({
+        category: 'governance',
+        action: 'group_updated',
+        actionLabel: 'Updated local group',
+        entityType: 'group',
+        entityRef: String(id),
+        entityName: responseRecord.name,
+        route: '/governance',
+        before: previous,
+        after: responseRecord,
+        detail: `Updated local group ${responseRecord.name} and synchronized ${responseRecord.member_count || 0} member assignment${(responseRecord.member_count || 0) === 1 ? '' : 's'}.`,
+        happenedAt: '2026-08-24T14:23:00.000Z',
+      });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseRecord) });
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const previous = listGroups().find((entry) => entry.id === id) || null;
+      groups.splice(index, 1);
+      recordAudit({
+        category: 'governance',
+        action: 'group_deleted',
+        actionLabel: 'Removed local group',
+        entityType: 'group',
+        entityRef: String(id),
+        entityName: previous?.name || String(id),
+        route: '/governance',
+        before: previous,
+        after: { success: true },
+        detail: `Removed local group ${previous?.name || String(id)} from the control-plane access catalog.`,
+        happenedAt: '2026-08-24T14:24:00.000Z',
+      });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
       return;
     }
 
@@ -3364,6 +3532,7 @@ async function stubAuthenticatedRoutes(page) {
     governanceQuotas,
     governanceApprovals,
     users,
+    groups,
     resilienceRunbooks,
     resilienceDrills,
     inventoryWorkspaces,
@@ -3453,26 +3622,47 @@ test('local governance workspace can manage control-plane users and session role
   await expect(page).toHaveURL(/\/governance$/);
   await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible();
   await expect(page.getByText('Role-aware operations, local user administration, pool quotas, and approval-gated destructive actions for the evolving XenMange control plane.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add Group' }).click();
+  await page.getByLabel('Group Name').fill('Site Reliability');
+  await page.getByLabel('Members').selectOption('1');
+  await page.getByRole('button', { name: 'Create Group' }).click();
+  await expect.poll(() => fixtures.groups.find((entry) => entry.name === 'Site Reliability')?.id || 0).toBeGreaterThan(0);
+  const siteReliabilityId = fixtures.groups.find((entry) => entry.name === 'Site Reliability').id;
+
   await page.getByRole('button', { name: 'Add User' }).click();
   await page.getByLabel('Username').fill('ops-admin');
   await page.getByLabel('Initial Password').fill('TempPassword123!');
   await page.getByLabel('Display Name').fill('Operations Admin');
   await page.getByLabel('Email').fill('ops-admin@example.com');
   await page.getByLabel('Role Ceiling').selectOption('operator');
+  await page.getByLabel('Group Membership').selectOption(String(siteReliabilityId));
   await page.getByRole('button', { name: 'Create User' }).click();
   await expect.poll(() => fixtures.users.some((entry) => entry.username === 'ops-admin')).toBe(true);
+  const opsAdminId = fixtures.users.find((entry) => entry.username === 'ops-admin').id;
+  await expect.poll(() => fixtures.groups.find((entry) => entry.id === siteReliabilityId)?.memberUserIds.includes(opsAdminId) || false).toBe(true);
 
-  await page.getByRole('button', { name: /Operations Admin/ }).click();
+  await page.getByRole('button', { name: /^Operations Admin/ }).click();
   await page.getByLabel('Email').fill('ops-admin+updated@example.com');
   await page.getByLabel('Role Ceiling').selectOption('admin');
+  await page.getByLabel('Group Membership').selectOption([String(siteReliabilityId), '2']);
   await page.getByRole('button', { name: 'Save User' }).click();
   await expect.poll(() => fixtures.users.find((entry) => entry.username === 'ops-admin')?.role || '').toBe('admin');
+  await expect.poll(() => fixtures.groups.find((entry) => entry.id === 2)?.memberUserIds.includes(opsAdminId) || false).toBe(true);
 
   await page.getByRole('button', { name: 'Reset Password' }).click();
   await page.getByLabel('New Password').fill('BetterPassword123!');
   await page.getByRole('button', { name: 'Rotate Password' }).click();
   await expect(page.getByText('Edit Local User')).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
+
+  await page.getByRole('button', { name: /Site Reliability/ }).click();
+  await page.getByLabel('Members').selectOption(String(opsAdminId));
+  await page.getByRole('button', { name: 'Save Group' }).click();
+  await expect.poll(() => fixtures.groups.find((entry) => entry.id === siteReliabilityId)?.memberUserIds.join(',') || '').toBe(String(opsAdminId));
+  await page.getByRole('button', { name: /Site Reliability/ }).click();
+  await page.getByRole('button', { name: 'Remove Group' }).click();
+  await expect.poll(() => fixtures.groups.some((entry) => entry.id === siteReliabilityId)).toBe(false);
 
   await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Operator/ }).click();
   await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Admin/ }).click();
@@ -3929,7 +4119,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByRole('button', { name: 'All' }).click();
   await page.getByPlaceholder('Search live inventory, alerts, tasks, UUIDs, and tags...').fill('alpha');
   await page.getByPlaceholder('Name this search preset...').fill('Host Alpha');
-  await page.locator('select.form-input').selectOption('1');
+  await page.locator('.inventory-toolbar').nth(1).locator('select.form-input').first().selectOption('1');
   await page.getByRole('button', { name: 'Save Workspace' }).click();
   await expect(page.getByText('Host Alpha')).toBeVisible();
   await expect(page.getByText('Target Production Pool')).toBeVisible();

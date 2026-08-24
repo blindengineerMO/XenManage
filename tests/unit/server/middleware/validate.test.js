@@ -128,6 +128,39 @@ describe('Validation Middleware', () => {
     });
   });
 
+  describe('local access-control schemas', () => {
+    it('should pass valid local user payloads with group membership', () => {
+      req.body = {
+        username: 'ops-admin',
+        password: 'TempPassword123!',
+        displayName: 'Operations Admin',
+        email: 'ops@example.com',
+        role: 'operator',
+        active: true,
+        groupIds: [1, 2],
+      };
+      validate(schemas.userCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.groupIds).toEqual([1, 2]);
+    });
+
+    it('should pass valid local group payloads with member ids', () => {
+      req.body = {
+        name: 'Platform Operations',
+        memberUserIds: [1, 4],
+      };
+      validate(schemas.groupCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.memberUserIds).toEqual([1, 4]);
+    });
+
+    it('should reject invalid local group ids from params', () => {
+      req.params = { id: 'abc' };
+      validate(schemas.groupIdParam, 'params')(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
   describe('paginate schema', () => {
     it('should apply defaults', () => {
       req.body = {};

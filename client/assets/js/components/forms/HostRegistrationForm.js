@@ -51,6 +51,13 @@ const HostRegistrationForm = {
         <label for="host-target-notes">Notes</label>
         <textarea id="host-target-notes" class="form-input" v-model="draft.notes" rows="4" placeholder="Maintenance plan, rack note, onboarding status..."></textarea>
       </div>
+      <div class="form-group">
+        <label for="host-target-visibility">Visibility</label>
+        <select id="host-target-visibility" class="form-input" v-model="draft.visibility">
+          <option value="private">Private to my control-plane account</option>
+          <option value="shared">Shared with other operators</option>
+        </select>
+      </div>
       <div class="form-actions">
         <button class="form-btn" type="submit">{{ submitLabel || 'Save Host Target' }}</button>
       </div>
@@ -99,6 +106,7 @@ const HostRegistrationForm = {
         mode: value?.mode || 'standalone',
         poolConnectionId: value?.pool_connection_id || value?.poolConnectionId || null,
         notes: value?.notes || '',
+        visibility: value?.visibility || 'private',
       };
     },
     handleSubmit() {
@@ -111,6 +119,7 @@ const HostRegistrationForm = {
         mode: this.draft.mode,
         poolConnectionId: this.draft.mode === 'pool-member' ? Number(this.draft.poolConnectionId || 0) : null,
         notes: this.draft.notes.trim(),
+        visibility: this.draft.visibility || 'private',
       });
     },
   },

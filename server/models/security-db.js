@@ -12,6 +12,96 @@ function normalizeRole(role) {
   return VALID_ROLES.has(role) ? role : 'operator';
 }
 
+function normalizeGroupRecord(record) {
+  if (!record) return null;
+
+  return {
+    id: Number(record.id),
+    name: record.name || '',
+    created_at: record.created_at || '',
+    member_count: Number(record.member_count || 0),
+    member_ids: String(record.member_ids || '')
+      .split('|')
+      .map((value) => Number(value || 0))
+      .filter(Boolean),
+    members: String(record.member_names || '')
+      .split('|')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  };
+}
+
+function normalizeGroupIds(groupIds = []) {
+  return [...new Set(
+    (Array.isArray(groupIds) ? groupIds : [])
+      .map((value) => Number(value || 0))
+      .filter((value) => value > 0)
+  )];
+}
+
+function syncUserGroupMembership(userId, groupIds = []) {
+  const db = getSecurityDb();
+  const normalizedUserId = Number(userId);
+  const normalizedGroupIds = normalizeGroupIds(groupIds);
+
+  const groupRows = normalizedGroupIds.length
+    ? db.prepare(`
+      SELECT id
+      FROM groups
+      WHERE id IN (${normalizedGroupIds.map(() => '?').join(', ')})
+    `).all(...normalizedGroupIds)
+    : [];
+
+  const validGroupIds = groupRows.map((row) => Number(row.id));
+
+  if (normalizedGroupIds.length !== validGroupIds.length) {
+    const error = new Error('GROUP_NOT_FOUND');
+    error.code = 'GROUP_NOT_FOUND';
+    throw error;
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM group_members WHERE user_id = ?').run(normalizedUserId);
+    const insert = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+    validGroupIds.forEach((groupId) => insert.run(groupId, normalizedUserId));
+  });
+
+  transaction();
+}
+
+function syncGroupMembers(groupId, memberUserIds = []) {
+  const db = getSecurityDb();
+  const normalizedGroupId = Number(groupId);
+  const normalizedUserIds = [...new Set(
+    (Array.isArray(memberUserIds) ? memberUserIds : [])
+      .map((value) => Number(value || 0))
+      .filter((value) => value > 0)
+  )];
+
+  const userRows = normalizedUserIds.length
+    ? db.prepare(`
+      SELECT id
+      FROM users
+      WHERE id IN (${normalizedUserIds.map(() => '?').join(', ')})
+    `).all(...normalizedUserIds)
+    : [];
+
+  const validUserIds = userRows.map((row) => Number(row.id));
+  if (normalizedUserIds.length !== validUserIds.length) {
+    const error = new Error('USER_NOT_FOUND');
+    error.code = 'USER_NOT_FOUND';
+    throw error;
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM group_members WHERE group_id = ?').run(normalizedGroupId);
+    const insert = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+    validUserIds.forEach((userId) => insert.run(normalizedGroupId, userId));
+  });
+
+  transaction();
+}
+
 function normalizeUserRecord(record, { includePasswordHash = false } = {}) {
   if (!record) return null;
 
@@ -312,6 +402,10 @@ const userModel = {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(username, passwordHash, displayName, email, role, active);
 
+    if (Array.isArray(payload.groupIds)) {
+      syncUserGroupMembership(result.lastInsertRowid, payload.groupIds);
+    }
+
     return this.getById(result.lastInsertRowid);
   },
 
@@ -344,6 +438,10 @@ const userModel = {
       WHERE id = ?
     `).run(username, displayName, email, role, active ? 1 : 0, Number(id));
 
+    if (Array.isArray(payload.groupIds)) {
+      syncUserGroupMembership(id, payload.groupIds);
+    }
+
     return this.getById(id);
   },
 
@@ -370,7 +468,8 @@ const userModel = {
       SELECT
         COUNT(*) AS totalUsers,
         SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS activeUsers,
-        SUM(CASE WHEN role = 'admin' AND active = 1 THEN 1 ELSE 0 END) AS activeAdmins
+        SUM(CASE WHEN role = 'admin' AND active = 1 THEN 1 ELSE 0 END) AS activeAdmins,
+        (SELECT COUNT(*) FROM groups) AS totalGroups
       FROM users
     `).get();
 
@@ -378,6 +477,7 @@ const userModel = {
       totalUsers: Number(row?.totalUsers || 0),
       activeUsers: Number(row?.activeUsers || 0),
       activeAdmins: Number(row?.activeAdmins || 0),
+      totalGroups: Number(row?.totalGroups || 0),
     };
   },
 
@@ -392,4 +492,119 @@ const userModel = {
   },
 };
 
-module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel };
+const groupModel = {
+  list() {
+    return getSecurityDb().prepare(`
+      SELECT
+        g.id,
+        g.name,
+        g.created_at,
+        COUNT(gm.user_id) AS member_count,
+        GROUP_CONCAT(u.id, '|') AS member_ids,
+        GROUP_CONCAT(COALESCE(u.display_name, u.username), '|') AS member_names
+      FROM groups g
+      LEFT JOIN group_members gm ON gm.group_id = g.id
+      LEFT JOIN users u ON u.id = gm.user_id
+      GROUP BY g.id
+      ORDER BY lower(g.name)
+    `).all().map((record) => normalizeGroupRecord(record));
+  },
+
+  getById(id) {
+    const record = getSecurityDb().prepare(`
+      SELECT
+        g.id,
+        g.name,
+        g.created_at,
+        COUNT(gm.user_id) AS member_count,
+        GROUP_CONCAT(u.id, '|') AS member_ids,
+        GROUP_CONCAT(COALESCE(u.display_name, u.username), '|') AS member_names
+      FROM groups g
+      LEFT JOIN group_members gm ON gm.group_id = g.id
+      LEFT JOIN users u ON u.id = gm.user_id
+      WHERE g.id = ?
+      GROUP BY g.id
+    `).get(Number(id));
+
+    return normalizeGroupRecord(record);
+  },
+
+  create(payload = {}) {
+    const name = String(payload.name || '').trim();
+    const existing = getSecurityDb().prepare(`
+      SELECT id
+      FROM groups
+      WHERE lower(name) = lower(?)
+    `).get(name);
+
+    if (existing) {
+      const error = new Error('GROUP_NAME_ALREADY_EXISTS');
+      error.code = 'GROUP_NAME_ALREADY_EXISTS';
+      throw error;
+    }
+
+    const result = getSecurityDb().prepare(`
+      INSERT INTO groups (name)
+      VALUES (?)
+    `).run(name);
+
+    if (Array.isArray(payload.memberUserIds)) {
+      syncGroupMembers(result.lastInsertRowid, payload.memberUserIds);
+    }
+
+    return this.getById(result.lastInsertRowid);
+  },
+
+  update(id, payload = {}) {
+    const existing = this.getById(id);
+    if (!existing) {
+      const error = new Error('GROUP_NOT_FOUND');
+      error.code = 'GROUP_NOT_FOUND';
+      throw error;
+    }
+
+    const name = String(payload.name || existing.name || '').trim();
+    const duplicate = getSecurityDb().prepare(`
+      SELECT id
+      FROM groups
+      WHERE lower(name) = lower(?)
+    `).get(name);
+
+    if (duplicate && Number(duplicate.id) !== Number(id)) {
+      const error = new Error('GROUP_NAME_ALREADY_EXISTS');
+      error.code = 'GROUP_NAME_ALREADY_EXISTS';
+      throw error;
+    }
+
+    getSecurityDb().prepare(`
+      UPDATE groups
+      SET name = ?
+      WHERE id = ?
+    `).run(name, Number(id));
+
+    if (Array.isArray(payload.memberUserIds)) {
+      syncGroupMembers(id, payload.memberUserIds);
+    }
+
+    return this.getById(id);
+  },
+
+  delete(id) {
+    const existing = this.getById(id);
+    if (!existing) {
+      const error = new Error('GROUP_NOT_FOUND');
+      error.code = 'GROUP_NOT_FOUND';
+      throw error;
+    }
+
+    const transaction = getSecurityDb().transaction(() => {
+      getSecurityDb().prepare('DELETE FROM group_members WHERE group_id = ?').run(Number(id));
+      getSecurityDb().prepare('DELETE FROM groups WHERE id = ?').run(Number(id));
+    });
+
+    transaction();
+    return existing;
+  },
+};
+
+module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel };

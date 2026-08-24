@@ -31,6 +31,7 @@ function requireLocalAdmin(req, res, next) {
 function mapWriteError(error) {
   const code = error?.code || error?.message || 'USER_WRITE_FAILED';
   if (code === 'USER_NOT_FOUND') return { status: 404, error: code };
+  if (code === 'GROUP_NOT_FOUND') return { status: 404, error: code };
   if (code === 'USERNAME_ALREADY_EXISTS' || code === 'LAST_ACTIVE_ADMIN_REQUIRED') return { status: 409, error: code };
   return { status: 500, error: code };
 }

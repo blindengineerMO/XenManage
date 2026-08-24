@@ -88,6 +88,7 @@ const schemas = {
       Joi.allow(null)
     ).default(null),
     port: Joi.number().integer().min(1).max(65535).default(443),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
     isDefault: Joi.boolean().default(false),
   }),
   connectionUpdate: Joi.object({
@@ -99,6 +100,7 @@ const schemas = {
       Joi.allow(null)
     ).default(null),
     port: Joi.number().integer().min(1).max(65535).default(443),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
     isDefault: Joi.boolean().default(false),
   }),
   credentialCreate: Joi.object({
@@ -133,6 +135,7 @@ const schemas = {
       otherwise: Joi.allow(null).default(null),
     }),
     notes: Joi.string().allow('').max(500).default(''),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
   }),
   hostTargetUpdate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
@@ -150,6 +153,7 @@ const schemas = {
       otherwise: Joi.allow(null).default(null),
     }),
     notes: Joi.string().allow('').max(500).default(''),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
   }),
   vmAction: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
@@ -394,6 +398,7 @@ const schemas = {
     email: Joi.string().allow('').email({ tlds: { allow: false } }).max(160).default(''),
     role: Joi.string().valid('read-only', 'operator', 'admin').default('operator'),
     active: Joi.boolean().default(true),
+    groupIds: Joi.array().items(Joi.number().integer().min(1)).max(50).default([]),
   }),
   userUpdate: Joi.object({
     username: Joi.string().trim().required().min(3).max(80).pattern(/^[a-zA-Z0-9._-]+$/),
@@ -401,9 +406,21 @@ const schemas = {
     email: Joi.string().allow('').email({ tlds: { allow: false } }).max(160).default(''),
     role: Joi.string().valid('read-only', 'operator', 'admin').default('operator'),
     active: Joi.boolean().default(true),
+    groupIds: Joi.array().items(Joi.number().integer().min(1)).max(50).default([]),
   }),
   userPasswordReset: Joi.object({
     password: Joi.string().required().min(10).max(256),
+  }),
+  groupIdParam: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+  }),
+  groupCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    memberUserIds: Joi.array().items(Joi.number().integer().min(1)).max(200).default([]),
+  }),
+  groupUpdate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    memberUserIds: Joi.array().items(Joi.number().integer().min(1)).max(200).default([]),
   }),
   systemConfigSectionParam: Joi.object({
     section: Joi.string().valid('general', 'network', 'security', 'logging', 'retention').required(),
@@ -466,6 +483,7 @@ const schemas = {
       Joi.allow(null)
     ).default(null),
     notes: Joi.string().allow('').max(400).default(''),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
   }),
   paginate: Joi.object({
     page: Joi.number().integer().min(1).default(1),

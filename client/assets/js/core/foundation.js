@@ -437,6 +437,8 @@ const demoDb = {
       host: '10.42.0.11',
       username: 'root',
       port: 443,
+      owner_user_id: 1,
+      visibility: 'shared',
       is_default: 1,
       last_connected_at: '2026-08-19T15:00:00.000Z',
     },
@@ -446,6 +448,8 @@ const demoDb = {
       host: '10.43.0.21',
       username: 'root',
       port: 443,
+      owner_user_id: 1,
+      visibility: 'private',
       is_default: 0,
       last_connected_at: '',
     },
@@ -457,6 +461,8 @@ const demoDb = {
       host: '10.43.0.22',
       username: 'root',
       port: 443,
+      owner_user_id: 1,
+      visibility: 'shared',
       mode: 'standalone',
       pool_connection_id: null,
       pool_name: null,
@@ -468,10 +474,40 @@ const demoDb = {
       host: '10.42.0.13',
       username: 'root',
       port: 443,
+      owner_user_id: 3,
+      visibility: 'private',
       mode: 'pool-member',
       pool_connection_id: 1,
       pool_name: 'Demo Production Pool',
       notes: 'Pending registration as production pool member',
+    },
+  ],
+  inventoryWorkspaces: [
+    {
+      id: 'workspace-demo-1',
+      name: 'Production Health Sweep',
+      scope: 'host',
+      query: 'production',
+      targetConnectionId: 1,
+      notes: '',
+      ownerUserId: 1,
+      visibility: 'shared',
+      createdAt: '2026-08-23T09:30:00.000Z',
+      updatedAt: '2026-08-24T08:15:00.000Z',
+      createdBy: 'demo',
+    },
+    {
+      id: 'workspace-demo-2',
+      name: 'Edge Follow-Up',
+      scope: 'alert',
+      query: 'edge',
+      targetConnectionId: 2,
+      notes: '',
+      ownerUserId: 1,
+      visibility: 'private',
+      createdAt: '2026-08-23T10:10:00.000Z',
+      updatedAt: '2026-08-24T07:45:00.000Z',
+      createdBy: 'demo',
     },
   ],
   alertStates: {
@@ -568,8 +604,6 @@ const demoDb = {
       active: true,
       created_at: '2026-08-20T08:00:00.000Z',
       last_login_at: '2026-08-24T08:05:00.000Z',
-      groups: ['Platform Operations'],
-      group_count: 1,
     },
     {
       id: 2,
@@ -580,8 +614,6 @@ const demoDb = {
       active: true,
       created_at: '2026-08-21T09:00:00.000Z',
       last_login_at: '2026-08-23T16:15:00.000Z',
-      groups: ['Reporting'],
-      group_count: 1,
     },
     {
       id: 3,
@@ -592,8 +624,20 @@ const demoDb = {
       active: true,
       created_at: '2026-08-22T10:00:00.000Z',
       last_login_at: '2026-08-24T07:45:00.000Z',
-      groups: ['Platform Operations'],
-      group_count: 1,
+    },
+  ],
+  groups: [
+    {
+      id: 1,
+      name: 'Platform Operations',
+      created_at: '2026-08-20T08:15:00.000Z',
+      memberUserIds: [1, 3],
+    },
+    {
+      id: 2,
+      name: 'Reporting',
+      created_at: '2026-08-21T09:10:00.000Z',
+      memberUserIds: [2],
     },
   ],
   resilienceRunbooks: [
@@ -1120,8 +1164,57 @@ function listDemoGovernanceApprovals() {
   return clone([...demoDb.governanceApprovals].sort((left, right) => new Date(right.requestedAt || 0) - new Date(left.requestedAt || 0)));
 }
 
+function listDemoGroups() {
+  return clone(
+    [...demoDb.groups]
+      .map((group) => {
+        const memberUserIds = [...new Set((group.memberUserIds || []).map((value) => Number(value || 0)).filter(Boolean))];
+        const members = memberUserIds
+          .map((userId) => demoDb.users.find((user) => Number(user.id) === Number(userId)))
+          .filter(Boolean);
+
+        return {
+          id: Number(group.id),
+          name: group.name || '',
+          created_at: group.created_at || '',
+          member_count: members.length,
+          member_ids: members.map((user) => user.id),
+          members: members.map((user) => user.display_name || user.username),
+        };
+      })
+      .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')))
+  );
+}
+
+function applyDemoUserGroupMembership(userId, groupIds = []) {
+  const normalizedUserId = Number(userId || 0);
+  const normalizedGroupIds = [...new Set((Array.isArray(groupIds) ? groupIds : []).map((value) => Number(value || 0)).filter(Boolean))];
+  demoDb.groups.forEach((group) => {
+    const memberUserIds = new Set((group.memberUserIds || []).map((value) => Number(value || 0)).filter(Boolean));
+    memberUserIds.delete(normalizedUserId);
+    if (normalizedGroupIds.includes(Number(group.id))) {
+      memberUserIds.add(normalizedUserId);
+    }
+    group.memberUserIds = [...memberUserIds];
+  });
+}
+
 function listDemoUsers() {
-  return clone([...demoDb.users].sort((left, right) => String(left.username || '').localeCompare(String(right.username || ''))));
+  const groups = listDemoGroups();
+  return clone(
+    [...demoDb.users]
+      .map((user) => {
+        const memberships = groups.filter((group) => group.member_ids.includes(Number(user.id)));
+        return {
+          ...user,
+          groups: memberships.map((group) => group.name),
+          groupsDetailed: memberships.map((group) => ({ id: group.id, name: group.name })),
+          group_ids: memberships.map((group) => group.id),
+          group_count: memberships.length,
+        };
+      })
+      .sort((left, right) => String(left.username || '').localeCompare(String(right.username || '')))
+  );
 }
 
 function getDemoUserSummary() {
@@ -1129,7 +1222,93 @@ function getDemoUserSummary() {
     totalUsers: demoDb.users.length,
     activeUsers: demoDb.users.filter((user) => user.active !== false).length,
     activeAdmins: demoDb.users.filter((user) => user.active !== false && user.role === 'admin').length,
+    totalGroups: demoDb.groups.length,
   };
+}
+
+function getDemoActor() {
+  return {
+    userId: Number(store.user?.id || 0) || null,
+    role: store.user?.role || store.governance?.currentRole || 'admin',
+  };
+}
+
+function normalizeDemoVisibility(value, fallback = 'private') {
+  return value === 'shared' || value === 'private' ? value : fallback;
+}
+
+function demoActorIsAdmin(actor = getDemoActor()) {
+  return actor.role === 'admin';
+}
+
+function demoRecordIsVisible(record, actor = getDemoActor()) {
+  if (!record) return false;
+  if (demoActorIsAdmin(actor)) return true;
+
+  const ownerUserId = Number(record.owner_user_id || record.ownerUserId || 0) || null;
+  const visibility = normalizeDemoVisibility(record.visibility, ownerUserId ? 'private' : 'shared');
+
+  if (visibility === 'shared' || ownerUserId === null) {
+    return true;
+  }
+
+  return ownerUserId === actor.userId;
+}
+
+function demoCanManageRecord(record, actor = getDemoActor()) {
+  if (!record) return false;
+  if (demoActorIsAdmin(actor)) return true;
+
+  const ownerUserId = Number(record.owner_user_id || record.ownerUserId || 0) || null;
+  const visibility = normalizeDemoVisibility(record.visibility, ownerUserId ? 'private' : 'shared');
+
+  if (ownerUserId !== null) {
+    return ownerUserId === actor.userId;
+  }
+
+  return visibility === 'shared';
+}
+
+function enrichDemoOwnedRecord(record, actor = getDemoActor()) {
+  if (!record) return null;
+  const ownerUserId = Number(record.owner_user_id || record.ownerUserId || 0) || null;
+  const owner = demoDb.users.find((entry) => Number(entry.id) === ownerUserId) || null;
+  const visibility = normalizeDemoVisibility(record.visibility, ownerUserId ? 'private' : 'shared');
+
+  return {
+    ...clone(record),
+    owner_user_id: ownerUserId,
+    ownerUserId,
+    visibility,
+    owner_username: owner?.username || '',
+    owner_display_name: owner?.display_name || owner?.username || '',
+    is_owner: ownerUserId !== null && ownerUserId === actor.userId,
+    can_manage: demoCanManageRecord(record, actor),
+  };
+}
+
+function listDemoConnections() {
+  const actor = getDemoActor();
+  return demoDb.connections
+    .filter((record) => demoRecordIsVisible(record, actor))
+    .map((record) => enrichDemoOwnedRecord(record, actor))
+    .sort((left, right) => Number(right.is_default || 0) - Number(left.is_default || 0) || String(left.name || '').localeCompare(String(right.name || '')));
+}
+
+function listDemoHostTargets() {
+  const actor = getDemoActor();
+  return demoDb.hostTargets
+    .filter((record) => demoRecordIsVisible(record, actor))
+    .map((record) => enrichDemoOwnedRecord(record, actor))
+    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+}
+
+function listDemoInventoryWorkspaces() {
+  const actor = getDemoActor();
+  return demoDb.inventoryWorkspaces
+    .filter((record) => demoRecordIsVisible(record, actor))
+    .map((record) => enrichDemoOwnedRecord(record, actor))
+    .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0));
 }
 
 function buildDemoQuotaRows() {
@@ -2357,10 +2536,10 @@ function demoRequest(method, url, body) {
       active: body.active !== false,
       created_at: new Date().toISOString(),
       last_login_at: '',
-      groups: [],
-      group_count: 0,
     };
     demoDb.users.push(record);
+    applyDemoUserGroupMembership(record.id, body.groupIds || []);
+    const responseRecord = listDemoUsers().find((entry) => Number(entry.id) === Number(record.id)) || record;
     recordDemoAudit({
       category: 'governance',
       action: 'user_created',
@@ -2370,10 +2549,10 @@ function demoRequest(method, url, body) {
       entityName: record.username,
       route: '/governance',
       before: null,
-      after: record,
+      after: responseRecord,
       detail: `Created local ${record.role} account ${record.username}${record.active ? '' : ' in a disabled state'}.`,
     });
-    return clone(record);
+    return clone(responseRecord);
   }
 
   if (method === 'PUT' && path.startsWith('/api/users/')) {
@@ -2413,15 +2592,17 @@ function demoRequest(method, url, body) {
       role: nextRole,
       active: nextActive,
     };
+    applyDemoUserGroupMembership(userId, body.groupIds || []);
+    const responseRecord = listDemoUsers().find((entry) => Number(entry.id) === Number(userId)) || demoDb.users[index];
     if (String(store.user?.id || '') === String(userId)) {
       store.user = {
         ...store.user,
-        username: demoDb.users[index].username,
-        displayName: demoDb.users[index].display_name || demoDb.users[index].username,
-        role: demoDb.users[index].role,
+        username: responseRecord.username,
+        displayName: responseRecord.display_name || responseRecord.username,
+        role: responseRecord.role,
       };
-      if ((roleOrder[store.governance.currentRole] ?? 0) > (roleOrder[demoDb.users[index].role] ?? 0)) {
-        store.governance.currentRole = demoDb.users[index].role;
+      if ((roleOrder[store.governance.currentRole] ?? 0) > (roleOrder[responseRecord.role] ?? 0)) {
+        store.governance.currentRole = responseRecord.role;
       }
     }
     recordDemoAudit({
@@ -2430,13 +2611,13 @@ function demoRequest(method, url, body) {
       actionLabel: 'Updated local user',
       entityType: 'user',
       entityRef: String(userId),
-      entityName: demoDb.users[index].username,
+      entityName: responseRecord.username,
       route: '/governance',
       before: previous,
-      after: demoDb.users[index],
-      detail: `Updated local account ${demoDb.users[index].username} (${demoDb.users[index].role}, ${demoDb.users[index].active ? 'active' : 'disabled'}).`,
+      after: responseRecord,
+      detail: `Updated local account ${responseRecord.username} (${responseRecord.role}, ${responseRecord.active ? 'active' : 'disabled'}).`,
     });
-    return clone(demoDb.users[index]);
+    return clone(responseRecord);
   }
 
   if (method === 'POST' && path.startsWith('/api/users/') && path.endsWith('/password')) {
@@ -2460,6 +2641,112 @@ function demoRequest(method, url, body) {
       detail: `Rotated the local password for ${demoDb.users[index].username}.`,
     });
     return { success: true, user: clone(demoDb.users[index]) };
+  }
+
+  if (method === 'GET' && path === '/api/groups') {
+    const data = listDemoGroups();
+    return {
+      total: data.length,
+      data,
+    };
+  }
+
+  if (method === 'POST' && path === '/api/groups') {
+    const duplicate = demoDb.groups.find((entry) => String(entry.name || '').toLowerCase() === String(body.name || '').toLowerCase());
+    if (duplicate) {
+      const error = new Error('GROUP_NAME_ALREADY_EXISTS');
+      error.code = 'GROUP_NAME_ALREADY_EXISTS';
+      throw error;
+    }
+
+    const record = {
+      id: nextDemoId(demoDb.groups),
+      name: body.name || '',
+      created_at: new Date().toISOString(),
+      memberUserIds: [...new Set((body.memberUserIds || []).map((value) => Number(value || 0)).filter(Boolean))],
+    };
+    demoDb.groups.push(record);
+    const responseRecord = listDemoGroups().find((entry) => Number(entry.id) === Number(record.id)) || record;
+    recordDemoAudit({
+      category: 'governance',
+      action: 'group_created',
+      actionLabel: 'Created local group',
+      entityType: 'group',
+      entityRef: String(record.id),
+      entityName: record.name,
+      route: '/governance',
+      before: null,
+      after: responseRecord,
+      detail: `Created local group ${record.name} with ${responseRecord.member_count || 0} assigned member${(responseRecord.member_count || 0) === 1 ? '' : 's'}.`,
+    });
+    return clone(responseRecord);
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/groups/')) {
+    const groupId = Number(path.split('/')[3] || 0);
+    const index = demoDb.groups.findIndex((entry) => Number(entry.id) === groupId);
+    if (index === -1) {
+      const error = new Error('GROUP_NOT_FOUND');
+      error.code = 'GROUP_NOT_FOUND';
+      throw error;
+    }
+
+    const duplicate = demoDb.groups.find((entry) =>
+      Number(entry.id) !== groupId
+      && String(entry.name || '').toLowerCase() === String(body.name || '').toLowerCase()
+    );
+    if (duplicate) {
+      const error = new Error('GROUP_NAME_ALREADY_EXISTS');
+      error.code = 'GROUP_NAME_ALREADY_EXISTS';
+      throw error;
+    }
+
+    const previous = listDemoGroups().find((entry) => Number(entry.id) === Number(groupId)) || clone(demoDb.groups[index]);
+    demoDb.groups[index] = {
+      ...demoDb.groups[index],
+      name: body.name || demoDb.groups[index].name || '',
+      memberUserIds: [...new Set((body.memberUserIds || []).map((value) => Number(value || 0)).filter(Boolean))],
+    };
+    const responseRecord = listDemoGroups().find((entry) => Number(entry.id) === Number(groupId)) || demoDb.groups[index];
+    recordDemoAudit({
+      category: 'governance',
+      action: 'group_updated',
+      actionLabel: 'Updated local group',
+      entityType: 'group',
+      entityRef: String(groupId),
+      entityName: responseRecord.name,
+      route: '/governance',
+      before: previous,
+      after: responseRecord,
+      detail: `Updated local group ${responseRecord.name} and synchronized ${responseRecord.member_count || 0} member assignment${(responseRecord.member_count || 0) === 1 ? '' : 's'}.`,
+    });
+    return clone(responseRecord);
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/groups/')) {
+    const groupId = Number(path.split('/')[3] || 0);
+    const index = demoDb.groups.findIndex((entry) => Number(entry.id) === groupId);
+    if (index === -1) {
+      const error = new Error('GROUP_NOT_FOUND');
+      error.code = 'GROUP_NOT_FOUND';
+      throw error;
+    }
+
+    const previous = listDemoGroups().find((entry) => Number(entry.id) === Number(groupId)) || clone(demoDb.groups[index]);
+    demoDb.groups.splice(index, 1);
+    recordDemoAudit({
+      category: 'governance',
+      action: 'group_deleted',
+      actionLabel: 'Removed local group',
+      entityType: 'group',
+      entityRef: String(groupId),
+      entityName: previous.name,
+      route: '/governance',
+      before: previous,
+      after: { success: true },
+      detail: `Removed local group ${previous.name} from the control-plane access catalog.`,
+    });
+    return { success: true };
   }
 
   if (method === 'PUT' && path.startsWith('/api/governance/quotas/')) {
@@ -3200,77 +3487,111 @@ function demoRequest(method, url, body) {
   }
 
   if (method === 'GET' && path === '/api/connections') {
-    return clone(demoDb.connections);
+    return listDemoConnections();
   }
 
   if (method === 'POST' && path === '/api/connections') {
     ensureDemoMutationAllowed({ actionKey: 'connection_create', entityType: 'connection', entityRef: 'new' });
+    const actor = getDemoActor();
     const nextRecord = {
       id: nextDemoId(demoDb.connections),
       name: body.name,
       host: body.host,
       username: body.username,
       port: body.port || 443,
+      owner_user_id: actor.userId,
+      visibility: actor.userId ? normalizeDemoVisibility(body.visibility, 'private') : 'shared',
       is_default: body.isDefault ? 1 : 0,
       last_connected_at: '',
     };
 
     if (nextRecord.is_default) {
-      demoDb.connections.forEach((connection) => { connection.is_default = 0; });
+      demoDb.connections.forEach((connection) => {
+        if (Number(connection.owner_user_id || 0) === Number(nextRecord.owner_user_id || 0)) {
+          connection.is_default = 0;
+        }
+      });
     }
 
     demoDb.connections.push(nextRecord);
-    return clone(nextRecord);
+    return enrichDemoOwnedRecord(nextRecord, actor);
   }
 
   if (method === 'PUT' && path.startsWith('/api/connections/')) {
     ensureDemoMutationAllowed({ actionKey: 'connection_update', entityType: 'connection', entityRef: String(path.split('/')[3]) });
+    const actor = getDemoActor();
     const id = Number(path.split('/')[3]);
     const record = demoDb.connections.find((connection) => connection.id === id);
     if (!record) throw new Error('CONNECTION_NOT_FOUND');
+    if (!demoCanManageRecord(record, actor)) {
+      const error = new Error('CONNECTION_FORBIDDEN');
+      error.code = 'CONNECTION_FORBIDDEN';
+      throw error;
+    }
 
     Object.assign(record, {
       name: body.name,
       host: body.host,
       username: body.username,
       port: body.port || 443,
+      visibility: actor.userId ? normalizeDemoVisibility(body.visibility, record.visibility || 'private') : 'shared',
+      owner_user_id: record.owner_user_id || actor.userId || null,
       is_default: body.isDefault ? 1 : 0,
     });
 
     if (record.is_default) {
       demoDb.connections.forEach((connection) => {
-        if (connection.id !== id) connection.is_default = 0;
+        if (connection.id !== id && Number(connection.owner_user_id || 0) === Number(record.owner_user_id || 0)) {
+          connection.is_default = 0;
+        }
       });
     }
 
-    return clone(record);
+    return enrichDemoOwnedRecord(record, actor);
   }
 
   if (method === 'POST' && path.startsWith('/api/connections/') && path.endsWith('/default')) {
     ensureDemoMutationAllowed({ actionKey: 'connection_default', entityType: 'connection', entityRef: String(path.split('/')[3]) });
+    const actor = getDemoActor();
     const id = Number(path.split('/')[3]);
     const record = demoDb.connections.find((connection) => connection.id === id);
     if (!record) throw new Error('CONNECTION_NOT_FOUND');
+    if (!demoCanManageRecord(record, actor)) {
+      const error = new Error('CONNECTION_FORBIDDEN');
+      error.code = 'CONNECTION_FORBIDDEN';
+      throw error;
+    }
 
-    demoDb.connections.forEach((connection) => { connection.is_default = connection.id === id ? 1 : 0; });
-    return clone(record);
+    demoDb.connections.forEach((connection) => {
+      if (Number(connection.owner_user_id || 0) === Number(record.owner_user_id || 0)) {
+        connection.is_default = connection.id === id ? 1 : 0;
+      }
+    });
+    return enrichDemoOwnedRecord(record, actor);
   }
 
   if (method === 'DELETE' && path.startsWith('/api/connections/')) {
     ensureDemoMutationAllowed({ actionKey: 'connection_delete', entityType: 'connection', entityRef: String(path.split('/')[3]) });
+    const actor = getDemoActor();
     const id = Number(path.split('/')[3]);
     const index = demoDb.connections.findIndex((connection) => connection.id === id);
     if (index === -1) throw new Error('CONNECTION_NOT_FOUND');
+    if (!demoCanManageRecord(demoDb.connections[index], actor)) {
+      const error = new Error('CONNECTION_FORBIDDEN');
+      error.code = 'CONNECTION_FORBIDDEN';
+      throw error;
+    }
     demoDb.connections.splice(index, 1);
     return { success: true };
   }
 
   if (method === 'GET' && path === '/api/host-targets') {
-    return clone(demoDb.hostTargets);
+    return listDemoHostTargets();
   }
 
   if (method === 'POST' && path === '/api/host-targets') {
     ensureDemoMutationAllowed({ actionKey: 'host_target_create', entityType: 'host-target', entityRef: 'new' });
+    const actor = getDemoActor();
     const pool = demoDb.connections.find((connection) => connection.id === Number(body.poolConnectionId || 0));
     const record = {
       id: nextDemoId(demoDb.hostTargets),
@@ -3278,41 +3599,122 @@ function demoRequest(method, url, body) {
       host: body.host,
       username: body.username,
       port: body.port || 443,
+      owner_user_id: actor.userId,
+      visibility: actor.userId ? normalizeDemoVisibility(body.visibility, 'private') : 'shared',
       mode: body.mode || 'standalone',
       pool_connection_id: body.mode === 'pool-member' ? Number(body.poolConnectionId || 0) || null : null,
       pool_name: body.mode === 'pool-member' ? (pool?.name || null) : null,
       notes: body.notes || '',
     };
     demoDb.hostTargets.push(record);
-    return clone(record);
+    return enrichDemoOwnedRecord(record, actor);
   }
 
   if (method === 'PUT' && path.startsWith('/api/host-targets/')) {
     ensureDemoMutationAllowed({ actionKey: 'host_target_update', entityType: 'host-target', entityRef: String(path.split('/')[3]) });
+    const actor = getDemoActor();
     const id = Number(path.split('/')[3]);
     const record = demoDb.hostTargets.find((target) => target.id === id);
     const pool = demoDb.connections.find((connection) => connection.id === Number(body.poolConnectionId || 0));
     if (!record) throw new Error('HOST_TARGET_NOT_FOUND');
+    if (!demoCanManageRecord(record, actor)) {
+      const error = new Error('HOST_TARGET_FORBIDDEN');
+      error.code = 'HOST_TARGET_FORBIDDEN';
+      throw error;
+    }
 
     Object.assign(record, {
       name: body.name,
       host: body.host,
       username: body.username,
       port: body.port || 443,
+      owner_user_id: record.owner_user_id || actor.userId || null,
+      visibility: actor.userId ? normalizeDemoVisibility(body.visibility, record.visibility || 'private') : 'shared',
       mode: body.mode || 'standalone',
       pool_connection_id: body.mode === 'pool-member' ? Number(body.poolConnectionId || 0) || null : null,
       pool_name: body.mode === 'pool-member' ? (pool?.name || null) : null,
       notes: body.notes || '',
     });
-    return clone(record);
+    return enrichDemoOwnedRecord(record, actor);
   }
 
   if (method === 'DELETE' && path.startsWith('/api/host-targets/')) {
     ensureDemoMutationAllowed({ actionKey: 'host_target_delete', entityType: 'host-target', entityRef: String(path.split('/')[3]) });
+    const actor = getDemoActor();
     const id = Number(path.split('/')[3]);
     const index = demoDb.hostTargets.findIndex((target) => target.id === id);
     if (index === -1) throw new Error('HOST_TARGET_NOT_FOUND');
+    if (!demoCanManageRecord(demoDb.hostTargets[index], actor)) {
+      const error = new Error('HOST_TARGET_FORBIDDEN');
+      error.code = 'HOST_TARGET_FORBIDDEN';
+      throw error;
+    }
     demoDb.hostTargets.splice(index, 1);
+    return { success: true };
+  }
+
+  if (method === 'GET' && path === '/api/workspaces/inventory') {
+    const workspaces = listDemoInventoryWorkspaces();
+    return { total: workspaces.length, data: clone(workspaces) };
+  }
+
+  if (method === 'POST' && path === '/api/workspaces/inventory') {
+    ensureDemoMutationAllowed({ actionKey: 'inventory_workspace_save', entityType: 'workspace', entityRef: 'new' });
+    const actor = getDemoActor();
+    const record = {
+      id: `workspace-${demoDb.inventoryWorkspaces.length + 1}`,
+      name: body.name,
+      scope: body.scope || 'all',
+      query: body.query || '',
+      targetConnectionId: body.targetConnectionId ?? null,
+      notes: body.notes || '',
+      ownerUserId: actor.userId,
+      visibility: actor.userId ? normalizeDemoVisibility(body.visibility, 'private') : 'shared',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: store.username || 'demo',
+    };
+    demoDb.inventoryWorkspaces.unshift(record);
+    return enrichDemoOwnedRecord(record, actor);
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/workspaces/inventory/')) {
+    ensureDemoMutationAllowed({ actionKey: 'inventory_workspace_save', entityType: 'workspace', entityRef: decodeURIComponent(path.split('/')[4] || '') });
+    const actor = getDemoActor();
+    const id = decodeURIComponent(path.split('/')[4] || '');
+    const record = demoDb.inventoryWorkspaces.find((workspace) => workspace.id === id);
+    if (!record) throw new Error('INVENTORY_WORKSPACE_NOT_FOUND');
+    if (!demoCanManageRecord(record, actor)) {
+      const error = new Error('INVENTORY_WORKSPACE_FORBIDDEN');
+      error.code = 'INVENTORY_WORKSPACE_FORBIDDEN';
+      throw error;
+    }
+
+    Object.assign(record, {
+      name: body.name,
+      scope: body.scope || 'all',
+      query: body.query || '',
+      targetConnectionId: body.targetConnectionId ?? null,
+      notes: body.notes || '',
+      ownerUserId: record.ownerUserId || actor.userId || null,
+      visibility: actor.userId ? normalizeDemoVisibility(body.visibility, record.visibility || 'private') : 'shared',
+      updatedAt: new Date().toISOString(),
+    });
+    return enrichDemoOwnedRecord(record, actor);
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/workspaces/inventory/')) {
+    ensureDemoMutationAllowed({ actionKey: 'inventory_workspace_delete', entityType: 'workspace', entityRef: decodeURIComponent(path.split('/')[4] || '') });
+    const actor = getDemoActor();
+    const id = decodeURIComponent(path.split('/')[4] || '');
+    const index = demoDb.inventoryWorkspaces.findIndex((workspace) => workspace.id === id);
+    if (index === -1) throw new Error('INVENTORY_WORKSPACE_NOT_FOUND');
+    if (!demoCanManageRecord(demoDb.inventoryWorkspaces[index], actor)) {
+      const error = new Error('INVENTORY_WORKSPACE_FORBIDDEN');
+      error.code = 'INVENTORY_WORKSPACE_FORBIDDEN';
+      throw error;
+    }
+    demoDb.inventoryWorkspaces.splice(index, 1);
     return { success: true };
   }
 

@@ -137,7 +137,10 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
     req.session.xenTargetUsername = username;
     req.session.xenSessionRef = xenApi.sessionRef;
 
-    connectionModel.touchByFingerprint(host, username, 443);
+    connectionModel.touchByFingerprint(host, username, 443, {
+      userId: req.session?.userId || null,
+      role: governanceService.getSessionRole(req.session),
+    });
     authEventModel.create({
       userId: req.session?.userId || null,
       username: operatorName,

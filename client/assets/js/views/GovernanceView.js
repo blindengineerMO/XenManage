@@ -6,6 +6,7 @@ const GovernanceView = {
     'governance-quota-form': GovernanceQuotaForm,
     'governance-approval-form': GovernanceApprovalForm,
     'local-user-form': LocalUserForm,
+    'local-group-form': LocalGroupForm,
     'user-password-form': UserPasswordForm,
   },
   template: `
@@ -30,6 +31,12 @@ const GovernanceView = {
                     @click="openUserComposer()">
               <span class="mdi mdi-account-plus-outline"></span>
               Add User
+            </button>
+            <button class="btn"
+                    v-if="canManageUsers"
+                    @click="openGroupComposer()">
+              <span class="mdi mdi-account-group-outline"></span>
+              Add Group
             </button>
             <button class="btn" @click="openApprovalComposer()">
               <span class="mdi mdi-clipboard-check-outline"></span>
@@ -114,6 +121,39 @@ const GovernanceView = {
             <div v-else class="empty-state" style="padding:20px 12px">
               <p v-if="canManageUsers">No local users have been created beyond the bootstrap account.</p>
               <p v-else>Switch into a local admin session to inspect and manage control-plane users.</p>
+            </div>
+          </div>
+
+          <div class="dash-card">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+              <div class="dash-card-label">Local Groups</div>
+              <button class="btn btn-sm"
+                      v-if="canManageUsers"
+                      @click="openGroupComposer()">
+                <span class="mdi mdi-account-group-outline"></span>
+                New Group
+              </button>
+            </div>
+            <div class="stack-list" v-if="groups.length">
+              <button class="stack-item stack-item-button"
+                      v-for="group in groups"
+                      :key="group.id"
+                      @click="openGroupEditor(group)">
+                <div>
+                  <strong>{{ group.name }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">
+                    {{ group.member_count || 0 }} {{ (group.member_count || 0) === 1 ? 'member' : 'members' }}
+                  </div>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">
+                    {{ group.members?.length ? group.members.join(', ') : 'No members assigned yet' }}
+                  </div>
+                </div>
+                <span class="badge badge-info">{{ group.member_count || 0 }}</span>
+              </button>
+            </div>
+            <div v-else class="empty-state" style="padding:20px 12px">
+              <p v-if="canManageUsers">Create local groups to organize operators into reusable access cohorts.</p>
+              <p v-else>Switch into a local admin session to inspect and manage control-plane groups.</p>
             </div>
           </div>
 
@@ -325,6 +365,7 @@ const GovernanceView = {
             :saving="userSaving"
             submit-label="Create User"
             mode="create"
+            :group-options="groups"
             @submit="saveNewUser">
           </local-user-form>
         </floating-window>
@@ -367,6 +408,7 @@ const GovernanceView = {
               :saving="userSaving"
               submit-label="Save User"
               mode="edit"
+              :group-options="groups"
               @submit="saveExistingUser">
             </local-user-form>
 
@@ -401,6 +443,63 @@ const GovernanceView = {
             @submit="submitPasswordReset">
           </user-password-form>
         </floating-window>
+
+        <floating-window :show="showGroupComposer"
+                         title="Create Local Group"
+                         :width="720"
+                         :height="520"
+                         @close="closeGroupComposer">
+          <div class="detail-section" v-if="groupError">
+            <div class="capacity-callout">
+              <strong>{{ groupError }}</strong>
+            </div>
+          </div>
+          <local-group-form
+            :saving="groupSaving"
+            submit-label="Create Group"
+            :user-options="users"
+            @submit="saveNewGroup">
+          </local-group-form>
+        </floating-window>
+
+        <floating-window :show="showGroupEditor"
+                         title="Edit Local Group"
+                         :width="760"
+                         :height="560"
+                         @close="closeGroupEditor">
+          <div v-if="selectedGroup">
+            <div class="detail-section">
+              <div class="property-grid">
+                <div>
+                  <label>Created</label>
+                  <span>{{ formatDateTime(selectedGroup.created_at) }}</span>
+                </div>
+                <div>
+                  <label>Members</label>
+                  <span>{{ selectedGroup.member_count || 0 }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-section" v-if="groupError">
+              <div class="capacity-callout">
+                <strong>{{ groupError }}</strong>
+              </div>
+            </div>
+
+            <local-group-form
+              :initial-value="selectedGroup"
+              :saving="groupSaving"
+              submit-label="Save Group"
+              :user-options="users"
+              @submit="saveExistingGroup">
+            </local-group-form>
+
+            <div class="form-actions" style="margin-top:12px">
+              <button class="btn" @click="removeGroup(selectedGroup)" :disabled="groupSaving">Remove Group</button>
+            </div>
+          </div>
+        </floating-window>
       </template>
     </div>
   `,
@@ -411,12 +510,14 @@ const GovernanceView = {
       quotaSaving: false,
       approvalSaving: false,
       userSaving: false,
+      groupSaving: false,
       passwordSaving: false,
       decidingApprovalId: '',
       policyError: '',
       quotaError: '',
       approvalError: '',
       userError: '',
+      groupError: '',
       passwordError: '',
       summary: {
         pendingApprovalCount: 0,
@@ -428,6 +529,7 @@ const GovernanceView = {
         totalUsers: 0,
         activeUsers: 0,
         activeAdmins: 0,
+        totalGroups: 0,
       },
       policy: {
         defaultRole: 'admin',
@@ -437,13 +539,17 @@ const GovernanceView = {
       approvals: [],
       quotaRows: [],
       users: [],
+      groups: [],
       showQuotaEditor: false,
       showApprovalComposer: false,
       showUserComposer: false,
       showUserEditor: false,
+      showGroupComposer: false,
+      showGroupEditor: false,
       showPasswordReset: false,
       selectedQuotaRow: null,
       selectedUser: null,
+      selectedGroup: null,
     };
   },
   setup() {
@@ -502,6 +608,14 @@ const GovernanceView = {
           icon: 'mdi-account-multiple-outline',
           valueClass: (this.userSummary.activeUsers || 0) > 1 ? 'text-cyan' : 'text-amber',
         },
+        {
+          key: 'groups',
+          label: 'Access Groups',
+          value: String(this.userSummary.totalGroups || this.groups.length || 0),
+          detail: `${this.groups.filter((group) => (group.member_count || 0) > 0).length} groups currently have assigned members`,
+          icon: 'mdi-account-group-outline',
+          valueClass: (this.userSummary.totalGroups || this.groups.length || 0) ? 'text-green' : 'text-amber',
+        },
       ];
     },
     accessCoverageRows() {
@@ -530,6 +644,12 @@ const GovernanceView = {
           detail: `${activeReadOnlyCount} viewers can inspect dashboards, inventory, and audit data without mutation rights.`,
           value: `${readOnlyCount} viewers`,
           badgeClass: 'badge-warning',
+        },
+        {
+          title: 'Group Catalog',
+          detail: `${this.groups.length} local group${this.groups.length === 1 ? '' : 's'} organize operator membership across the control plane.`,
+          value: `${this.groups.reduce((sum, group) => sum + Number(group.member_count || 0), 0)} memberships`,
+          badgeClass: this.groups.length ? 'badge-info' : 'badge-warning',
         },
       ];
     },
@@ -592,11 +712,17 @@ const GovernanceView = {
     async loadGovernance() {
       this.loading = true;
       try {
-        const [result, usersResult] = await Promise.all([
+        const [result, usersResult, groupsResult] = await Promise.all([
           api.getGovernance(),
           this.canManageUsers
             ? api.getUsers().catch((error) => {
               this.userError = error.message || 'Unable to load local users';
+              return null;
+            })
+            : Promise.resolve(null),
+          this.canManageUsers
+            ? api.getGroups().catch((error) => {
+              this.groupError = error.message || 'Unable to load local groups';
               return null;
             })
             : Promise.resolve(null),
@@ -608,6 +734,7 @@ const GovernanceView = {
         this.quotaRows = result.quotaRows || [];
         this.userSummary = result.userSummary || this.userSummary;
         this.users = usersResult?.data || (this.canManageUsers ? this.users : []);
+        this.groups = groupsResult?.data || (this.canManageUsers ? this.groups : []);
 
         store.governance = {
           currentRole: result.currentRole || store.governance.currentRole,
@@ -729,6 +856,24 @@ const GovernanceView = {
       this.selectedUser = null;
       this.userError = '';
     },
+    openGroupComposer() {
+      this.groupError = '';
+      this.showGroupComposer = true;
+    },
+    closeGroupComposer() {
+      this.showGroupComposer = false;
+      this.groupError = '';
+    },
+    openGroupEditor(group) {
+      this.selectedGroup = group;
+      this.groupError = '';
+      this.showGroupEditor = true;
+    },
+    closeGroupEditor() {
+      this.showGroupEditor = false;
+      this.selectedGroup = null;
+      this.groupError = '';
+    },
     openPasswordReset(user) {
       this.selectedUser = user;
       this.passwordError = '';
@@ -772,6 +917,47 @@ const GovernanceView = {
         this.userError = error.message || 'Unable to update local user';
       } finally {
         this.userSaving = false;
+      }
+    },
+    async saveNewGroup(payload) {
+      this.groupSaving = true;
+      this.groupError = '';
+      try {
+        await api.createGroup(payload);
+        await this.loadGovernance();
+        this.closeGroupComposer();
+      } catch (error) {
+        this.groupError = error.message || 'Unable to create local group';
+      } finally {
+        this.groupSaving = false;
+      }
+    },
+    async saveExistingGroup(payload) {
+      if (!this.selectedGroup) return;
+      this.groupSaving = true;
+      this.groupError = '';
+      try {
+        const result = await api.updateGroup(this.selectedGroup.id, payload);
+        await this.loadGovernance();
+        this.selectedGroup = this.groups.find((entry) => Number(entry.id) === Number(result.id)) || result;
+      } catch (error) {
+        this.groupError = error.message || 'Unable to update local group';
+      } finally {
+        this.groupSaving = false;
+      }
+    },
+    async removeGroup(group) {
+      if (!group?.id) return;
+      this.groupSaving = true;
+      this.groupError = '';
+      try {
+        await api.deleteGroup(group.id);
+        await this.loadGovernance();
+        this.closeGroupEditor();
+      } catch (error) {
+        this.groupError = error.message || 'Unable to remove local group';
+      } finally {
+        this.groupSaving = false;
       }
     },
     async submitPasswordReset(payload) {

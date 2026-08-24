@@ -88,6 +88,12 @@ const InventoryView = {
                     {{ connection.name || connection.host }}
                   </option>
                 </select>
+                <select class="form-input"
+                        style="max-width:240px"
+                        v-model="workspaceVisibility">
+                  <option value="private">Private Workspace</option>
+                  <option value="shared">Shared Workspace</option>
+                </select>
                 <button class="btn btn-primary btn-sm" @click="saveWorkspace" :disabled="!canSaveWorkspace || workspaceSaving">
                   <span class="mdi mdi-content-save-outline"></span>
                   {{ workspaceSaving ? 'Saving...' : 'Save Workspace' }}
@@ -105,6 +111,10 @@ const InventoryView = {
                       {{ resolveWorkspaceTargetLabel(workspace) }}
                       <span v-if="workspace.updatedAt"> · updated {{ formatDateTime(workspace.updatedAt) }}</span>
                     </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                      <span class="badge" :class="workspace.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(workspace.visibility) }}</span>
+                      <span class="badge badge-info" v-if="workspace.owner_display_name || workspace.owner_username">{{ ownershipLabel(workspace) }}</span>
+                    </div>
                   </div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <button class="btn btn-sm" @click="applyWorkspace(workspace)">
@@ -117,7 +127,7 @@ const InventoryView = {
                       <span class="mdi mdi-login-variant"></span>
                       Open Target
                     </button>
-                    <button class="btn btn-sm" @click="removeWorkspace(workspace.id)">
+                    <button class="btn btn-sm" v-if="workspace.can_manage !== false" @click="removeWorkspace(workspace.id)">
                       <span class="mdi mdi-delete-outline"></span>
                       Remove
                     </button>
@@ -139,12 +149,16 @@ const InventoryView = {
                     {{ connection.is_default ? 'Default saved target' : 'Saved connection target' }}
                     <span v-if="connection.last_connected_at"> · last used {{ formatDateTime(connection.last_connected_at) }}</span>
                   </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                    <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
+                    <span class="badge badge-info" v-if="connection.owner_display_name || connection.owner_username">{{ ownershipLabel(connection) }}</span>
+                  </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
                   <status-badge :status="connection.is_default ? 'success' : (store.host === connection.host ? 'connected' : 'notice')"></status-badge>
                   <button class="btn btn-sm"
                           @click="setDefaultConnection(connection)"
-                          :disabled="connectionDefaultPendingId === connection.id || connection.is_default">
+                          :disabled="connectionDefaultPendingId === connection.id || connection.is_default || connection.can_manage === false">
                     <span class="mdi mdi-pin-outline"></span>
                     {{ connection.is_default ? 'Default' : (connectionDefaultPendingId === connection.id ? 'Saving...' : 'Set Default') }}
                   </button>
@@ -230,6 +244,7 @@ const InventoryView = {
       searchQuery: '',
       workspaceName: '',
       workspaceTargetConnectionId: '',
+      workspaceVisibility: store.user ? 'private' : 'shared',
       workspaceSaving: false,
       workspaceError: '',
       connectionDefaultPendingId: null,
@@ -289,6 +304,11 @@ const InventoryView = {
           port: connection.port || 443,
           is_default: Boolean(connection.is_default),
           last_connected_at: connection.last_connected_at || '',
+          visibility: connection.visibility || 'shared',
+          owner_display_name: connection.owner_display_name || '',
+          owner_username: connection.owner_username || '',
+          is_owner: Boolean(connection.is_owner),
+          can_manage: connection.can_manage !== false,
         }));
     },
     allResults() {
@@ -590,6 +610,13 @@ const InventoryView = {
   },
   methods: {
     formatDateTime,
+    visibilityLabel(visibility) {
+      return visibility === 'shared' ? 'Shared' : 'Private';
+    },
+    ownershipLabel(record) {
+      if (record.is_owner) return 'Owned by you';
+      return `Owner ${record.owner_display_name || record.owner_username}`;
+    },
     firstTag(tags) {
       return String(tags || '').split(',').map((value) => value.trim()).find(Boolean) || '';
     },
@@ -651,11 +678,13 @@ const InventoryView = {
           query: this.searchQuery.trim(),
           targetConnectionId: this.workspaceTargetConnectionId ? Number(this.workspaceTargetConnectionId) : null,
           notes: '',
+          visibility: this.workspaceVisibility || (store.user ? 'private' : 'shared'),
         });
         this.savedWorkspaces = [workspace, ...this.savedWorkspaces.filter((entry) => entry.id !== workspace.id)].slice(0, 24);
         this.persistWorkspaces();
         this.workspaceName = '';
         this.workspaceTargetConnectionId = '';
+        this.workspaceVisibility = store.user ? 'private' : 'shared';
       } catch (error) {
         this.workspaceError = error.message || 'Unable to save the inventory workspace';
       } finally {

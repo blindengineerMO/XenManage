@@ -56,6 +56,10 @@ const PoolsView = {
                   <span v-if="isCurrentConnection(connection)"> · connected now</span>
                   <span v-if="connection.vault_credential_id"> · vault credential linked</span>
                 </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                  <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
+                  <span class="badge badge-info" v-if="connection.owner_display_name || connection.owner_username">{{ ownershipLabel(connection) }}</span>
+                </div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
                 <status-badge :status="isCurrentConnection(connection) ? 'connected' : (connection.is_default ? 'success' : 'notice')"></status-badge>
@@ -65,13 +69,13 @@ const PoolsView = {
                   <span class="mdi mdi-connection"></span>
                   Connect
                 </button>
-                <button class="btn btn-sm" @click="openRegistration(connection)">
+                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="openRegistration(connection)">
                   <span class="mdi mdi-pencil-outline"></span>
                 </button>
-                <button class="btn btn-sm" v-if="!connection.is_default" @click="makeDefault(connection.id)">
+                <button class="btn btn-sm" v-if="!connection.is_default && connection.can_manage !== false" @click="makeDefault(connection.id)">
                   <span class="mdi mdi-star-outline"></span>
                 </button>
-                <button class="btn btn-sm" @click="removeConnection(connection.id)">
+                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="removeConnection(connection.id)">
                   <span class="mdi mdi-delete-outline"></span>
                 </button>
               </div>
@@ -140,7 +144,7 @@ const PoolsView = {
       <floating-window :show="showRegistration"
                        :title="editingConnectionId ? 'Edit Pool Target' : 'Register Pool Target'"
                        :width="560"
-                       :height="430"
+                       :height="500"
                        @close="showRegistration = false">
         <pool-registration-form
           :initial-value="connectionDraft"
@@ -270,6 +274,13 @@ const PoolsView = {
   methods: {
     truncateList,
     summarizeCount,
+    visibilityLabel(visibility) {
+      return visibility === 'shared' ? 'Shared' : 'Private';
+    },
+    ownershipLabel(connection) {
+      if (connection.is_owner) return 'Owned by you';
+      return `Owner ${connection.owner_display_name || connection.owner_username}`;
+    },
     isCurrentConnection(connection) {
       return store.host === connection.host || store.host === connection.name;
     },
@@ -392,6 +403,7 @@ const PoolsView = {
         username: 'root',
         vault_credential_id: null,
         port: 443,
+        visibility: store.user ? 'private' : 'shared',
         is_default: false,
       };
       this.showRegistration = true;

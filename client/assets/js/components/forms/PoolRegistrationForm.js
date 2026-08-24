@@ -31,6 +31,13 @@ const PoolRegistrationForm = {
         <label for="pool-port">Port</label>
         <input id="pool-port" class="form-input" v-model.number="draft.port" type="number" min="1" max="65535" required>
       </div>
+      <div class="form-group">
+        <label for="pool-visibility">Visibility</label>
+        <select id="pool-visibility" class="form-input" v-model="draft.visibility">
+          <option value="private">Private to my control-plane account</option>
+          <option value="shared">Shared with other operators</option>
+        </select>
+      </div>
       <label class="form-toggle">
         <input type="checkbox" v-model="draft.isDefault">
         <span>Set as default saved pool target</span>
@@ -76,6 +83,7 @@ const PoolRegistrationForm = {
         vaultCredentialId: value?.vault_credential_id || value?.vaultCredentialId || null,
         port: Number(value?.port || 443),
         isDefault: Boolean(value?.is_default || value?.isDefault),
+        visibility: value?.visibility || 'private',
       };
     },
     handleSubmit() {
@@ -85,6 +93,7 @@ const PoolRegistrationForm = {
         username: this.draft.username.trim(),
         vaultCredentialId: this.draft.vaultCredentialId ? Number(this.draft.vaultCredentialId) : null,
         port: Number(this.draft.port || 443),
+        visibility: this.draft.visibility || 'private',
         isDefault: Boolean(this.draft.isDefault),
       });
     },

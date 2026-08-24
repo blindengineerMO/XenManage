@@ -6,12 +6,19 @@ function buildLocalUserDraft(initialValue = {}, mode = 'create') {
     email: initialValue.email || '',
     role: initialValue.role || 'operator',
     active: initialValue.active !== false,
+    groupIds: Array.isArray(initialValue.groupIds)
+      ? initialValue.groupIds.map((value) => String(value))
+      : Array.isArray(initialValue.groupsDetailed)
+        ? initialValue.groupsDetailed.map((group) => String(group.id))
+        : Array.isArray(initialValue.group_ids)
+          ? initialValue.group_ids.map((value) => String(value))
+          : [],
     mode,
   };
 }
 
 const LocalUserForm = {
-  props: ['initialValue', 'saving', 'submitLabel', 'mode'],
+  props: ['initialValue', 'saving', 'submitLabel', 'mode', 'groupOptions'],
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
@@ -65,6 +72,22 @@ const LocalUserForm = {
         </div>
 
         <div class="form-group" style="grid-column:1 / -1">
+          <label for="local-user-groups">Group Membership</label>
+          <select id="local-user-groups"
+                  class="form-input"
+                  v-model="draft.groupIds"
+                  multiple
+                  size="6">
+            <option v-for="group in groupOptions || []" :key="group.id" :value="String(group.id)">
+              {{ group.name }} · {{ group.member_count || 0 }} {{ (group.member_count || 0) === 1 ? 'member' : 'members' }}
+            </option>
+          </select>
+          <div class="text-muted" style="font-size:12px;margin-top:6px">
+            Hold Ctrl or Command to select multiple groups for the control-plane operator.
+          </div>
+        </div>
+
+        <div class="form-group" style="grid-column:1 / -1">
           <label class="form-toggle">
             <input type="checkbox" v-model="draft.active">
             <span>Account is active and allowed to sign in</span>
@@ -112,6 +135,7 @@ const LocalUserForm = {
         email: String(this.draft.email || '').trim(),
         role: this.draft.role || 'operator',
         active: Boolean(this.draft.active),
+        groupIds: (this.draft.groupIds || []).map((value) => Number(value || 0)).filter(Boolean),
       };
 
       if (this.isCreateMode) {

@@ -1,5 +1,11 @@
 const crypto = require('crypto');
 const { settingsModel } = require('../models/connection');
+const {
+  canManageRecord,
+  isVisibleToActor,
+  normalizeOwnerUserId,
+  normalizeVisibility,
+} = require('./resource-ownership');
 
 const SETTINGS_KEY = 'inventory.workspaces';
 const MAX_WORKSPACES = 40;
@@ -25,6 +31,7 @@ function normalizeScope(value) {
 
 function normalizeWorkspace(workspace = {}, current = null) {
   const now = new Date().toISOString();
+  const ownerUserId = normalizeOwnerUserId(workspace.ownerUserId ?? current?.ownerUserId ?? current?.owner_user_id ?? workspace.owner_user_id);
   return {
     id: current?.id || workspace.id || `workspace-${crypto.randomUUID()}`,
     name: String(workspace.name || current?.name || '').trim(),
@@ -34,6 +41,8 @@ function normalizeWorkspace(workspace = {}, current = null) {
       ? null
       : Number(workspace.targetConnectionId ?? current?.targetConnectionId ?? 0) || null,
     notes: String(workspace.notes || current?.notes || '').trim(),
+    ownerUserId,
+    visibility: normalizeVisibility(workspace.visibility || current?.visibility, ownerUserId ? 'private' : 'shared'),
     createdAt: current?.createdAt || workspace.createdAt || now,
     updatedAt: now,
     createdBy: String(workspace.createdBy || current?.createdBy || '').trim(),
@@ -47,27 +56,50 @@ function sortWorkspaces(workspaces) {
 }
 
 const inventoryWorkspaceService = {
-  list() {
+  list(actor = {}) {
+    return sortWorkspaces(
+      readWorkspaces()
+        .map((workspace) => normalizeWorkspace(workspace, workspace))
+        .filter((workspace) => isVisibleToActor({ ...workspace, owner_user_id: workspace.ownerUserId }, actor))
+    );
+  },
+
+  listAll() {
     return sortWorkspaces(readWorkspaces().map((workspace) => normalizeWorkspace(workspace, workspace)));
   },
 
-  get(id) {
-    return this.list().find((workspace) => workspace.id === id) || null;
+  get(id, actor = null) {
+    const workspace = this.listAll().find((entry) => entry.id === id) || null;
+    if (!workspace) return null;
+    if (actor && !isVisibleToActor({ ...workspace, owner_user_id: workspace.ownerUserId }, actor)) {
+      return null;
+    }
+    return workspace;
   },
 
-  create(payload = {}, operator = 'system') {
+  create(payload = {}, options = {}) {
     const workspaces = readWorkspaces();
+    const actor = {
+      userId: normalizeOwnerUserId(options.userId),
+      role: options.role || 'operator',
+    };
+    const ownerUserId = normalizeOwnerUserId(options.ownerUserId ?? options.userId);
     const workspace = normalizeWorkspace({
       ...payload,
-      createdBy: operator,
+      ownerUserId,
+      visibility: normalizeVisibility(payload.visibility, ownerUserId ? 'private' : 'shared'),
+      createdBy: options.operator || 'system',
       createdAt: new Date().toISOString(),
     });
+    if (!actor.userId && workspace.visibility === 'private') {
+      workspace.visibility = 'shared';
+    }
     workspaces.unshift(workspace);
     writeWorkspaces(workspaces);
     return workspace;
   },
 
-  update(id, payload = {}) {
+  update(id, payload = {}, options = {}) {
     const workspaces = readWorkspaces();
     const index = workspaces.findIndex((workspace) => workspace.id === id);
     if (index === -1) {
@@ -77,21 +109,49 @@ const inventoryWorkspaceService = {
     }
 
     const current = normalizeWorkspace(workspaces[index], workspaces[index]);
+    const actor = {
+      userId: normalizeOwnerUserId(options.userId),
+      role: options.role || 'operator',
+    };
+    if (!canManageRecord({ ...current, owner_user_id: current.ownerUserId }, actor)) {
+      const error = new Error('INVENTORY_WORKSPACE_FORBIDDEN');
+      error.code = 'INVENTORY_WORKSPACE_FORBIDDEN';
+      throw error;
+    }
+
+    let ownerUserId = normalizeOwnerUserId(current.ownerUserId);
+    if (!ownerUserId && actor.userId) {
+      ownerUserId = actor.userId;
+    }
+
+    const visibility = !actor.userId
+      ? 'shared'
+      : normalizeVisibility(payload.visibility, current.visibility || (ownerUserId ? 'private' : 'shared'));
+
     const next = normalizeWorkspace({
       ...current,
       ...payload,
+      ownerUserId,
+      visibility,
     }, current);
     workspaces[index] = next;
     writeWorkspaces(workspaces);
     return next;
   },
 
-  delete(id) {
+  delete(id, actor = {}) {
     const workspaces = readWorkspaces();
     const index = workspaces.findIndex((workspace) => workspace.id === id);
     if (index === -1) {
       const error = new Error('INVENTORY_WORKSPACE_NOT_FOUND');
       error.code = 'INVENTORY_WORKSPACE_NOT_FOUND';
+      throw error;
+    }
+
+    const current = normalizeWorkspace(workspaces[index], workspaces[index]);
+    if (!canManageRecord({ ...current, owner_user_id: current.ownerUserId }, actor)) {
+      const error = new Error('INVENTORY_WORKSPACE_FORBIDDEN');
+      error.code = 'INVENTORY_WORKSPACE_FORBIDDEN';
       throw error;
     }
 

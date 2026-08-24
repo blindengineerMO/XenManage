@@ -24,6 +24,7 @@ Browser (Vue 3 SPA) ←→ Express Server (port 3000) ←→ XenServer (JSON-RPC
 - **Frontend**: Vue 3 runtime bundle + Vue Router 4 served locally from `client/dist`
 - **Backend**: Express 5, better-sqlite3, Joi validation, Helmet security
 - **Session durability**: SQLite-backed Express sessions with Xen session rehydration after process restarts
+- **Governance identity**: Local users, local groups, session-role switching, pool quotas, and approval-gated destructive operations
 - **Runtime settings**: Dedicated `/settings` workspace with live trust-proxy/session controls, credential-vault management, and retention operations
 - **Central log center**: Federated Activity log view spanning audit, auth, alerts, remediation work, and Xen task history with export support
 - **Performance history**: Persisted host, VM, and storage telemetry in `perf.db` with trend cards across Capacity, Host, and VM detail panes
@@ -70,6 +71,7 @@ XenMange/
 │   │   ├── metrics.js            # Persisted telemetry history routes
 │   │   ├── system-config.js      # Runtime settings + retention routes
 │   │   ├── tasks.js              # Task/activity history
+│   │   ├── groups.js             # Local control-plane group CRUD
 │   │   ├── resilience.js         # HA/DR/protection synthesis
 │   │   ├── vms.js                # VM CRUD + lifecycle
 │   │   ├── hosts.js              # Host list + metrics
@@ -164,12 +166,20 @@ All `/api/*` routes require a valid session cookie except the sign-in endpoints.
 | GET | `/api/networks` | All networks with records |
 | GET | `/api/pools` | All pools with records |
 | GET | `/api/settings` | Runtime configuration + retention policy state |
+| GET | `/api/users` | List local control-plane users plus governance summary |
+| GET | `/api/groups` | List local control-plane groups and memberships |
 | GET | `/api/credentials` | List visible vault credentials (metadata only) |
 | GET | `/api/settings/retention/preview` | Dry-run retention preview |
 | POST | `/api/credentials` | Save an encrypted pool/host credential in `vault.db` |
+| POST | `/api/users` | Create a local control-plane user |
+| POST | `/api/groups` | Create a local control-plane group |
 | POST | `/api/settings/retention/run` | Run manual retention sweep |
+| POST | `/api/users/:id/password` | Rotate a local control-plane password |
 | PUT | `/api/credentials/:id` | Update credential metadata and optionally rotate the secret |
+| PUT | `/api/users/:id` | Update a local control-plane user |
+| PUT | `/api/groups/:id` | Update a local control-plane group |
 | DELETE | `/api/credentials/:id` | Remove a vault credential |
+| DELETE | `/api/groups/:id` | Remove a local control-plane group |
 | POST | `/api/logs/export` | Export filtered or selected log entries as JSON, HTML, or PDF |
 | POST | `/api/metrics/collect` | Force a fresh telemetry snapshot into `perf.db` |
 | POST | `/api/vms/start` | Start VM (`{ref, paused?, force?}`) |
@@ -230,14 +240,15 @@ VAULT_ENCRYPTION_KEY_PREVIOUS=
 - As of Monday, August 24, 2026, the Pools workspace can attach a saved Xen target directly from an already-authenticated control-plane session, giving the local-first login path a complete operator workflow without bouncing back through the login route.
 - As of Monday, August 24, 2026, a dedicated Settings workspace now manages app identity, timezone, public URL/proxy behavior, session timeout, logging posture, retention scheduler options, and per-domain retention policies with audit coverage and manual preview/run controls.
 - As of Monday, August 24, 2026, that Settings workspace also exposes searchable vault credential inventory, floating-window create/edit/delete flows, master-key posture guidance, previous-key rotation visibility, and last-used tracking for saved Xen credentials.
-- As of Monday, August 24, 2026, the Governance workspace now includes first-party local user administration with create/edit/password-rotation flows, active/disabled account posture, persisted admin/operator/read-only role ceilings, last-admin protection, and server-side prevention of session-role escalation beyond the assigned account role.
+- As of Monday, August 24, 2026, the Governance workspace now includes first-party local user and local group administration with create/edit/password-rotation flows, active/disabled account posture, persisted admin/operator/read-only role ceilings, reusable group membership management, last-admin protection, and server-side prevention of session-role escalation beyond the assigned account role.
+- As of Monday, August 24, 2026, saved pool targets, host targets, and inventory workspaces now carry per-user ownership plus `private`/`shared` visibility, with owner-aware edit/default/delete enforcement, admin override visibility, and clearer ownership cues in the Pools, Hosts, and Inventory workspaces.
 - As of Monday, August 24, 2026, the Templates workspace now includes promotion-aware governance history plus a compare-and-promote workflow for staged validated template generations, including optional retirement of the previous stable baseline.
 - As of Monday, August 24, 2026, the Activity workspace now includes a centralized Log Center that federates audit history, auth events, alert records, remediation tasks, and Xen background tasks into one searchable table with JSON, HTML, and PDF export paths.
 - As of Monday, August 24, 2026, `perf.db` now captures persisted host-memory, VM-memory, and SR-utilization history, and the Capacity, Host, and VM workspaces now surface those trends through local metric cards instead of relying only on one-off live snapshots.
 - The login and authenticated shell now use project-owned AI-generated background art instead of external visual dependencies.
 - The dashboard supports draggable summary cards with persisted order in `localStorage`, plus alert triage and direct action rails into templates, alerts, activity history, and the new capacity workspace.
 - Pools, hosts, storage, networking, and VM detail views now open in custom floating windows instead of browser alerts.
-- A dedicated inventory workbench now exposes universal search across live infrastructure objects, saved connection targets, top tags, and browser-local workspace presets for repeatable operator navigation.
+- A dedicated inventory workbench now exposes universal search across live infrastructure objects, saved connection targets, top tags, and server-persisted workspace presets with target binding plus ownership/visibility cues for repeatable operator navigation.
 - Template inventory and alerts history are now exposed as dedicated routes for repeatable provisioning and operator triage workflows, and the template workbench now carries governance history and stable-promotion review directly in-place.
 - A dedicated activity workbench now exposes recent XenServer task history, searchable federated log records, exportable audit/log detail, progress, completion states, and error details.
 - A dedicated lifecycle workbench now exposes maintenance posture, lifecycle-oriented task tracking, heuristic compliance/drift signals, and remediation guidance inspired by vCenter and SCVMM.
@@ -246,4 +257,4 @@ VAULT_ENCRYPTION_KEY_PREVIOUS=
 - A dedicated resilience workbench now exposes derived protection coverage, failover readiness, evacuation targets, recovery-plan guidance, and recent resilience events.
 - Host property windows now pull live metric records so operators can inspect memory state without leaving the app.
 - The login surface can reuse locally saved connection targets from the SQLite-backed connection store, the Pools workspace can attach those saved targets in-place after a control-plane sign-in, pool/host registrations can bind to saved vault credentials, and the Settings workspace now gives operators one place to manage those encrypted secrets.
-- Jest coverage now includes 156 passing tests, and Playwright E2E coverage includes 8 passing browser flows spanning control-plane sign-in, local user administration, target attachment, dashboard hydration, VM lifecycle actions, template governance/promotion, and the inventory/activity/settings workbenches with mocked API responses.
+- Jest coverage now includes 164 passing tests, and Playwright E2E coverage includes 8 passing browser flows spanning control-plane sign-in, local user and local group administration, ownership-aware target/workspace flows, target attachment, dashboard hydration, VM lifecycle actions, template governance/promotion, and the inventory/activity/settings workbenches with mocked API responses.
