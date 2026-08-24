@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { listAlerts } = require('../services/alerts');
 
 router.get('/', async (req, res) => {
   try {
@@ -13,10 +14,7 @@ router.get('/', async (req, res) => {
 router.get('/messages', async (req, res) => {
   try {
     const messages = await req.xenApi.getMessages();
-    const list = Object.entries(messages)
-      .map(([ref, r]) => ({ ref, ...r }))
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      .slice(0, 50);
+    const list = listAlerts(messages).slice(0, 50);
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -125,6 +125,7 @@ const PoolsView = {
       editingConnectionId: null,
       connectionDraft: null,
       connectionError: null,
+      lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name' },
         { key: 'uuid', label: 'UUID' },
@@ -158,6 +159,15 @@ const PoolsView = {
       return;
     }
     await this.loadAll();
+    await this.syncRouteFocus();
+  },
+  watch: {
+    '$route.query': {
+      deep: true,
+      async handler() {
+        await this.syncRouteFocus();
+      },
+    },
   },
   methods: {
     truncateList,
@@ -178,6 +188,7 @@ const PoolsView = {
       } finally {
         this.loading = false;
       }
+      await this.syncRouteFocus();
     },
     async loadHosts() {
       try {
@@ -197,6 +208,29 @@ const PoolsView = {
     openProperties(row) {
       this.selectedPool = row;
       this.showProps = true;
+    },
+    findPoolByFocus(focus) {
+      return this.pools.find((pool) =>
+        recordMatchesRouteFocus(pool, focus, ['ref', 'uuid', 'name_label'])
+      ) || null;
+    },
+    async syncRouteFocus() {
+      const focus = getRouteFocus(this.$route.query);
+      if (!focus || (focus.kind && focus.kind !== 'pool')) {
+        this.lastAppliedFocusKey = '';
+        return;
+      }
+
+      if (this.loading || !this.pools.length) return;
+
+      const key = getRouteFocusKey(focus);
+      if (this.lastAppliedFocusKey === key) return;
+
+      const match = this.findPoolByFocus(focus);
+      if (!match) return;
+
+      this.openProperties(match);
+      this.lastAppliedFocusKey = key;
     },
     isPoolMaster(host, pool) {
       return Boolean(host && pool && pool.master && host.ref === pool.master);

@@ -327,6 +327,7 @@ const VMsView = {
       diskSaving: false,
       nicSaving: false,
       activeTab: 'overview',
+      lastAppliedFocusKey: '',
       relatedHosts: [],
       relatedPools: [],
       relatedStorage: [],
@@ -460,6 +461,15 @@ const VMsView = {
       return;
     }
     await this.loadVMs();
+    await this.syncRouteFocus();
+  },
+  watch: {
+    '$route.query': {
+      deep: true,
+      async handler() {
+        await this.syncRouteFocus();
+      },
+    },
   },
   methods: {
     formatBytes,
@@ -474,6 +484,7 @@ const VMsView = {
       } finally {
         this.loading = false;
       }
+      await this.syncRouteFocus();
     },
     async openProperties(row) {
       this.selectedVM = row;
@@ -481,6 +492,11 @@ const VMsView = {
       this.activeTab = 'overview';
       this.actionError = null;
       await this.loadVmDetail(row.ref);
+    },
+    findVmByFocus(focus) {
+      return this.vms.find((vm) =>
+        recordMatchesRouteFocus(vm, focus, ['ref', 'uuid', 'name_label'])
+      ) || null;
     },
     async loadVmDetail(ref) {
       this.detailLoading = true;
@@ -536,17 +552,52 @@ const VMsView = {
       }
       await this.loadVmDetail(ref);
     },
+    async syncRouteFocus() {
+      const focus = getRouteFocus(this.$route.query);
+      if (!focus || (focus.kind && focus.kind !== 'vm')) {
+        this.lastAppliedFocusKey = '';
+        return;
+      }
+
+      if (this.loading || !this.vms.length) return;
+
+      const key = getRouteFocusKey(focus);
+      if (this.lastAppliedFocusKey === key) return;
+
+      const match = this.findVmByFocus(focus);
+      if (!match) return;
+
+      await this.openProperties(match);
+      this.lastAppliedFocusKey = key;
+    },
     async vmAction(action, ref, options = {}) {
       this.actionError = null;
       this.actionBusy = action + (options.force ? '-force' : '');
       try {
-        await api.vmAction(action, ref, options);
+        const approvalId = await this.resolveGovernanceApproval(action, ref);
+        await api.vmAction(action, ref, approvalId ? { ...options, approvalId } : options);
         await this.refreshVmDetail(ref);
       } catch (error) {
         this.actionError = error.message || 'Action failed';
       } finally {
         this.actionBusy = '';
       }
+    },
+    async resolveGovernanceApproval(action, ref) {
+      if (!['shutdown', 'reboot', 'suspend'].includes(action)) return '';
+      if ((store.governance?.currentRole || 'admin') === 'admin') return '';
+      if (!store.governance?.policy?.requireDestructiveApproval) return '';
+
+      const actionKey = action === 'shutdown' ? 'vm_shutdown' : action === 'reboot' ? 'vm_reboot' : 'vm_suspend';
+      const governance = await api.getGovernance();
+      const approval = (governance.approvals || []).find((entry) =>
+        entry.status === 'approved'
+        && entry.actionKey === actionKey
+        && entry.entityType === 'vm'
+        && entry.entityRef === ref
+      );
+
+      return approval?.id || '';
     },
     async submitVmConfig(payload) {
       if (!this.selectedVM) return;

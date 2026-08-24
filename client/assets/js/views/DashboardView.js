@@ -153,6 +153,32 @@ const DashboardView = {
           </div>
 
           <div class="dash-card">
+            <div class="dash-card-label">Capacity Watch</div>
+            <div class="metric-row">
+              <span>Live Memory Used</span>
+              <strong :class="'text-' + capacityColorClass(capacitySummary.memoryUsedPercent)">{{ formatPercentValue(capacitySummary.memoryUsedPercent) }}</strong>
+            </div>
+            <div class="metric-row">
+              <span>VM Memory Commit</span>
+              <strong :class="'text-' + capacityColorClass(capacitySummary.memoryCommitPercent)">{{ formatPercentValue(capacitySummary.memoryCommitPercent) }}</strong>
+            </div>
+            <div class="metric-row">
+              <span>Storage Commit</span>
+              <strong :class="'text-' + capacityColorClass(capacitySummary.storageUsedPercent)">{{ formatPercentValue(capacitySummary.storageUsedPercent) }}</strong>
+            </div>
+            <div class="metric-row">
+              <span>Noisy-Neighbor Candidates</span>
+              <strong class="text-amber">{{ capacitySummary.noisyNeighborCount || 0 }}</strong>
+            </div>
+            <div class="detail-section" style="margin-top:12px">
+              <div class="capacity-callout">
+                <strong>{{ capacityForecast.title }}</strong>
+                <p>{{ capacityForecast.detail }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-card">
             <div class="dash-card-label">Template Momentum</div>
             <div class="metric-row">
               <span>Library Templates</span>
@@ -181,6 +207,34 @@ const DashboardView = {
             </div>
           </div>
         </div>
+
+        <div class="dashboard-panels" v-if="capacityTopConsumers.length || capacityHotHosts.length">
+          <div class="dash-card" v-if="capacityTopConsumers.length">
+            <div class="dash-card-label">Top Consumers</div>
+            <div class="stack-list">
+              <div class="stack-item" v-for="vm in capacityTopConsumers.slice(0, 4)" :key="vm.ref">
+                <div>
+                  <strong>{{ vm.name_label || 'Virtual Machine' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ vm.hostName }} · {{ formatBytes(vm.memoryDemand) }} · {{ vm.vcpuDemand }} vCPU</div>
+                </div>
+                <status-badge :status="getUtilizationStatus(vm.riskPercentOfHost, { warning: 12, critical: 20 })"></status-badge>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-card" v-if="capacityHotHosts.length">
+            <div class="dash-card-label">Placement Hotspots</div>
+            <div class="stack-list">
+              <div class="stack-item" v-for="host in capacityHotHosts.slice(0, 4)" :key="host.ref">
+                <div>
+                  <strong>{{ host.name_label || host.name || 'Host' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ formatPercentValue(host.pressurePercent) }} pressure · {{ host.assignedVms.length }} VMs · {{ formatPercentValue(host.imbalancePercent) }} skew</div>
+                </div>
+                <status-badge :status="host.status"></status-badge>
+              </div>
+            </div>
+          </div>
+        </div>
       </template>
     </div>
   `,
@@ -190,6 +244,7 @@ const DashboardView = {
       summary: {},
       messages: [],
       tasks: [],
+      capacity: null,
       draggedCardKey: null,
       summaryOrder: ['hosts', 'vms', 'templates', 'storage', 'networks', 'pools'],
     };
@@ -220,6 +275,18 @@ const DashboardView = {
     sortedTasks() {
       return sortTasks(this.tasks);
     },
+    capacitySummary() {
+      return this.capacity?.summary || {};
+    },
+    capacityForecast() {
+      return this.capacity?.forecast || summarizeCapacityRisk();
+    },
+    capacityTopConsumers() {
+      return this.capacity?.topVmConsumers || [];
+    },
+    capacityHotHosts() {
+      return (this.capacity?.hostBalanceRows || []).filter((host) => ['critical', 'warning'].includes(host.status));
+    },
   },
   async mounted() {
     if (!store.authenticated) {
@@ -243,12 +310,21 @@ const DashboardView = {
   },
   methods: {
     formatDateTime,
+    formatBytes,
+    formatPercentValue,
     formatTaskProgress,
     getMessageHeadline,
     getMessageSeverity,
+    getUtilizationStatus,
     summarizeCount,
     stateCount(collection, key) {
       return collection && collection[key] ? collection[key] : 0;
+    },
+    capacityColorClass(percent) {
+      const status = getUtilizationStatus(percent, { warning: 75, critical: 90 });
+      if (status === 'critical') return 'red';
+      if (status === 'warning') return 'amber';
+      return 'green';
     },
     startCardDrag(key) {
       this.draggedCardKey = key;
@@ -270,16 +346,59 @@ const DashboardView = {
     async loadDashboard() {
       this.loading = true;
       try {
-        const [summary, messages, tasks] = await Promise.all([
+        const [summary, messages, tasks, hostsResult, srsResult, vmsResult] = await Promise.all([
           api.dashboard(),
           api.dashboardMessages().catch(() => []),
           api.getTasks().catch(() => ({ data: [] })),
+          api.getHosts().catch(() => ({ data: [] })),
+          api.getSRs().catch(() => ({ data: [] })),
+          api.getVMs().catch(() => ({ data: [] })),
         ]);
+        const hostRecords = hostsResult.data || [];
+        const metricEntries = await Promise.all(hostRecords.map(async (host) => {
+          try {
+            const metrics = await api.getHostMetrics(host.ref);
+            return [host.ref, metrics];
+          } catch (error) {
+            return [host.ref, { live: false, memory_total: 0, memory_free: 0 }];
+          }
+        }));
+        const metricsByRef = Object.fromEntries(metricEntries);
+        const capacityHosts = hostRecords.map((host) => {
+          const metrics = metricsByRef[host.ref] || {};
+          const memoryTotal = Number(metrics.memory_total || 0);
+          const memoryFree = Number(metrics.memory_free || 0);
+          const memoryUsed = Math.max(0, memoryTotal - memoryFree);
+
+          return {
+            ...host,
+            live: Boolean(metrics.live),
+            memoryTotal,
+            memoryFree,
+            memoryUsed,
+            memoryUsagePercent: percentValue(memoryUsed, memoryTotal),
+          };
+        });
+
+        const capacitySrs = (srsResult.data || []).map((sr) => ({
+          ...sr,
+          freeBytes: Math.max(0, Number(sr.physical_size || 0) - Number(sr.virtual_allocation || 0)),
+          utilizationPercent: percentValue(Number(sr.virtual_allocation || 0), Number(sr.physical_size || 0)),
+        }));
+
         this.summary = summary || {};
         this.messages = messages || [];
         this.tasks = tasks.data || [];
+        this.capacity = buildCapacityAnalytics({
+          hosts: capacityHosts,
+          srs: capacitySrs,
+          vms: vmsResult.data || [],
+          tasks: tasks.data || [],
+          messages: messages || [],
+        });
       } catch (error) {
         console.error('Dashboard error:', error);
+        this.capacity = null;
       } finally {
         this.loading = false;
       }

@@ -78,22 +78,44 @@ const InventoryView = {
                 <input class="data-table-search"
                        placeholder="Name this search preset..."
                        v-model="workspaceName">
-                <button class="btn btn-primary btn-sm" @click="saveWorkspace" :disabled="!canSaveWorkspace">
+                <select class="form-input"
+                        style="max-width:240px"
+                        v-model="workspaceTargetConnectionId">
+                  <option value="">No target binding</option>
+                  <option v-for="connection in safeConnections"
+                          :key="connection.id"
+                          :value="String(connection.id)">
+                    {{ connection.name || connection.host }}
+                  </option>
+                </select>
+                <button class="btn btn-primary btn-sm" @click="saveWorkspace" :disabled="!canSaveWorkspace || workspaceSaving">
                   <span class="mdi mdi-content-save-outline"></span>
-                  Save Workspace
+                  {{ workspaceSaving ? 'Saving...' : 'Save Workspace' }}
                 </button>
               </div>
+              <div class="text-muted mono" style="font-size:11px;margin-top:6px">Workspace presets now persist through the server and can optionally bind to a saved target for deliberate connection switching.</div>
+              <div class="form-error" v-if="workspaceError" style="text-align:left">{{ workspaceError }}</div>
 
               <div class="stack-list" v-if="savedWorkspaces.length">
                 <div class="stack-item" v-for="workspace in savedWorkspaces" :key="workspace.id">
                   <div>
                     <strong>{{ workspace.name }}</strong>
                     <div class="text-muted mono" style="font-size:11px">{{ workspace.scope }} · {{ workspace.query || 'no query filter' }}</div>
+                    <div class="text-muted mono" style="font-size:11px">
+                      {{ resolveWorkspaceTargetLabel(workspace) }}
+                      <span v-if="workspace.updatedAt"> · updated {{ formatDateTime(workspace.updatedAt) }}</span>
+                    </div>
                   </div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <button class="btn btn-sm" @click="applyWorkspace(workspace)">
                       <span class="mdi mdi-target-variant"></span>
                       Apply
+                    </button>
+                    <button class="btn btn-sm"
+                            v-if="workspace.targetConnectionId"
+                            @click="openWorkspaceTarget(workspace)">
+                      <span class="mdi mdi-login-variant"></span>
+                      Open Target
                     </button>
                     <button class="btn btn-sm" @click="removeWorkspace(workspace.id)">
                       <span class="mdi mdi-delete-outline"></span>
@@ -118,10 +140,23 @@ const InventoryView = {
                     <span v-if="connection.last_connected_at"> · last used {{ formatDateTime(connection.last_connected_at) }}</span>
                   </div>
                 </div>
-                <status-badge :status="connection.is_default ? 'success' : (store.host === connection.host ? 'connected' : 'notice')"></status-badge>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
+                  <status-badge :status="connection.is_default ? 'success' : (store.host === connection.host ? 'connected' : 'notice')"></status-badge>
+                  <button class="btn btn-sm"
+                          @click="setDefaultConnection(connection)"
+                          :disabled="connectionDefaultPendingId === connection.id || connection.is_default">
+                    <span class="mdi mdi-pin-outline"></span>
+                    {{ connection.is_default ? 'Default' : (connectionDefaultPendingId === connection.id ? 'Saving...' : 'Set Default') }}
+                  </button>
+                  <button class="btn btn-sm" @click="openConnectionTarget(connection)">
+                    <span class="mdi mdi-login-variant"></span>
+                    Open Login
+                  </button>
+                </div>
               </div>
             </div>
             <div v-else class="empty-state" style="padding:18px 12px">No saved connection targets yet.</div>
+            <div class="form-error" v-if="connectionActionError" style="text-align:left">{{ connectionActionError }}</div>
 
             <div class="detail-section">
               <div class="detail-section-title">Top Tags</div>
@@ -194,6 +229,11 @@ const InventoryView = {
       loading: true,
       searchQuery: '',
       workspaceName: '',
+      workspaceTargetConnectionId: '',
+      workspaceSaving: false,
+      workspaceError: '',
+      connectionDefaultPendingId: null,
+      connectionActionError: '',
       activeScope: 'all',
       scopes: [
         { value: 'all', label: 'All' },
@@ -202,7 +242,11 @@ const InventoryView = {
         { value: 'vm', label: 'VMs' },
         { value: 'host', label: 'Hosts' },
         { value: 'storage', label: 'Storage' },
+        { value: 'vdi', label: 'VDIs' },
+        { value: 'vbd', label: 'VBDs' },
         { value: 'network', label: 'Networks' },
+        { value: 'vif', label: 'VIFs' },
+        { value: 'pif', label: 'PIFs' },
         { value: 'alert', label: 'Alerts' },
         { value: 'task', label: 'Tasks' },
       ],
@@ -212,6 +256,7 @@ const InventoryView = {
         vms: [],
         hosts: [],
         srs: [],
+        vdis: [],
         networks: [],
         alerts: [],
         tasks: [],
@@ -247,6 +292,20 @@ const InventoryView = {
         }));
     },
     allResults() {
+      const storageMap = new Map((this.resources.srs || []).map((sr) => [sr.ref, sr]));
+      const hostMap = new Map((this.resources.hosts || []).map((host) => [host.ref, host]));
+      const vmsByVbdRef = new Map();
+      const vmsByVifRef = new Map();
+
+      for (const vm of this.resources.vms || []) {
+        for (const ref of vm.VBDs || []) {
+          vmsByVbdRef.set(ref, vm);
+        }
+        for (const ref of vm.VIFs || []) {
+          vmsByVifRef.set(ref, vm);
+        }
+      }
+
       const vmResults = (this.resources.vms || []).map((vm) => ({
         kind: 'vm',
         name: vm.name_label || 'Virtual Machine',
@@ -307,6 +366,47 @@ const InventoryView = {
         uuid: sr.uuid,
       }));
 
+      const vdiResults = (this.resources.vdis || []).map((vdi) => {
+        const sr = storageMap.get(vdi.SR) || null;
+        const attachmentCount = Array.isArray(vdi.VBDs) ? vdi.VBDs.length : 0;
+        return {
+          kind: 'vdi',
+          name: vdi.name_label || vdi.ref || 'Virtual Disk Image',
+          context: `${sr?.name_label || vdi.SR || 'Unknown SR'} · ${formatBytes(vdi.virtual_size)} · ${attachmentCount} attachment${attachmentCount === 1 ? '' : 's'}`,
+          status: vdi.managed ? 'info' : 'warning',
+          tags: `${vdi.type || 'disk'}${vdi.managed ? ', managed' : ', unmanaged'}`,
+          summary: `${vdi.uuid || vdi.ref || 'VDI'} stored in ${sr?.name_label || 'the selected repository'}.`,
+          route: '/storage',
+          ref: vdi.ref,
+          uuid: vdi.uuid,
+          focusKind: 'storage',
+          focusClass: 'vdi',
+          parentName: sr?.name_label || '',
+        };
+      });
+
+      const vbdResults = (this.resources.vdis || []).flatMap((vdi) => {
+        const sr = storageMap.get(vdi.SR) || null;
+        return (vdi.VBDs || []).map((vbdRef, index) => {
+          const vm = vmsByVbdRef.get(vbdRef) || null;
+          const host = hostMap.get(vm?.resident_on) || null;
+          return {
+            kind: 'vbd',
+            name: `VBD ${vm?.name_label || index + 1}`,
+            context: `${vdi.name_label || vdi.ref || 'VDI'} · ${vm?.name_label || 'No mapped VM'} · ${host?.name_label || host?.address || 'Host not mapped'}`,
+            status: vm?.power_state || (vm ? 'info' : 'warning'),
+            tags: sr?.name_label || vdi.SR || '-',
+            summary: `${vbdRef} backs ${vdi.name_label || 'a storage object'}${vm ? ` for ${vm.name_label || vm.ref}` : ''}.`,
+            route: '/storage',
+            ref: vbdRef,
+            uuid: '',
+            focusKind: 'storage',
+            focusClass: 'vbd',
+            parentName: sr?.name_label || '',
+          };
+        });
+      });
+
       const networkResults = (this.resources.networks || []).map((network) => ({
         kind: 'network',
         name: network.name_label || network.bridge || 'Network',
@@ -318,6 +418,46 @@ const InventoryView = {
         ref: network.ref,
         uuid: network.uuid,
       }));
+
+      const vifResults = (this.resources.networks || []).flatMap((network) =>
+        (network.VIFs || []).map((vifRef, index) => {
+          const vm = vmsByVifRef.get(vifRef) || null;
+          return {
+            kind: 'vif',
+            name: `VIF ${vm?.name_label || index + 1}`,
+            context: `${network.name_label || network.bridge || 'Network'} · ${vm?.name_label || 'No mapped VM'} · VLAN ${(network.other_config || {}).vlan || '-'}`,
+            status: vm?.power_state || 'info',
+            tags: network.bridge || '-',
+            summary: `${vifRef} attaches ${vm?.name_label || 'a workload'} to ${network.name_label || network.bridge || 'the selected network'}.`,
+            route: '/networking',
+            ref: vifRef,
+            uuid: '',
+            focusKind: 'network',
+            focusClass: 'vif',
+            parentName: network.name_label || network.bridge || '',
+          };
+        })
+      );
+
+      const pifResults = (this.resources.networks || []).flatMap((network) =>
+        (network.PIFs || []).map((pifRef, index) => {
+          const host = (this.resources.hosts || []).find((candidate) => Array.isArray(candidate.PIFs) && candidate.PIFs.includes(pifRef)) || null;
+          return {
+            kind: 'pif',
+            name: `PIF ${host?.name_label || index + 1}`,
+            context: `${network.name_label || network.bridge || 'Network'} · ${host?.name_label || 'No mapped host'} · ${host?.address || host?.uuid || 'address unavailable'}`,
+            status: host?.enabled ? 'enabled' : (host ? 'warning' : 'info'),
+            tags: network.bridge || '-',
+            summary: `${pifRef} uplinks ${host?.name_label || 'a host'} into ${network.name_label || network.bridge || 'the selected bridge'}.`,
+            route: '/networking',
+            ref: pifRef,
+            uuid: '',
+            focusKind: 'network',
+            focusClass: 'pif',
+            parentName: network.name_label || network.bridge || '',
+          };
+        })
+      );
 
       const alertResults = sortMessages(this.resources.alerts || []).map((message) => ({
         kind: 'alert',
@@ -349,7 +489,11 @@ const InventoryView = {
         ...vmResults,
         ...hostResults,
         ...storageResults,
+        ...vdiResults,
+        ...vbdResults,
         ...networkResults,
+        ...vifResults,
+        ...pifResults,
         ...alertResults,
         ...taskResults,
       ];
@@ -401,7 +545,7 @@ const InventoryView = {
           key: 'objects',
           label: 'Indexed Objects',
           value: String(this.totalObjectCount),
-          detail: `${this.resources.alerts.length || 0} alerts and ${this.resources.tasks.length || 0} tasks also searchable`,
+          detail: `${this.resources.vdis.length || 0} VDIs plus ${this.filteredResults.filter((item) => ['vbd', 'vif', 'pif'].includes(item.kind)).length} attachment records indexed alongside ${this.resources.alerts.length || 0} alerts and ${this.resources.tasks.length || 0} tasks`,
           icon: 'mdi-database-search-outline',
           valueClass: this.totalObjectCount ? 'text-cyan' : '',
         },
@@ -441,7 +585,7 @@ const InventoryView = {
       return;
     }
 
-    this.loadSavedWorkspaces();
+    await this.loadSavedWorkspaces();
     await this.loadInventory();
   },
   methods: {
@@ -454,7 +598,14 @@ const InventoryView = {
     },
     navigateToResult(result) {
       this.closeResult();
-      this.$router.push(result.route || '/');
+      this.$router.push(buildFocusedRoute(result.route || '/', {
+        kind: result.focusKind || result.kind || '',
+        ref: result.ref || '',
+        uuid: result.uuid || '',
+        name: result.name || '',
+        cls: result.focusClass || result.kind || '',
+        source: 'inventory',
+      }));
     },
     openResult(result) {
       this.selectedResult = result;
@@ -464,40 +615,114 @@ const InventoryView = {
       this.showResult = false;
       this.selectedResult = null;
     },
-    loadSavedWorkspaces() {
+    resolveWorkspaceTargetLabel(workspace) {
+      const targetId = Number(workspace?.targetConnectionId || 0);
+      if (!targetId) return 'No saved target binding';
+      const connection = this.safeConnections.find((entry) => Number(entry.id) === targetId);
+      return connection ? `Target ${connection.name || connection.host}` : `Target #${targetId}`;
+    },
+    async loadSavedWorkspaces() {
       try {
-        const saved = JSON.parse(window.localStorage.getItem('xenmange.inventory.workspaces') || '[]');
-        this.savedWorkspaces = Array.isArray(saved) ? saved : [];
+        const result = await api.getInventoryWorkspaces();
+        this.savedWorkspaces = result.data || [];
+        window.localStorage.setItem('xenmange.inventory.workspaces', JSON.stringify(this.savedWorkspaces));
       } catch (error) {
-        this.savedWorkspaces = [];
+        try {
+          const saved = JSON.parse(window.localStorage.getItem('xenmange.inventory.workspaces') || '[]');
+          this.savedWorkspaces = Array.isArray(saved) ? saved : [];
+        } catch (storageError) {
+          this.savedWorkspaces = [];
+        }
       }
     },
     persistWorkspaces() {
       window.localStorage.setItem('xenmange.inventory.workspaces', JSON.stringify(this.savedWorkspaces));
     },
-    saveWorkspace() {
+    async saveWorkspace() {
       const name = this.workspaceName.trim();
       if (!name) return;
 
-      const workspace = {
-        id: `workspace-${Date.now()}`,
-        name,
-        scope: this.activeScope,
-        query: this.searchQuery.trim(),
-        createdAt: new Date().toISOString(),
-      };
-
-      this.savedWorkspaces = [workspace, ...this.savedWorkspaces].slice(0, 12);
-      this.persistWorkspaces();
-      this.workspaceName = '';
+      this.workspaceSaving = true;
+      this.workspaceError = '';
+      try {
+        const workspace = await api.createInventoryWorkspace({
+          name,
+          scope: this.activeScope,
+          query: this.searchQuery.trim(),
+          targetConnectionId: this.workspaceTargetConnectionId ? Number(this.workspaceTargetConnectionId) : null,
+          notes: '',
+        });
+        this.savedWorkspaces = [workspace, ...this.savedWorkspaces.filter((entry) => entry.id !== workspace.id)].slice(0, 24);
+        this.persistWorkspaces();
+        this.workspaceName = '';
+        this.workspaceTargetConnectionId = '';
+      } catch (error) {
+        this.workspaceError = error.message || 'Unable to save the inventory workspace';
+      } finally {
+        this.workspaceSaving = false;
+      }
     },
     applyWorkspace(workspace) {
       this.activeScope = workspace.scope || 'all';
       this.searchQuery = workspace.query || '';
+      this.workspaceTargetConnectionId = workspace.targetConnectionId ? String(workspace.targetConnectionId) : '';
     },
-    removeWorkspace(id) {
-      this.savedWorkspaces = this.savedWorkspaces.filter((workspace) => workspace.id !== id);
-      this.persistWorkspaces();
+    openWorkspaceTarget(workspace) {
+      const connection = this.safeConnections.find((entry) => Number(entry.id) === Number(workspace?.targetConnectionId || 0));
+      if (!connection) return;
+      this.openConnectionTarget(connection);
+    },
+    async removeWorkspace(id) {
+      this.workspaceError = '';
+      try {
+        await api.deleteInventoryWorkspace(id);
+        this.savedWorkspaces = this.savedWorkspaces.filter((workspace) => workspace.id !== id);
+        this.persistWorkspaces();
+      } catch (error) {
+        this.workspaceError = error.message || 'Unable to remove the inventory workspace';
+      }
+    },
+    async setDefaultConnection(connection) {
+      if (!connection?.id) return;
+      this.connectionDefaultPendingId = connection.id;
+      this.connectionActionError = '';
+      try {
+        await api.setDefaultConnection(connection.id);
+        this.connections = this.connections.map((entry) => ({
+          ...entry,
+          is_default: Number(entry.id) === Number(connection.id) ? 1 : 0,
+        }));
+      } catch (error) {
+        this.connectionActionError = error.message || 'Unable to update the default target';
+      } finally {
+        this.connectionDefaultPendingId = null;
+      }
+    },
+    async openConnectionTarget(connection) {
+      if (!connection?.id) return;
+      this.connectionActionError = '';
+      try {
+        window.sessionStorage.setItem('xenmange.pendingLoginTarget', JSON.stringify({
+          connectionId: Number(connection.id),
+          returnTo: '/inventory',
+        }));
+        if (store.authenticated) {
+          await api.logout().catch(() => ({ success: true }));
+          store.authenticated = false;
+          store.demoMode = false;
+          store.host = '';
+          store.username = '';
+        }
+        await this.$router.push({
+          path: '/login',
+          query: {
+            connectionId: String(connection.id),
+            returnTo: '/inventory',
+          },
+        });
+      } catch (error) {
+        this.connectionActionError = error.message || 'Unable to hand off into the selected login target';
+      }
     },
     async loadInventory() {
       this.loading = true;
@@ -514,17 +739,26 @@ const InventoryView = {
           api.getConnections().catch(() => []),
         ]);
 
+        const vdiResults = await Promise.allSettled(
+          (srs.data || []).map((sr) => api.getSRVDIs(sr.ref))
+        );
+        const vdis = vdiResults.flatMap((result) =>
+          result.status === 'fulfilled' ? (result.value.data || []) : []
+        );
+
         this.resources = {
           pools: pools.data || [],
           templates: templates.data || [],
           vms: vms.data || [],
           hosts: hosts.data || [],
           srs: srs.data || [],
+          vdis,
           networks: networks.data || [],
           alerts: alerts || [],
           tasks: tasks.data || [],
         };
         this.connections = Array.isArray(connections) ? connections.filter((connection) => connection && typeof connection === 'object') : [];
+        this.connectionActionError = '';
       } catch (error) {
         console.error(error);
         this.resources = {
@@ -533,6 +767,7 @@ const InventoryView = {
           vms: [],
           hosts: [],
           srs: [],
+          vdis: [],
           networks: [],
           alerts: [],
           tasks: [],

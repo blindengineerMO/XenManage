@@ -1,6 +1,6 @@
 const DataTable = {
-  props: ['columns', 'data', 'loading', 'searchable'],
-  emits: ['row-click'],
+  props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey'],
+  emits: ['row-click', 'selection-change'],
   template: `
     <div class="data-table-wrap">
       <div class="data-table-toolbar" v-if="searchable">
@@ -11,6 +11,12 @@ const DataTable = {
         <table class="data-table">
           <thead>
             <tr>
+              <th v-if="selectable" style="width:36px">
+                <input type="checkbox"
+                       :checked="allPageSelected"
+                       :disabled="loading || paginatedData.length === 0"
+                       @click.stop="toggleAllPageSelection">
+              </th>
               <th v-for="column in columns" :key="column.key"
                   :class="{ sorted: sortKey === column.key }"
                   @click="onSort(column.key)">
@@ -24,16 +30,22 @@ const DataTable = {
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td :colspan="columns.length" style="text-align:center;padding:24px">
+              <td :colspan="columnCount" style="text-align:center;padding:24px">
                 <span class="loading-spinner"></span>
               </td>
             </tr>
             <tr v-else-if="filteredData.length === 0">
-              <td :colspan="columns.length" class="empty-state">
+              <td :colspan="columnCount" class="empty-state">
                 <p>No data available</p>
               </td>
             </tr>
-            <tr v-for="(row, index) in paginatedData" :key="row.ref || index" @click="$emit('row-click', row)">
+            <tr v-for="(row, index) in paginatedData" :key="rowIdentifier(row, index)" @click="$emit('row-click', row)">
+              <td v-if="selectable" @click.stop>
+                <input type="checkbox"
+                       :checked="isSelected(row, index)"
+                       :aria-label="'Select ' + String(row.summary || row.name_label || row.ref || index)"
+                       @click.stop="toggleRowSelection(row, index)">
+              </td>
               <td v-for="column in columns" :key="column.key">
                 <slot :name="'cell-' + column.key" :row="row" :value="row[column.key]">
                   {{ row[column.key] }}
@@ -66,6 +78,9 @@ const DataTable = {
     };
   },
   computed: {
+    columnCount() {
+      return (this.columns?.length || 0) + (this.selectable ? 1 : 0);
+    },
     filteredData() {
       let rows = this.data || [];
 
@@ -91,6 +106,10 @@ const DataTable = {
       const start = (this.page - 1) * this.pageSize;
       return this.filteredData.slice(start, start + this.pageSize);
     },
+    allPageSelected() {
+      if (!this.selectable || !this.paginatedData.length) return false;
+      return this.paginatedData.every((row, index) => this.isSelected(row, index));
+    },
   },
   watch: {
     data() {
@@ -98,6 +117,30 @@ const DataTable = {
     },
   },
   methods: {
+    rowIdentifier(row, index) {
+      const key = this.rowKey || 'ref';
+      return row?.[key] || row?.ref || index;
+    },
+    isSelected(row, index) {
+      const selected = Array.isArray(this.selectedKeys) ? this.selectedKeys : [];
+      return selected.includes(this.rowIdentifier(row, index));
+    },
+    toggleRowSelection(row, index) {
+      const key = this.rowIdentifier(row, index);
+      const selected = new Set(Array.isArray(this.selectedKeys) ? this.selectedKeys : []);
+      if (selected.has(key)) selected.delete(key);
+      else selected.add(key);
+      this.$emit('selection-change', [...selected]);
+    },
+    toggleAllPageSelection() {
+      const selected = new Set(Array.isArray(this.selectedKeys) ? this.selectedKeys : []);
+      if (this.allPageSelected) {
+        this.paginatedData.forEach((row, index) => selected.delete(this.rowIdentifier(row, index)));
+      } else {
+        this.paginatedData.forEach((row, index) => selected.add(this.rowIdentifier(row, index)));
+      }
+      this.$emit('selection-change', [...selected]);
+    },
     onSort(key) {
       if (this.sortKey === key) {
         this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
@@ -108,4 +151,3 @@ const DataTable = {
     },
   },
 };
-

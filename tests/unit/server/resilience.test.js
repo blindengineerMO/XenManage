@@ -74,13 +74,52 @@ describe('buildResilienceOverview', () => {
           obj_uuid: 'vm-uuid-1',
         },
       ],
+      runbooks: [
+        {
+          poolRef: 'OpaqueRef:pool1',
+          recoveryTier: 'tier-1',
+          haPolicy: 'auto-failover',
+          restartPriority: 'high',
+          backupWindowHours: 12,
+          rpoMinutes: 30,
+          rtoMinutes: 90,
+          restorePointStatus: 'review',
+          owner: 'Platform Ops',
+          standbyHostRef: 'OpaqueRef:host2',
+          failoverNetworkRef: 'OpaqueRef:net1',
+          lastVerifiedAt: '2026-08-20T18:30:00.000Z',
+          runbookSteps: ['Confirm backup chain', 'Run restore verification'],
+          notes: 'Primary production recovery workflow.',
+          updatedAt: '2026-08-20T18:30:00.000Z',
+        },
+      ],
+      drills: [
+        {
+          id: 'drill-1',
+          poolRef: 'OpaqueRef:pool1',
+          drillType: 'restore',
+          status: 'warning',
+          scope: 'Billing restore test',
+          executedAt: '2026-08-20T09:15:00.000Z',
+          durationMinutes: 48,
+          summary: 'Recovery worked but boot ordering needs refinement.',
+          findings: 'Dependency ordering added delay.',
+          nextStep: 'Update runbook order.',
+          operator: 'root',
+          createdAt: '2026-08-20T09:20:00.000Z',
+        },
+      ],
     });
 
     expect(payload.summary.protectedVmCount).toBe(1);
     expect(payload.summary.maintenanceHostCount).toBe(1);
+    expect(payload.summary.runbookCoverageCount).toBe(1);
     expect(payload.recoveryPlans[0].status).toBe('warning');
+    expect(payload.recoveryPlans[0].hasRunbook).toBe(true);
+    expect(payload.recoveryPlans[0].lastDrillStatus).toBe('warning');
     expect(payload.protectionPolicies.find((policy) => policy.name_label === 'billing-api-01').status).toBe('critical');
+    expect(payload.protectionPolicies.find((policy) => policy.name_label === 'billing-api-01').restorePointStatus).toBe('stale');
     expect(payload.hostPlans.find((host) => host.name_label === 'beta-xen').status).toBe('disabled');
-    expect(payload.recentEvents.length).toBeGreaterThan(0);
+    expect(payload.recentEvents.some((event) => event.type === 'drill')).toBe(true);
   });
 });

@@ -162,6 +162,7 @@ const HostsView = {
       inventoryError: null,
       targetError: null,
       hostMetrics: {},
+      lastAppliedFocusKey: '',
       relatedPools: [],
       relatedVMs: [],
       relatedStorage: [],
@@ -282,6 +283,15 @@ const HostsView = {
       return;
     }
     await this.loadAll();
+    await this.syncRouteFocus();
+  },
+  watch: {
+    '$route.query': {
+      deep: true,
+      async handler() {
+        await this.syncRouteFocus();
+      },
+    },
   },
   methods: {
     formatBytes,
@@ -301,6 +311,7 @@ const HostsView = {
       } finally {
         this.loading = false;
       }
+      await this.syncRouteFocus();
     },
     async loadHostTargets() {
       try {
@@ -367,6 +378,29 @@ const HostsView = {
       }
 
       this.inventoryLoading = false;
+    },
+    findHostByFocus(focus) {
+      return this.hosts.find((host) =>
+        recordMatchesRouteFocus(host, focus, ['ref', 'uuid', 'name_label', 'hostname', 'address'])
+      ) || null;
+    },
+    async syncRouteFocus() {
+      const focus = getRouteFocus(this.$route.query);
+      if (!focus || (focus.kind && focus.kind !== 'host')) {
+        this.lastAppliedFocusKey = '';
+        return;
+      }
+
+      if (this.loading || !this.hosts.length) return;
+
+      const key = getRouteFocusKey(focus);
+      if (this.lastAppliedFocusKey === key) return;
+
+      const match = this.findHostByFocus(focus);
+      if (!match) return;
+
+      await this.openProperties(match);
+      this.lastAppliedFocusKey = key;
     },
     resolveHostPool(host) {
       if (!host) return null;

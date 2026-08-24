@@ -16,8 +16,14 @@ const networkRoutes = require('./routes/networks');
 const poolRoutes = require('./routes/pools');
 const taskRoutes = require('./routes/tasks');
 const resilienceRoutes = require('./routes/resilience');
+const lifecycleRoutes = require('./routes/lifecycle');
+const alertRoutes = require('./routes/alerts');
+const auditRoutes = require('./routes/audit');
+const governanceRoutes = require('./routes/governance');
 const apiRoutes = require('./routes/api');
 const hostTargetRoutes = require('./routes/host-targets');
+const workspaceRoutes = require('./routes/workspaces');
+const governanceService = require('./services/governance');
 
 const app = express();
 
@@ -61,8 +67,13 @@ app.use('/api/networks', requireAuth, networkRoutes);
 app.use('/api/pools', requireAuth, poolRoutes);
 app.use('/api/tasks', requireAuth, taskRoutes);
 app.use('/api/resilience', requireAuth, resilienceRoutes);
+app.use('/api/lifecycle', requireAuth, lifecycleRoutes);
+app.use('/api/alerts', requireAuth, alertRoutes);
+app.use('/api/audit', requireAuth, auditRoutes);
+app.use('/api/governance', requireAuth, governanceRoutes);
 app.use('/api/connections', apiRoutes);
 app.use('/api/host-targets', hostTargetRoutes);
+app.use('/api/workspaces', requireAuth, workspaceRoutes);
 
 // Vue SPA - serve index.html for all non-API routes
 app.get('/{*splat}', (req, res) => {
@@ -73,6 +84,10 @@ app.get('/{*splat}', (req, res) => {
     authenticated: Boolean(req.session.authenticated),
     host: req.session.xenHost || '',
     username: req.session.xenUser || '',
+    governance: {
+      currentRole: governanceService.getSessionRole(req.session),
+      policy: governanceService.getPolicy(),
+    },
   }).replace(/</g, '\\u003c');
 
   res.render('app', { bootstrap });

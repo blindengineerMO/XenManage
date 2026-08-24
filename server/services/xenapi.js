@@ -150,6 +150,47 @@ class XenAPI {
     return this.call('VM', 'clone', [ref, nameLabel]);
   }
 
+  async deployTemplate(ref, {
+    nameLabel,
+    nameDescription = '',
+    hostRef = null,
+    storageRef = null,
+    networkRef = null,
+    vcpus,
+    memoryStaticMax,
+    tags = [],
+    startAfter = false,
+  }) {
+    const vmRef = await this.cloneVM(ref, nameLabel);
+
+    await this.updateVMConfig(vmRef, {
+      nameLabel,
+      nameDescription,
+      vcpus,
+      memoryStaticMax,
+      tags,
+    });
+
+    if (hostRef) {
+      await this.setField('VM', vmRef, 'affinity', hostRef);
+    }
+
+    if (networkRef) {
+      try {
+        await this.addVMNic(vmRef, { networkRef, deviceLabel: '', mac: '' });
+      } catch (error) {
+        // Some templates may already contain a NIC or defer network edits until later.
+      }
+    }
+
+    if (startAfter) {
+      await this.startVM(vmRef, false, false);
+    }
+
+    const record = await this.getRecord('VM', vmRef);
+    return { ref: vmRef, storageRef, ...record };
+  }
+
   async getVMMetrics(ref) {
     const metricsRef = await this.getField('VM', ref, 'metrics');
     return this.getRecord('VM_metrics', metricsRef);

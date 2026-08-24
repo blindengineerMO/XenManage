@@ -117,6 +117,10 @@ describe('Auth Routes', () => {
       });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+      expect(res.body.governance).toEqual(expect.objectContaining({
+        currentRole: expect.any(String),
+        policy: expect.any(Object),
+      }));
       expect(res.cookie).toBeDefined();
     });
 
@@ -131,6 +135,10 @@ describe('Auth Routes', () => {
       expect(status.status).toBe(200);
       expect(status.body.authenticated).toBe(true);
       expect(status.body.host).toBe('192.168.1.100');
+      expect(status.body.governance).toEqual(expect.objectContaining({
+        currentRole: expect.any(String),
+        policy: expect.any(Object),
+      }));
     });
 
     it('should access protected routes after login', async () => {
@@ -178,6 +186,41 @@ describe('Auth Routes', () => {
 
     it('should return 401 for resilience', async () => {
       const res = await request('GET', '/api/resilience');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for resilience plans', async () => {
+      const res = await request('GET', '/api/resilience/plans');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for resilience drills', async () => {
+      const res = await request('GET', '/api/resilience/drills');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for lifecycle plans', async () => {
+      const res = await request('GET', '/api/lifecycle/plans');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for alerts', async () => {
+      const res = await request('GET', '/api/alerts');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for template governance', async () => {
+      const res = await request('GET', '/api/vms/templates/governance');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for audit log', async () => {
+      const res = await request('GET', '/api/audit');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 for governance', async () => {
+      const res = await request('GET', '/api/governance');
       expect(res.status).toBe(401);
     });
   });

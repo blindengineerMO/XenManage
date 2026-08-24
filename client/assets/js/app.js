@@ -8,6 +8,7 @@ const routes = [
   { path: '/storage', component: StorageView },
   { path: '/networking', component: NetworkingView },
   { path: '/inventory', component: InventoryView },
+  { path: '/governance', component: GovernanceView },
   { path: '/lifecycle', component: LifecycleView },
   { path: '/capacity', component: CapacityView },
   { path: '/resilience', component: ResilienceView },
@@ -83,6 +84,7 @@ async function bootstrapSession() {
     store.demoMode = false;
     store.host = bootstrap.host || '';
     store.username = bootstrap.username || '';
+    store.governance = bootstrap.governance || store.governance;
     store.bootMessage = store.authenticated ? 'Restoring control surface' : 'Preparing connection console';
   } else {
     try {
@@ -91,12 +93,21 @@ async function bootstrapSession() {
       store.demoMode = Boolean(status.demoMode);
       store.host = status.host || '';
       store.username = status.username || '';
+      store.governance = status.governance || store.governance;
       store.bootMessage = status.authenticated ? 'Restoring control surface' : 'Preparing connection console';
     } catch (error) {
       store.authenticated = false;
       store.demoMode = false;
       store.host = '';
       store.username = '';
+      store.governance = {
+        currentRole: 'admin',
+        policy: {
+          defaultRole: 'admin',
+          requireDestructiveApproval: true,
+          approvalTtlMinutes: 240,
+        },
+      };
       store.bootMessage = 'Preparing connection console';
     }
   }

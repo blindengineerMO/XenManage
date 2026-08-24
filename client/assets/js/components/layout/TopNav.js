@@ -16,6 +16,10 @@ const TopNav = {
         <span class="bc-current">{{ currentPage }}</span>
       </div>
       <div class="topnav-actions">
+        <button class="btn btn-sm" v-if="store.authenticated" @click="router.push('/governance')">
+          <span class="mdi mdi-shield-account-outline"></span>
+          {{ roleLabel }}
+        </button>
         <div class="topnav-status">
           <span class="dot" :class="{ disconnected: !store.authenticated }"></span>
           <span>{{ store.authenticated ? store.host : 'Disconnected' }}</span>
@@ -40,6 +44,7 @@ const TopNav = {
         '/storage': 'Storage',
         '/networking': 'Networking',
         '/inventory': 'Inventory',
+        '/governance': 'Governance',
         '/lifecycle': 'Lifecycle',
         '/capacity': 'Capacity',
         '/resilience': 'Resilience',
@@ -47,6 +52,12 @@ const TopNav = {
         '/activity': 'Activity',
       };
       return names[route.path] || route.path;
+    });
+    const roleLabel = computed(() => {
+      const value = store.governance?.currentRole || 'admin';
+      if (value === 'read-only') return 'Read Only';
+      if (value === 'operator') return 'Operator';
+      return 'Admin';
     });
 
     const handleLogout = async () => {
@@ -60,9 +71,17 @@ const TopNav = {
       store.demoMode = false;
       store.host = '';
       store.username = '';
+      store.governance = {
+        currentRole: 'admin',
+        policy: {
+          defaultRole: 'admin',
+          requireDestructiveApproval: true,
+          approvalTtlMinutes: 240,
+        },
+      };
       router.push('/login');
     };
 
-    return { currentPage, handleLogout, store };
+    return { currentPage, handleLogout, roleLabel, router, store };
   },
 };

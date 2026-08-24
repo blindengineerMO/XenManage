@@ -139,4 +139,78 @@ describe('XenAPI', () => {
       );
     });
   });
+
+  describe('template deployment methods', () => {
+    beforeEach(() => {
+      xenApi.sessionRef = 'OpaqueRef:session123';
+    });
+
+    it('deployTemplate should clone, configure, place, and optionally start the VM', async () => {
+      const cloneSpy = jest.spyOn(xenApi, 'cloneVM').mockResolvedValue('OpaqueRef:vm9');
+      const configSpy = jest.spyOn(xenApi, 'updateVMConfig').mockResolvedValue({ name_label: 'ubuntu-prod-01' });
+      const affinitySpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const nicSpy = jest.spyOn(xenApi, 'addVMNic').mockResolvedValue({ success: true, vifRef: 'OpaqueRef:vif9' });
+      const startSpy = jest.spyOn(xenApi, 'startVM').mockResolvedValue(undefined);
+      const recordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        name_label: 'ubuntu-prod-01',
+        power_state: 'Running',
+        affinity: 'OpaqueRef:host1',
+      });
+
+      const result = await xenApi.deployTemplate('OpaqueRef:template1', {
+        nameLabel: 'ubuntu-prod-01',
+        nameDescription: 'Primary application deployment',
+        hostRef: 'OpaqueRef:host1',
+        storageRef: 'OpaqueRef:sr1',
+        networkRef: 'OpaqueRef:net1',
+        vcpus: 4,
+        memoryStaticMax: 8589934592,
+        tags: ['prod', 'linux'],
+        startAfter: true,
+      });
+
+      expect(cloneSpy).toHaveBeenCalledWith('OpaqueRef:template1', 'ubuntu-prod-01');
+      expect(configSpy).toHaveBeenCalledWith('OpaqueRef:vm9', expect.objectContaining({
+        nameLabel: 'ubuntu-prod-01',
+        vcpus: 4,
+        memoryStaticMax: 8589934592,
+        tags: ['prod', 'linux'],
+      }));
+      expect(affinitySpy).toHaveBeenCalledWith('VM', 'OpaqueRef:vm9', 'affinity', 'OpaqueRef:host1');
+      expect(nicSpy).toHaveBeenCalledWith('OpaqueRef:vm9', expect.objectContaining({ networkRef: 'OpaqueRef:net1' }));
+      expect(startSpy).toHaveBeenCalledWith('OpaqueRef:vm9', false, false);
+      expect(recordSpy).toHaveBeenCalledWith('VM', 'OpaqueRef:vm9');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:vm9',
+        storageRef: 'OpaqueRef:sr1',
+        name_label: 'ubuntu-prod-01',
+      }));
+    });
+
+    it('deployTemplate should tolerate NIC provisioning errors when network attachment is deferred', async () => {
+      jest.spyOn(xenApi, 'cloneVM').mockResolvedValue('OpaqueRef:vm10');
+      jest.spyOn(xenApi, 'updateVMConfig').mockResolvedValue({ name_label: 'ubuntu-prod-02' });
+      jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      jest.spyOn(xenApi, 'addVMNic').mockRejectedValue(new Error('VIF_ATTACH_DEFERRED'));
+      const startSpy = jest.spyOn(xenApi, 'startVM').mockResolvedValue(undefined);
+      jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        name_label: 'ubuntu-prod-02',
+        power_state: 'Halted',
+      });
+
+      const result = await xenApi.deployTemplate('OpaqueRef:template2', {
+        nameLabel: 'ubuntu-prod-02',
+        hostRef: 'OpaqueRef:host2',
+        networkRef: 'OpaqueRef:net2',
+        vcpus: 2,
+        memoryStaticMax: 4294967296,
+      });
+
+      expect(startSpy).not.toHaveBeenCalled();
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:vm10',
+        name_label: 'ubuntu-prod-02',
+      }));
+    });
+  });
 });

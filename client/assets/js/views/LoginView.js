@@ -65,19 +65,52 @@ const LoginView = {
   async mounted() {
     await this.loadConnections();
   },
+  watch: {
+    '$route.query.connectionId': {
+      handler() {
+        this.applyRouteConnection();
+      },
+    },
+  },
   methods: {
+    getPendingTarget() {
+      try {
+        const stored = window.sessionStorage.getItem('xenmange.pendingLoginTarget');
+        if (!stored) return null;
+        const parsed = JSON.parse(stored);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (error) {
+        return null;
+      }
+    },
+    clearPendingTarget() {
+      window.sessionStorage.removeItem('xenmange.pendingLoginTarget');
+    },
     async loadConnections() {
       this.connectionsLoading = true;
       try {
         this.connections = await api.getConnections();
-        const defaultConnection = this.connections.find((connection) => connection.is_default);
-        if (defaultConnection && !this.host) {
-          this.useConnection(defaultConnection);
-        }
+        this.applyRouteConnection();
       } catch (error) {
         this.connections = [];
       } finally {
         this.connectionsLoading = false;
+      }
+    },
+    applyRouteConnection() {
+      const requestedId = Number(this.$route.query.connectionId || 0);
+      const pendingTarget = this.getPendingTarget();
+      const pendingId = Number(pendingTarget?.connectionId || 0);
+      const requestedConnection = requestedId
+        ? this.connections.find((connection) => Number(connection.id) === requestedId)
+        : null;
+      const pendingConnection = !requestedConnection && pendingId
+        ? this.connections.find((connection) => Number(connection.id) === pendingId)
+        : null;
+      const defaultConnection = this.connections.find((connection) => connection.is_default);
+      const target = requestedConnection || pendingConnection || (!this.host ? defaultConnection : null);
+      if (target) {
+        this.useConnection(target);
       }
     },
     useConnection(connection) {
@@ -92,13 +125,17 @@ const LoginView = {
       this.error = null;
 
       try {
-        await api.login(this.host, this.username, this.password);
+        const result = await api.login(this.host, this.username, this.password);
 
         store.authenticated = true;
         store.demoMode = false;
         store.host = this.host;
         store.username = this.username;
-        this.$router.push('/');
+        store.governance = result.governance || store.governance;
+        const pendingTarget = this.getPendingTarget();
+        const returnTo = String(this.$route.query.returnTo || pendingTarget?.returnTo || '/').trim();
+        this.clearPendingTarget();
+        this.$router.push(returnTo.startsWith('/') ? returnTo : '/');
       } catch (error) {
         this.error = error.message || 'Connection failed';
       } finally {
@@ -115,6 +152,14 @@ const LoginView = {
       store.demoMode = true;
       store.host = 'Demo Fabric';
       store.username = 'demo';
+      store.governance = {
+        currentRole: 'admin',
+        policy: {
+          defaultRole: 'admin',
+          requireDestructiveApproval: true,
+          approvalTtlMinutes: 240,
+        },
+      };
       this.$router.push('/');
     },
   },

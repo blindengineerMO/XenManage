@@ -249,8 +249,20 @@ XenMange/
 - Status: Partially shipped
 - Shipped in app:
   Dashboard alert triage summary, severity-aware recent alerts, and a dedicated `/alerts` view with searchable event history.
+  API-backed alert state persistence now supports acknowledgement, suppression windows, severity overrides, operator notes, health-action tagging, and related-view jump-offs from the alert detail workspace.
+  As of Saturday, August 22, 2026, the alerts workspace now supports bulk triage across selected alerts, persisted alert suppression policies, policy-aware queue context, workflow-oriented health actions, and clearer follow-through routing into lifecycle, capacity, resilience, and governance workbenches.
+  As of Saturday, August 22, 2026, alert detail actions now deep-link into exact host, storage, VM, pool, network, task, and alert records where the current client workspaces can resolve them, rather than only dropping operators into adjacent top-level sections.
+  As of Saturday, August 22, 2026, storage-targeted alert routing now lands in a richer storage detail pane that maps each surfaced VDI to its attached workloads and resident hosts, with direct follow-through into the affected VM workspace.
+  As of Saturday, August 22, 2026, persisted alert policies now support more expressive matching criteria including target workspace scoping, object/UUID-aware matching, and phrase-versus-all-terms text matching so operators can shape queue behavior more precisely than class-plus-severity alone.
+  As of Saturday, August 22, 2026, alert detail actions can also create persisted remediation tasks that carry assignee, due-date, related-alert, related-object, and target-workspace context into the shared Activity queue instead of relying on ad hoc operator memory.
+  As of Saturday, August 22, 2026, those remediation tasks can also be progressed and closed from the Activity workspace with status changes, operator outcome notes, due-date updates, and audit-trail coverage instead of remaining write-only queue entries.
+  As of Saturday, August 22, 2026, the alerts workspace also supports persisted remediation templates with matching criteria, reusable task-name/default-note patterns, default assignees, due-day offsets, and one-click application from matching alert detail records.
+  As of Sunday, August 23, 2026, remediation templates also carry launch behavior and recurrence guards so operators can queue standardized follow-through directly from matching alerts without flooding Activity with duplicate daily or scope-equivalent tasks.
+  As of Sunday, August 23, 2026, remediation templates can also pre-stage a downstream workbench brief, evidence checklist, and completion criteria that persist onto the follow-through task and surface inside the Lifecycle, Capacity, and Resilience operator queues instead of living only in free-form notes.
+  As of Sunday, August 23, 2026, remediation templates can also seed downstream lifecycle-plan and recovery-runbook drafts, with seeded context carried onto the remediation task and launched from Activity into the target workbench instead of forcing operators to re-enter the same intent twice.
+  As of Sunday, August 23, 2026, those seeded lifecycle and resilience drafts now resolve through broader inventory relationships including VM placement, SR attachment, pool membership, and network uplinks, and the resilience runbook editor now consumes the correct network record list instead of the raw API envelope.
 - Next:
-  Alert acknowledgement, suppression windows, severity overrides, health-check actions from alert rows, and object-linked deep links to affected hosts/VMs/SRs.
+  Deeper VDI, VBD, VIF, and other sub-object resolution beyond the refs currently surfaced in the client, plus more automated execution handoff from seeded drafts into concrete operator runbooks and lifecycle remediation actions once the plan is approved.
 - Why it matters:
   Nutanix and enterprise control planes treat alerts as the operator entry point, not just a passive event list.
 
@@ -258,8 +270,11 @@ XenMange/
 - Status: Partially shipped
 - Shipped in app:
   New `/templates` inventory view backed by Xen template records and surfaced in the nav/dashboard.
+  Guided deploy-from-template workflow with host, storage, and network placement defaults plus governance-derived profile and lifecycle badges.
+  Persisted template governance now supports version labels, golden-image baselines, catalog ownership, guest customization profiles, validation posture, and operator notes beyond raw template tags.
+  Template deployments now create validation-aware audit records, and the UI supports post-deploy checklist tracking for boot, network, storage, and policy-tag verification.
 - Next:
-  Clone or deploy-from-template workflows, template version metadata, golden-image labels, lifecycle stage tagging, guest customization profiles, and storage/network placement defaults.
+  True storage-placement orchestration against deeper Xen template copy semantics, richer guest-customization execution against live Xen guest tooling, and promotion workflows that compare staged vs stable template generations over time.
 - Why it matters:
   SCVMM explicitly treats library resources and templates as repeatability infrastructure.
 
@@ -267,24 +282,34 @@ XenMange/
 - Status: Partially shipped
 - Shipped in app:
   A new `/lifecycle` workbench now derives lifecycle posture from hosts, lifecycle-oriented tasks, and related alerts to surface maintenance windows, baseline hints, drift review queues, and remediation guidance.
+  API-backed lifecycle plan persistence now supports per-host desired-state planning, maintenance-stage tracking, reboot and evacuation flags, owner and patch-wave assignment, and richer lifecycle detail/readiness views.
+  As of Sunday, August 23, 2026, lifecycle planning can also be launched directly from seeded remediation tasks in Activity, carrying template-derived defaults and source-task provenance into the planner while resolving host context from direct refs, UUIDs, and host-name matches.
+  As of Sunday, August 23, 2026, lifecycle draft routing now also infers host context from related VMs, storage repositories, pool membership, and network uplinks instead of relying only on direct host identifiers.
 - Required capabilities:
-  Host patch baseline visibility, maintenance mode orchestration, staged remediation, reboot coordination, richer drift reporting, and per-cluster desired-state summaries backed by deeper Xen lifecycle data.
+  Host patch baseline visibility from deeper Xen data, true maintenance mode orchestration against live hosts, staged remediation execution, richer cluster-wide drift reporting, and broader desired-state policy controls beyond per-host planning.
 - Inspiration:
   VMware `vLCM` image compliance plus Microsoft baseline remediation flows.
 
 ### 4. Capacity & Performance Analytics
 - Status: Partially shipped
 - Shipped in app:
-  Host property windows now fetch live host metrics, and a dedicated `/capacity` workspace now consolidates host memory pressure, storage commitment, active background tasks, and operator guidance into a single operational surface.
+  Host property windows now fetch live host metrics, and a dedicated `/capacity` workspace now consolidates host memory pressure, storage commitment, active background tasks, operator guidance, top VM consumers, placement-imbalance analysis, noisy-neighbor detection, and inferred forecast thresholds into a single operational surface.
+  The dashboard now surfaces a shared capacity-watch panel plus hotspot summaries so headroom drift is visible before operators drill into the dedicated workspace.
+  As of Sunday, August 23, 2026, the capacity workbench also surfaces remediation-task SLA labels and queue-age badges inside staged automation items so capacity follow-through urgency is visible without bouncing back to Activity first.
 - Next:
-  Pooled CPU/memory/storage trend cards, RRD historical charts, top-consumer views, noisy-neighbor detection, and capacity forecast thresholds on the dashboard.
+  Pooled CPU/memory/storage trend cards backed by RRD or equivalent historical telemetry, true history-aware forecasts, and deeper host-to-VM consumption baselines rather than current-state inference alone.
 - Inspiration:
   Nutanix resource-consumption dashboards and Prism health telemetry.
 
 ### 5. Governance, RBAC, and Self-Service
-- Status: Planned
+- Status: Partially shipped
+- Shipped in app:
+  A new `/governance` workspace now provides session role switching, persisted governance policy editing, pool quota management, and approval-queue review in a dedicated operator surface.
+  Session state now carries read-only, operator, and admin role modes, and destructive VM actions can require explicit approved tokens before execution when policy gating is enabled.
+  Pool quotas now persist server-side, feed governance posture summaries, and block template deployments that would exceed the configured VM-count, running-VM, or aggregate-memory envelope.
+  Governance actions now flow into the shared audit trail, and the browser regression suite covers policy edits, role changes, quota updates, approval requests, and approval decisions.
 - Required capabilities:
-  Multi-user auth model, scoped roles, read-only/operator/admin modes, cloud or pool quotas, audit approvals for destructive actions, and future identity-provider integration.
+  True multi-user auth and identity-provider integration, finer-grained per-domain permissions beyond session-wide roles, broader destructive-action approval coverage across more infrastructure domains, and scoped self-service experiences for future tenant or delegated-operator models.
 - Inspiration:
   SCVMM user roles and Arc-backed self-service; Prism fine-grained RBAC.
 
@@ -292,8 +317,11 @@ XenMange/
 - Status: Partially shipped
 - Shipped in app:
   A new `/resilience` workbench now surfaces protection-policy inventory, backup/recovery event visibility, host evacuation targets, and pool-level recovery plan guidance derived from live Xen inventory, tasks, and alerts.
+  As of Friday, August 21, 2026, the resilience workspace now also persists pool-level recovery runbooks, exposes explicit HA policy and restart-priority intent, derives backup age and restore-point drift against runbook targets, and logs recovery drills with audit-trail coverage.
+  As of Sunday, August 23, 2026, resilience runbooks can also be drafted directly from seeded remediation tasks in Activity, carrying template-derived defaults and source-task provenance while resolving recovery-plan context from direct pool matches or related host membership.
+  As of Sunday, August 23, 2026, resilience draft routing now also resolves recovery-plan context from VM placement, SR attachment, and network-to-pool relationships, while fixing network option hydration in the runbook editor itself.
 - Required capabilities:
-  Explicit HA restart policy visibility, backup age / restore-point status from deeper source data, recovery-plan execution runbooks, and richer failover drill logging.
+  Deeper live Xen-backed HA policy orchestration, richer restore-point truth from backup platform integrations instead of inference alone, recovery-plan execution automation, and broader failover drill analytics across more infrastructure domains.
 - Inspiration:
   Proxmox HA manager and Nutanix integrated protection plans.
 
@@ -301,8 +329,15 @@ XenMange/
 - Status: Partially shipped
 - Shipped in app:
   New task API route, dashboard recent-task visibility, and a dedicated `/activity` workbench with status, progress, timestamps, and error detail inspection.
+  A new persisted audit log now tracks operator actions across alerts, lifecycle planning, template governance, template deployment validation, VM operations, saved pool targets, host targets, and session events.
+  The `/activity` workspace now supports recent-change drill-downs, operator identity visibility, before/after state summaries, and exportable audit-log JSON alongside raw Xen task history.
+  As of Saturday, August 22, 2026, audit detail records can now jump directly into the affected VM, host, pool, storage, network, alert, task, and template workspaces instead of only exposing the originating workflow context.
+  As of Saturday, August 22, 2026, the task history feed now merges persisted remediation follow-through work with Xen background tasks, and remediation task detail panels expose source-alert context plus direct jump-offs back into the originating alert or target workspace.
+  As of Saturday, August 22, 2026, remediation task detail panels also support in-place task management for status transitions, assignee changes, due-date updates, and operator closure notes with shared audit visibility.
+  As of Sunday, August 23, 2026, remediation task detail panels can also launch seeded lifecycle-plan and recovery-runbook drafting flows directly into their target workbenches without losing task, template, or source-alert context.
+  As of Sunday, August 23, 2026, the Activity task view also adds remediation-task SLA and queue-aging semantics including overdue, due-soon, and aging-without-due-date labeling in both the task table and task detail workspace instead of treating due dates as passive metadata.
 - Required capabilities:
-  Long-running task list, async action progress, operator identity, before/after state summaries, exportable audit log, and “recent changes” drill-downs.
+  Deeper long-running async progress correlation, richer per-action result semantics from Xen task objects, and broader audit coverage for additional infrastructure domains such as resilience runbooks and future RBAC/governance actions.
 - Inspiration:
   Prism activity consolidation and the broader enterprise console expectation for operational traceability.
 
@@ -310,10 +345,33 @@ XenMange/
 - Status: Partially shipped
 - Shipped in app:
   A new `/inventory` workbench now provides universal search across live pools/templates/VMs/hosts/storage/networks/alerts/tasks, exposes saved connection targets from SQLite, and supports saved operator workspaces via local presets.
+  Inventory result drill-downs now carry exact record focus into the downstream host, VM, pool, storage, network, alert, task, and template workspaces when those views support direct record resolution.
+  As of Saturday, August 22, 2026, the inventory index now also includes VDI, VBD, VIF, and PIF subobjects so operators can search and open exact storage attachments and network interfaces instead of stopping at top-level SR and bridge records.
+  As of Sunday, August 23, 2026, inventory workspaces now persist through the server with audit coverage instead of living only in browser-local storage, and those saved workspaces can optionally bind to a saved connection target for more deliberate connection switching from the connection atlas and login flow.
 - Required capabilities:
-  True multi-connection live federation, cross-cluster health rollups, richer target-switch orchestration, and shared team workspaces beyond browser-local storage.
+  True multi-connection live federation and cross-cluster health rollups, plus deeper connection-context switching that can actually retain and compare concurrent live sessions instead of only handing off through saved targets.
 - Inspiration:
   Prism multi-cluster management and vCenter-style central administration.
+
+### 9. Network Fabric Relationship Visibility
+- Status: Partially shipped
+- Shipped in app:
+  As of Saturday, August 22, 2026, the `/networking` workspace now expands each network into a relationship pane that shows mapped host uplinks, attached VM interfaces, bridge metadata, and focus-aware highlighting when operators arrive on a specific network, `PIF`, or `VIF` path by reference.
+  As of Saturday, August 22, 2026, focused `PIF` and `VIF` arrivals from Inventory can now jump directly onward into the mapped host or VM workspace from the relationship pane instead of leaving the operator at the bridge-only view.
+- Required capabilities:
+  Live Xen-backed per-interface telemetry, bond/VLAN topology modeling, IP/MAC-level interface truth, and broader UUID-aware interface resolution instead of ref-based correlation alone.
+- Inspiration:
+  Enterprise fabric views in vCenter, SCVMM, Prism, and similar control planes where operators need to see the bridge plus every host and workload attached to it.
+
+### 10. Storage Attachment Topology
+- Status: Partially shipped
+- Shipped in app:
+  As of Saturday, August 22, 2026, the `/storage` workspace now expands each repository into an operator pane that shows VDI inventory, inferred VBD-to-VM attachment topology, resident host context, focus-aware attachment highlighting, and direct VM jump-offs from storage relationships.
+  As of Saturday, August 22, 2026, focused `VDI` and `VBD` arrivals from Inventory can now land on the exact storage relationship row and jump directly into the mapped host as well as the mapped VM when topology context is available.
+- Required capabilities:
+  Live Xen-backed VBD metadata instead of inferred attachment matching, richer SR health and path telemetry, snapshot/clone lineage visibility, and broader UUID-aware storage-subobject resolution beyond the refs currently surfaced in the client.
+- Inspiration:
+  Enterprise virtualization consoles where storage investigation has to answer not just "which SR is hot?" but also "which exact workloads, hosts, and attachment paths are behind it?"
 
 ---
 
@@ -386,8 +444,8 @@ XenMange/
 | Phase | Status | Notes |
 |-------|--------|-------|
 | Phase 1: Foundation | 🟨 In Progress | Local build pipeline, CSP-safe asset delivery, and generated project-owned background art added |
-| Phase 2: API Integration | 🟨 In Progress | Core auth/resource routes implemented; connection validation/defaulting, template inventory access, task/activity data, and resilience synthesis endpoint added |
+| Phase 2: API Integration | 🟨 In Progress | Core auth/resource routes implemented; connection validation/defaulting, template inventory access, task/activity data, alert/lifecycle/governance state persistence, remediation task and remediation template creation/listing/updating, alert policy and bulk-triage endpoints, quota enforcement, approval gating, and resilience synthesis endpoint added |
 | Phase 3: UI Core | 🟨 In Progress | Floating windows, saved targets, live inventory tree, SSR auth bootstrap, stronger visual shell layering, and modular client source extraction into core/components/views/forms added |
-| Phase 4: Dashboard | 🟨 In Progress | Summary drag/reorder support, operational panels, alert triage, recent task visibility, and dashboard action rails into capacity/activity/templates/alerts added |
-| Phase 5: Resource Views | 🟨 In Progress | Pools view, templates view, inventory/alerts/activity/lifecycle/capacity/resilience workbenches, and richer host/storage floating windows added |
-| Phase 6: Polish & Testing | 🟨 In Progress | Unit and Playwright E2E coverage added; client component unit depth and broader operational route coverage still remain |
+| Phase 4: Dashboard | 🟨 In Progress | Summary drag/reorder support, operational panels, alert triage, recent task visibility, governance role surfacing, and dashboard action rails into capacity/activity/templates/alerts added |
+| Phase 5: Resource Views | 🟨 In Progress | Pools view, templates view, inventory/alerts/activity/governance/lifecycle/capacity/resilience workbenches, API-backed governance/alert policy/lifecycle planning, bulk alert triage, remediation task creation/management plus reusable templates, task-level automation staging for evidence/completion criteria, exact-record deep linking, inventory subobject indexing for VDI/VBD/VIF/PIF, and richer host/storage/network floating windows added |
+| Phase 6: Polish & Testing | 🟨 In Progress | Client bundle, 107 unit tests, and the end-to-end operator workbench flow all pass; client component unit depth and broader operational route coverage still remain |

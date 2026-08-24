@@ -107,6 +107,60 @@ const CapacityView = {
 
         <div class="dashboard-panels">
           <div class="dash-card">
+            <div class="dash-card-label">Top VM Consumers</div>
+            <div class="stack-list" v-if="topVms.length">
+              <button class="stack-item stack-item-button"
+                      v-for="vm in topVms"
+                      :key="vm.ref"
+                      @click="openInspector('vm', vm)">
+                <div class="capacity-item-main">
+                  <strong>{{ vm.name_label || 'Virtual Machine' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ vm.hostName }} · {{ vm.vcpuDemand }} vCPU</div>
+                  <div class="capacity-meter">
+                    <div class="capacity-meter-track">
+                      <div class="capacity-meter-fill"
+                           :class="getUtilizationStatus(vm.riskPercentOfHost, { warning: 12, critical: 20 })"
+                           :style="{ width: formatPercentValue(vm.riskPercentOfHost) }"></div>
+                    </div>
+                    <span class="mono">{{ formatBytes(vm.memoryDemand) }}</span>
+                  </div>
+                </div>
+                <status-badge :status="getUtilizationStatus(vm.riskPercentOfHost, { warning: 12, critical: 20 })"></status-badge>
+              </button>
+            </div>
+            <div v-else class="empty-state" style="padding:20px 12px">No VM placement inventory available.</div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-label">Placement Imbalance</div>
+            <div class="stack-list" v-if="hostBalanceRows.length">
+              <button class="stack-item stack-item-button"
+                      v-for="row in hostBalanceRows.slice(0, 6)"
+                      :key="row.ref"
+                      @click="openInspector('host', row)">
+                <div class="capacity-item-main">
+                  <strong>{{ row.name_label || row.hostname || 'Host' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">
+                    {{ formatBytes(row.vmMemoryDemand) }} assigned · {{ row.assignedVms.length }} VMs · {{ row.vmVcpuDemand }} vCPU
+                  </div>
+                  <div class="capacity-meter">
+                    <div class="capacity-meter-track">
+                      <div class="capacity-meter-fill"
+                           :class="row.status"
+                           :style="{ width: formatPercentValue(row.pressurePercent) }"></div>
+                    </div>
+                    <span class="mono">{{ formatPercentValue(row.imbalancePercent) }} skew</span>
+                  </div>
+                </div>
+                <status-badge :status="row.status"></status-badge>
+              </button>
+            </div>
+            <div v-else class="empty-state" style="padding:20px 12px">No placement telemetry available.</div>
+          </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <div class="dash-card">
             <div class="dash-card-label">Cluster Snapshot</div>
             <div class="metric-row">
               <span>Total Memory</span>
@@ -131,6 +185,55 @@ const CapacityView = {
           </div>
 
           <div class="dash-card">
+            <div class="dash-card-label">Staged Automation Queue</div>
+            <div class="stack-list" v-if="capacityAutomationTasks.length">
+              <button class="stack-item stack-item-button"
+                      v-for="task in capacityAutomationTasks.slice(0, 6)"
+                      :key="task.ref"
+                      @click="openAutomationTask(task)">
+                <div>
+                  <strong>{{ task.name_label || 'Remediation Task' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ task.assignee || 'Unassigned' }} · {{ task.related_alert_summary || task.related_object || task.ref }}</div>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">{{ task.workspace_summary || task.name_description || 'No workbench brief captured.' }}</div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+                    <span class="badge" :class="taskSlaBadgeClass(task)">{{ taskSlaMeta(task).label }}</span>
+                    <span class="text-muted mono" style="font-size:11px">{{ taskSlaMeta(task).ageLabel }}</span>
+                  </div>
+                  <div class="text-muted mono" style="font-size:11px;margin-top:6px">{{ taskEvidenceChecklist(task).length }} evidence · {{ taskCompletionCriteria(task).length }} completion</div>
+                </div>
+                <status-badge :status="task.status || 'pending'"></status-badge>
+              </button>
+            </div>
+            <div v-else class="empty-state" style="padding:20px 12px">No capacity-specific remediation staging is queued yet.</div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-label">Forecast & Thresholds</div>
+            <div class="metric-row">
+              <span>Live Memory Used</span>
+              <strong :class="'text-' + colorClass(capacityAnalytics.summary.memoryUsedPercent)">{{ formatPercentValue(capacityAnalytics.summary.memoryUsedPercent) }}</strong>
+            </div>
+            <div class="metric-row">
+              <span>VM Memory Commit</span>
+              <strong :class="'text-' + colorClass(capacityAnalytics.summary.memoryCommitPercent)">{{ formatPercentValue(capacityAnalytics.summary.memoryCommitPercent) }}</strong>
+            </div>
+            <div class="metric-row">
+              <span>Storage Commit</span>
+              <strong :class="'text-' + colorClass(capacityAnalytics.summary.storageUsedPercent)">{{ formatPercentValue(capacityAnalytics.summary.storageUsedPercent) }}</strong>
+            </div>
+            <div class="metric-row">
+              <span>Imbalance Index</span>
+              <strong :class="'text-' + colorClass(capacityAnalytics.summary.imbalancePercent)">{{ formatPercentValue(capacityAnalytics.summary.imbalancePercent) }}</strong>
+            </div>
+            <div class="detail-section" style="margin-top:12px">
+              <div class="capacity-callout">
+                <strong>{{ capacityForecast.title }}</strong>
+                <p>{{ capacityForecast.detail }} {{ capacityForecast.nextAction }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-card">
             <div class="dash-card-label">Operator Guidance</div>
             <div class="stack-list">
               <div class="stack-item" v-for="item in recommendations" :key="item.title">
@@ -140,6 +243,30 @@ const CapacityView = {
                 </div>
                 <status-badge :status="item.status"></status-badge>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <div class="dash-card">
+            <div class="dash-card-label">Noisy-Neighbor Candidates</div>
+            <div class="stack-list" v-if="noisyNeighborCandidates.length">
+              <button class="stack-item stack-item-button"
+                      v-for="candidate in noisyNeighborCandidates"
+                      :key="candidate.ref"
+                      @click="openInspector('vm', candidate)">
+                <div class="capacity-item-main">
+                  <strong>{{ candidate.name_label || 'Virtual Machine' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">
+                    {{ candidate.hostName }} · {{ formatPercentValue(candidate.riskPercentOfHost) }} of host memory footprint
+                  </div>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">{{ candidate.recommendation }}</div>
+                </div>
+                <status-badge :status="candidate.hostStatus || 'warning'"></status-badge>
+              </button>
+            </div>
+            <div v-else class="empty-state" style="padding:20px 12px">
+              No dominant workload signatures detected from the current placement view.
             </div>
           </div>
         </div>
@@ -170,6 +297,19 @@ const CapacityView = {
                 <p>{{ hostRecommendation(selectedEntity) }}</p>
               </div>
             </div>
+
+            <div class="detail-section" v-if="selectedEntity.assignedVms && selectedEntity.assignedVms.length">
+              <div class="detail-section-title">Dominant Workloads</div>
+              <div class="stack-list">
+                <div class="stack-item" v-for="vm in selectedEntity.assignedVms.slice(0, 4)" :key="vm.ref">
+                  <div>
+                    <strong>{{ vm.name_label || vm.ref }}</strong>
+                    <div class="text-muted mono" style="font-size:11px">{{ formatBytes(vm.memoryDemand) }} · {{ vm.vcpuDemand }} vCPU</div>
+                  </div>
+                  <status-badge :status="getUtilizationStatus(vm.riskPercentOfHost, { warning: 12, critical: 20 })"></status-badge>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div v-if="selectedEntityType === 'storage' && selectedEntity">
@@ -193,6 +333,27 @@ const CapacityView = {
               </div>
             </div>
           </div>
+
+          <div v-if="selectedEntityType === 'vm' && selectedEntity">
+            <div class="property-grid">
+              <span class="text-muted">Virtual Machine</span><span>{{ selectedEntity.name_label || '-' }}</span>
+              <span class="text-muted">Resident Host</span><span>{{ selectedEntity.hostName || '-' }}</span>
+              <span class="text-muted">Power State</span><status-badge :status="selectedEntity.power_state || 'info'"></status-badge>
+              <span class="text-muted">vCPUs</span><span class="mono">{{ selectedEntity.vcpuDemand }}</span>
+              <span class="text-muted">Memory Demand</span><span class="mono">{{ formatBytes(selectedEntity.memoryDemand) }}</span>
+              <span class="text-muted">Host Footprint</span><span class="mono">{{ formatPercentValue(selectedEntity.riskPercentOfHost) }}</span>
+              <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedEntity.uuid || '-' }}</span>
+              <span class="text-muted">Tags</span><span>{{ truncateList(selectedEntity.tags) }}</span>
+            </div>
+
+            <div class="detail-section">
+              <div class="detail-section-title">Placement Guidance</div>
+              <div class="capacity-callout">
+                <strong>{{ selectedEntity.riskPercentOfHost >= 20 ? 'Review this workload before the next rebalance window' : 'Workload size appears normal for its current host' }}</strong>
+                <p>{{ vmRecommendation(selectedEntity) }}</p>
+              </div>
+            </div>
+          </div>
         </floating-window>
       </template>
     </div>
@@ -202,6 +363,8 @@ const CapacityView = {
       loading: true,
       hosts: [],
       srs: [],
+      vms: [],
+      messages: [],
       tasks: [],
       selectedEntity: null,
       selectedEntityType: '',
@@ -214,6 +377,27 @@ const CapacityView = {
     },
     topStorage() {
       return [...this.srs].sort((left, right) => right.utilizationPercent - left.utilizationPercent);
+    },
+    capacityAnalytics() {
+      return buildCapacityAnalytics({
+        hosts: this.hosts,
+        srs: this.srs,
+        vms: this.vms,
+        tasks: this.tasks,
+        messages: this.messages,
+      });
+    },
+    topVms() {
+      return this.capacityAnalytics.topVmConsumers;
+    },
+    hostBalanceRows() {
+      return this.capacityAnalytics.hostBalanceRows;
+    },
+    noisyNeighborCandidates() {
+      return this.capacityAnalytics.noisyNeighborCandidates;
+    },
+    capacityForecast() {
+      return this.capacityAnalytics.forecast;
     },
     clusterMemory() {
       return this.hosts.reduce((accumulator, host) => {
@@ -243,9 +427,13 @@ const CapacityView = {
     activeTasks() {
       return this.tasks.filter((task) => ['pending', 'queued'].includes((task.status || '').toLowerCase()));
     },
+    capacityAutomationTasks() {
+      return sortTasks(this.tasks.filter((task) => this.isCapacityAutomationTask(task)));
+    },
     capacityCards() {
-      const clusterMemoryUsed = percentValue(this.clusterMemory.used, this.clusterMemory.total);
-      const clusterStorageUsed = percentValue(this.clusterStorage.allocated, this.clusterStorage.total);
+      const clusterMemoryUsed = this.capacityAnalytics.summary.memoryUsedPercent;
+      const clusterStorageUsed = this.capacityAnalytics.summary.storageUsedPercent;
+      const memoryCommit = this.capacityAnalytics.summary.memoryCommitPercent;
 
       return [
         {
@@ -255,6 +443,14 @@ const CapacityView = {
           detail: `${formatBytes(this.clusterMemory.used)} used of ${formatBytes(this.clusterMemory.total)}`,
           icon: 'mdi-memory',
           valueClass: this.hosts.length ? `text-${this.colorClass(this.hosts.length ? clusterMemoryUsed : 0)}` : '',
+        },
+        {
+          key: 'vm-commit',
+          label: 'VM Commit',
+          value: formatPercentValue(memoryCommit),
+          detail: `${formatBytes(this.capacityAnalytics.summary.totalVmMemoryDemand)} allocated across ${this.capacityAnalytics.summary.vmCount} workloads`,
+          icon: 'mdi-chart-sankey',
+          valueClass: this.vms.length ? `text-${this.colorClass(memoryCommit)}` : '',
         },
         {
           key: 'storage',
@@ -273,6 +469,14 @@ const CapacityView = {
           valueClass: this.hotHosts.length ? 'text-amber' : 'text-green',
         },
         {
+          key: 'neighbors',
+          label: 'Noisy Neighbors',
+          value: String(this.noisyNeighborCandidates.length),
+          detail: this.noisyNeighborCandidates.length ? `${this.noisyNeighborCandidates[0].name_label || 'A workload'} dominates a hot host footprint` : 'No dominant VM signatures inferred',
+          icon: 'mdi-transit-connection-variant',
+          valueClass: this.noisyNeighborCandidates.length ? 'text-amber' : 'text-green',
+        },
+        {
           key: 'tasks',
           label: 'Active Tasks',
           value: String(this.activeTasks.length),
@@ -284,6 +488,7 @@ const CapacityView = {
     },
     recommendations() {
       const items = [];
+      const overdueAutomationTasks = this.capacityAutomationTasks.filter((task) => this.taskSlaMeta(task).isOverdue);
 
       if (this.hotHosts.length) {
         const host = this.hotHosts[0];
@@ -303,6 +508,15 @@ const CapacityView = {
         });
       }
 
+      if (this.noisyNeighborCandidates.length) {
+        const vm = this.noisyNeighborCandidates[0];
+        items.push({
+          title: 'Review dominant workload placement',
+          detail: `${vm.name_label || 'A VM'} accounts for ${formatPercentValue(vm.riskPercentOfHost)} of ${vm.hostName}'s current memory footprint.`,
+          status: vm.hostStatus || 'warning',
+        });
+      }
+
       if (this.activeTasks.length) {
         const task = this.activeTasks[0];
         items.push({
@@ -311,6 +525,30 @@ const CapacityView = {
           status: 'pending',
         });
       }
+
+      if (this.capacityAutomationTasks.length) {
+        const task = this.capacityAutomationTasks[0];
+        items.push({
+          title: 'Staged capacity follow-through ready',
+          detail: `${task.name_label || 'A remediation task'} already carries ${this.taskEvidenceChecklist(task).length} evidence checks and ${this.taskCompletionCriteria(task).length} completion criteria into the capacity queue, with ${this.taskSlaMeta(task).label.toLowerCase()} timing.`,
+          status: this.taskSlaMeta(task).tone,
+        });
+      }
+
+      if (overdueAutomationTasks.length) {
+        const task = overdueAutomationTasks[0];
+        items.push({
+          title: 'Overdue capacity follow-through',
+          detail: `${task.name_label || 'A remediation task'} is ${this.taskSlaMeta(task).label.toLowerCase()} and should be reassigned or closed before the next provisioning wave.`,
+          status: 'critical',
+        });
+      }
+
+      items.push({
+        title: this.capacityForecast.title,
+        detail: `${this.capacityForecast.detail} ${this.capacityForecast.confidence}`,
+        status: this.capacityForecast.status,
+      });
 
       if (!items.length) {
         items.push({
@@ -325,6 +563,7 @@ const CapacityView = {
     inspectorTitle() {
       if (this.selectedEntityType === 'host') return 'Capacity Host Detail';
       if (this.selectedEntityType === 'storage') return 'Capacity Storage Detail';
+      if (this.selectedEntityType === 'vm') return 'Capacity VM Detail';
       return 'Capacity Detail';
     },
   },
@@ -340,6 +579,36 @@ const CapacityView = {
     formatBytes,
     formatPercentValue,
     truncateList,
+    getUtilizationStatus,
+    taskSlaMeta: getTaskDueMeta,
+    taskSlaBadgeClass(task) {
+      return getTaskSlaBadgeClass(this.taskSlaMeta(task));
+    },
+    isRemediationTask(task) {
+      return String(task?.task_kind || '').toLowerCase() === 'remediation' || String(task?.source || '').toLowerCase() === 'remediation';
+    },
+    isCapacityAutomationTask(task) {
+      if (!this.isRemediationTask(task)) return false;
+      return task.target_route === '/capacity' || String(task.action_type || '').toLowerCase() === 'capacity';
+    },
+    taskEvidenceChecklist(task) {
+      return Array.isArray(task?.evidence_checklist) ? task.evidence_checklist : [];
+    },
+    taskCompletionCriteria(task) {
+      return Array.isArray(task?.completion_criteria) ? task.completion_criteria : [];
+    },
+    openAutomationTask(task) {
+      if (!task?.ref) return;
+      this.showInspector = false;
+      this.$router.push(buildFocusedRoute('/activity', {
+        kind: 'task',
+        ref: task.ref || '',
+        uuid: task.uuid || '',
+        name: task.name_label || '',
+        cls: 'task',
+        source: 'capacity',
+      }));
+    },
     hostCapacityStatus(host) {
       if (!host.enabled) return 'disabled';
       if (!host.live) return 'offline';
@@ -372,6 +641,15 @@ const CapacityView = {
       }
       return 'Storage headroom is currently healthy for standard provisioning and maintenance activity.';
     },
+    vmRecommendation(vm) {
+      if (vm.riskPercentOfHost >= 20) {
+        return `${vm.name_label || 'This workload'} is consuming a large share of its host's memory envelope. Validate whether it should remain pinned here or be redistributed before maintenance, evacuation, or new deployments.`;
+      }
+      if (vm.riskPercentOfHost >= 12) {
+        return `${vm.name_label || 'This workload'} is one of the larger workloads on its current host. Keep it in view when balancing capacity or planning recovery targets.`;
+      }
+      return 'This workload does not currently stand out as a likely contention driver based on live placement and configured memory demand.';
+    },
     openInspector(type, entity) {
       this.selectedEntityType = type;
       this.selectedEntity = entity;
@@ -385,10 +663,12 @@ const CapacityView = {
     async loadCapacity() {
       this.loading = true;
       try {
-        const [hostsResult, srsResult, tasksResult] = await Promise.all([
+        const [hostsResult, srsResult, tasksResult, vmsResult, alertsResult] = await Promise.all([
           api.getHosts(),
           api.getSRs(),
           api.getTasks(),
+          api.getVMs().catch(() => ({ data: [] })),
+          api.getAlerts().catch(() => []),
         ]);
 
         const hostRecords = hostsResult.data || [];
@@ -431,11 +711,15 @@ const CapacityView = {
           };
         });
 
+        this.vms = vmsResult.data || [];
+        this.messages = alertsResult || [];
         this.tasks = tasksResult.data || [];
       } catch (error) {
         console.error(error);
         this.hosts = [];
         this.srs = [];
+        this.vms = [];
+        this.messages = [];
         this.tasks = [];
       } finally {
         this.loading = false;
@@ -443,4 +727,3 @@ const CapacityView = {
     },
   },
 };
-

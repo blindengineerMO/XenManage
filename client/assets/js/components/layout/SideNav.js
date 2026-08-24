@@ -42,6 +42,10 @@ const SideNav = {
           <span class="mdi mdi-sitemap-outline"></span>
           <span class="tree-label" v-if="!collapsed">Inventory</span>
         </div>
+        <div class="tree-item" :class="{ active: $route.path === '/governance' }" @click="$router.push('/governance')">
+          <span class="mdi mdi-shield-account-outline"></span>
+          <span class="tree-label" v-if="!collapsed">Governance</span>
+        </div>
         <div class="tree-item" :class="{ active: $route.path === '/lifecycle' }" @click="$router.push('/lifecycle')">
           <span class="mdi mdi-shield-sync-outline"></span>
           <span class="tree-label" v-if="!collapsed">Lifecycle</span>
