@@ -122,6 +122,17 @@ const credentialModel = {
     return this.getById(id);
   },
 
+  markUsed(id, userId) {
+    getVaultDb().prepare(`
+      UPDATE credentials
+      SET last_used_at = CURRENT_TIMESTAMP,
+          last_used_by = ?
+      WHERE id = ?
+    `).run(userId || null, id);
+
+    return this.getById(id);
+  },
+
   delete(id) {
     getVaultDb().prepare('DELETE FROM credentials WHERE id = ?').run(id);
   },

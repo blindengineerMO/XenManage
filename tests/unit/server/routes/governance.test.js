@@ -166,8 +166,23 @@ describe('Governance Routes', () => {
       maxTotalMemoryGiB: 64,
       notes: 'Production cap for Friday, August 21, 2026 operations.',
     }, auth.cookie);
-    expect(quota.status).toBe(200);
-    expect(quota.body.maxVmCount).toBe(5);
+    expect(quota.status).toBe(403);
+    expect(quota.body.error).toBe('ADMIN_ROLE_REQUIRED');
+
+    const promote = await request('PUT', '/api/governance/role', { role: 'admin' }, auth.cookie);
+    expect(promote.status).toBe(200);
+    expect(promote.body.role).toBe('admin');
+
+    const quotaAsAdmin = await request('PUT', '/api/governance/quotas/OpaqueRef%3Apool1', {
+      enabled: true,
+      owner: 'Platform Ops',
+      maxVmCount: 5,
+      maxRunningVmCount: 4,
+      maxTotalMemoryGiB: 64,
+      notes: 'Production cap for Friday, August 21, 2026 operations.',
+    }, auth.cookie);
+    expect(quotaAsAdmin.status).toBe(200);
+    expect(quotaAsAdmin.body.maxVmCount).toBe(5);
 
     const approval = await request('POST', '/api/governance/approvals', {
       actionKey: 'vm_shutdown',
@@ -179,10 +194,6 @@ describe('Governance Routes', () => {
     }, auth.cookie);
     expect(approval.status).toBe(201);
     expect(approval.body.status).toBe('pending');
-
-    const promote = await request('PUT', '/api/governance/role', { role: 'admin' }, auth.cookie);
-    expect(promote.status).toBe(200);
-    expect(promote.body.role).toBe('admin');
 
     const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
       decision: 'approved',

@@ -209,6 +209,11 @@ const schemas = {
     storageVerified: Joi.boolean().default(false),
     policyTagged: Joi.boolean().default(false),
   }),
+  templatePromotion: Joi.object({
+    baselineTemplateRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    retireExistingStable: Joi.boolean().default(true),
+    promotionNotes: Joi.string().allow('').max(800).default(''),
+  }),
   lifecyclePlanUpdate: Joi.object({
     baselineStatus: Joi.string().valid('compliant', 'drifted', 'unknown').default('unknown'),
     targetStage: Joi.string().valid('aligned', 'review', 'maintenance', 'remediate').default('review'),
@@ -378,6 +383,27 @@ const schemas = {
   governanceApprovalDecision: Joi.object({
     decision: Joi.string().valid('approved', 'rejected').required(),
     notes: Joi.string().allow('').max(500).default(''),
+  }),
+  userIdParam: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+  }),
+  userCreate: Joi.object({
+    username: Joi.string().trim().required().min(3).max(80).pattern(/^[a-zA-Z0-9._-]+$/),
+    password: Joi.string().required().min(10).max(256),
+    displayName: Joi.string().allow('').max(120).default(''),
+    email: Joi.string().allow('').email({ tlds: { allow: false } }).max(160).default(''),
+    role: Joi.string().valid('read-only', 'operator', 'admin').default('operator'),
+    active: Joi.boolean().default(true),
+  }),
+  userUpdate: Joi.object({
+    username: Joi.string().trim().required().min(3).max(80).pattern(/^[a-zA-Z0-9._-]+$/),
+    displayName: Joi.string().allow('').max(120).default(''),
+    email: Joi.string().allow('').email({ tlds: { allow: false } }).max(160).default(''),
+    role: Joi.string().valid('read-only', 'operator', 'admin').default('operator'),
+    active: Joi.boolean().default(true),
+  }),
+  userPasswordReset: Joi.object({
+    password: Joi.string().required().min(10).max(256),
   }),
   systemConfigSectionParam: Joi.object({
     section: Joi.string().valid('general', 'network', 'security', 'logging', 'retention').required(),

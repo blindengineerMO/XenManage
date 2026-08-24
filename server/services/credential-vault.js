@@ -94,6 +94,20 @@ const credentialVaultService = {
     return credentialModel.listVisible(userId).map(toPublicRecord);
   },
 
+  getRuntimeStatus() {
+    const configuredCurrentKey = Boolean(String(config.vault.encryptionKey || '').trim());
+    const configuredPreviousKey = Boolean(String(config.vault.previousEncryptionKey || '').trim());
+
+    return {
+      hasConfiguredMasterKey: configuredCurrentKey,
+      usingDevelopmentFallback: !configuredCurrentKey && config.env !== 'production',
+      hasPreviousMasterKey: configuredPreviousKey,
+      rotationRecommended: configuredCurrentKey && !configuredPreviousKey,
+      keySource: configuredCurrentKey ? 'environment' : (config.env === 'production' ? 'missing' : 'derived-development'),
+      vaultDatabasePath: config.db.vaultPath,
+    };
+  },
+
   create(userId, payload) {
     const dek = crypto.randomBytes(32);
     const wrappedDek = createWrappedDek(dek);
@@ -215,7 +229,9 @@ const credentialVaultService = {
       dek = decryptBuffer(wrapped.wrapped_dek, wrapped.wrap_iv, wrapped.wrap_auth_tag, previous);
     }
 
-    return decryptBuffer(existing.encrypted_password, existing.enc_iv, existing.enc_auth_tag, dek).toString('utf8');
+    const password = decryptBuffer(existing.encrypted_password, existing.enc_iv, existing.enc_auth_tag, dek).toString('utf8');
+    credentialModel.markUsed(id, userId);
+    return password;
   },
 };
 

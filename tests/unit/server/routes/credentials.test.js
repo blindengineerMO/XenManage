@@ -201,6 +201,13 @@ describe('Credential Vault Routes', () => {
     expect(xen.body.user).toEqual(expect.objectContaining({
       username: 'admin',
     }));
+
+    const listed = await request('GET', '/api/credentials', null, auth.cookie);
+    expect(listed.status).toBe(200);
+    expect(listed.body.data[0]).toEqual(expect.objectContaining({
+      id: created.body.id,
+      lastUsedAt: expect.any(String),
+    }));
   });
 
   it('should expose shared credentials to other authenticated local users while keeping private ones hidden', async () => {

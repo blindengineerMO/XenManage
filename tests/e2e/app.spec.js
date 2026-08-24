@@ -7,6 +7,21 @@ async function stubAuthenticatedRoutes(page) {
   const hostTargets = [
     { id: 1, name: 'branch-host-r4', host: '10.0.0.25', username: 'root', port: 443, mode: 'standalone', pool_connection_id: null, pool_name: null, notes: '' },
   ];
+  const credentials = [
+    {
+      id: 1,
+      ownerUserId: 1,
+      scope: 'shared',
+      targetType: 'pool',
+      targetHint: '10.0.0.1',
+      name: 'Production Pool Root',
+      username: 'root',
+      createdAt: '2026-08-24T09:00:00.000Z',
+      updatedAt: '2026-08-24T09:05:00.000Z',
+      lastUsedAt: '2026-08-24T09:15:00.000Z',
+      lastUsedBy: 1,
+    },
+  ];
   const hostInventory = [
     {
       ref: 'OpaqueRef:host1',
@@ -85,6 +100,17 @@ async function stubAuthenticatedRoutes(page) {
       tags: ['golden', 'linux', 'stable', 'baseline'],
       platform: { secureboot: 'enabled' },
     },
+    {
+      ref: 'OpaqueRef:template2',
+      name_label: 'windows-2025-core',
+      name_description: 'Windows Server 2025 hardened candidate',
+      VCPUs_at_startup: 4,
+      memory_static_max: 8589934592,
+      uuid: 'template-uuid-2',
+      is_a_template: true,
+      tags: ['golden', 'windows', 'staged'],
+      platform: { vtpm: 'enabled' },
+    },
   ];
   const templateGovernance = [
     {
@@ -99,6 +125,73 @@ async function stubAuthenticatedRoutes(page) {
       owner: 'Platform Ops',
       notes: 'Approved for production rollout.',
       updatedAt: '2026-08-19T12:20:00.000Z',
+    },
+    {
+      templateRef: 'OpaqueRef:template2',
+      versionLabel: '2026.08-hardened',
+      profileLabel: 'Secure Windows',
+      lifecycleStage: 'staged',
+      goldenImage: true,
+      guestCustomization: 'sysprep-core',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-20T00:00:00.000Z',
+      owner: 'Windows Platform',
+      notes: 'Validated for promotion after the Monday, August 24, 2026 review gate.',
+      updatedAt: '2026-08-20T11:20:00.000Z',
+    },
+  ];
+  const templateGovernanceHistory = [
+    {
+      id: 'tmplhist-seed-1',
+      templateRef: 'OpaqueRef:template1',
+      templateName: 'ubuntu-golden',
+      eventType: 'saved',
+      actor: 'root',
+      happenedAt: '2026-08-19T12:20:00.000Z',
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: '2026.08-lts governance saved after production baseline review.',
+      snapshot: {
+        templateRef: 'OpaqueRef:template1',
+        versionLabel: '2026.08-lts',
+        profileLabel: 'Secure Linux',
+        lifecycleStage: 'stable',
+        goldenImage: true,
+        guestCustomization: 'cloud-init baseline',
+        validationStatus: 'validated',
+        lastValidatedAt: '2026-08-19T00:00:00.000Z',
+        owner: 'Platform Ops',
+        notes: 'Approved for production rollout.',
+        updatedAt: '2026-08-19T12:20:00.000Z',
+      },
+    },
+    {
+      id: 'tmplhist-seed-2',
+      templateRef: 'OpaqueRef:template2',
+      templateName: 'windows-2025-core',
+      eventType: 'saved',
+      actor: 'root',
+      happenedAt: '2026-08-20T11:20:00.000Z',
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: '2026.08-hardened governance saved pending promotion review.',
+      snapshot: {
+        templateRef: 'OpaqueRef:template2',
+        versionLabel: '2026.08-hardened',
+        profileLabel: 'Secure Windows',
+        lifecycleStage: 'staged',
+        goldenImage: true,
+        guestCustomization: 'sysprep-core',
+        validationStatus: 'validated',
+        lastValidatedAt: '2026-08-20T00:00:00.000Z',
+        owner: 'Windows Platform',
+        notes: 'Validated for promotion after the Monday, August 24, 2026 review gate.',
+        updatedAt: '2026-08-20T11:20:00.000Z',
+      },
     },
   ];
   const templateDeployments = [];
@@ -201,6 +294,32 @@ async function stubAuthenticatedRoutes(page) {
       usedAt: '',
     },
   ];
+  const users = [
+    {
+      id: 1,
+      username: 'admin',
+      display_name: 'Platform Administrator',
+      email: 'admin@xenmange.local',
+      role: 'admin',
+      active: true,
+      created_at: '2026-08-20T08:00:00.000Z',
+      last_login_at: '2026-08-24T08:14:00.000Z',
+      groups: ['Platform Operations'],
+      group_count: 1,
+    },
+    {
+      id: 2,
+      username: 'readonly-analyst',
+      display_name: 'Read Only Analyst',
+      email: 'analyst@xenmange.local',
+      role: 'read-only',
+      active: true,
+      created_at: '2026-08-21T09:00:00.000Z',
+      last_login_at: '2026-08-23T15:20:00.000Z',
+      groups: ['Reporting'],
+      group_count: 1,
+    },
+  ];
   const systemConfig = {
     general: {
       appName: 'XenMange',
@@ -222,6 +341,14 @@ async function stubAuthenticatedRoutes(page) {
     retention: {
       sweepIntervalHours: 24,
       vacuumAfterSweep: true,
+    },
+    vault: {
+      hasConfiguredMasterKey: true,
+      usingDevelopmentFallback: false,
+      hasPreviousMasterKey: true,
+      rotationRecommended: false,
+      keySource: 'environment',
+      vaultDatabasePath: './data/vault.db',
     },
     runtime: {
       env: 'test',
@@ -1731,6 +1858,121 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
+  await page.route('**/api/credentials', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          total: credentials.length,
+          data: credentials,
+        }),
+      });
+      return;
+    }
+
+    const payload = route.request().postDataJSON();
+    const created = {
+      id: credentials.length ? Math.max(...credentials.map((entry) => Number(entry.id))) + 1 : 1,
+      ownerUserId: 1,
+      scope: payload.scope,
+      targetType: payload.targetType,
+      targetHint: payload.targetHint || '',
+      name: payload.name,
+      username: payload.username,
+      createdAt: '2026-08-24T10:12:00.000Z',
+      updatedAt: '2026-08-24T10:12:00.000Z',
+      lastUsedAt: '',
+      lastUsedBy: null,
+    };
+    credentials.unshift(created);
+
+    recordAudit({
+      category: 'credentials',
+      action: 'credential_created',
+      actionLabel: 'Saved vault credential',
+      entityType: 'credential',
+      entityRef: String(created.id),
+      entityName: created.name,
+      route: '/settings',
+      after: { ...created, password: 'redacted' },
+      detail: `${created.scope} ${created.targetType} credential saved to the XenMange vault.`,
+      happenedAt: '2026-08-24T10:12:00.000Z',
+    });
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify(created),
+    });
+  });
+
+  await page.route('**/api/credentials/*', async (route) => {
+    const id = Number(route.request().url().split('/api/credentials/')[1] || 0);
+    const index = credentials.findIndex((entry) => Number(entry.id) === id);
+
+    if (index === -1) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'CREDENTIAL_NOT_FOUND' }) });
+      return;
+    }
+
+    if (route.request().method() === 'DELETE') {
+      const [removed] = credentials.splice(index, 1);
+      recordAudit({
+        category: 'credentials',
+        action: 'credential_deleted',
+        actionLabel: 'Removed vault credential',
+        entityType: 'credential',
+        entityRef: String(id),
+        entityName: removed.name,
+        route: '/settings',
+        before: removed,
+        after: { success: true },
+        detail: 'Credential removed from the XenMange vault.',
+        happenedAt: '2026-08-24T10:14:00.000Z',
+      });
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+      return;
+    }
+
+    const payload = route.request().postDataJSON();
+    const previous = { ...credentials[index] };
+    credentials[index] = {
+      ...credentials[index],
+      name: payload.name,
+      scope: payload.scope,
+      targetType: payload.targetType,
+      targetHint: payload.targetHint || '',
+      username: payload.username,
+      updatedAt: '2026-08-24T10:13:00.000Z',
+    };
+
+    recordAudit({
+      category: 'credentials',
+      action: 'credential_updated',
+      actionLabel: 'Updated vault credential',
+      entityType: 'credential',
+      entityRef: String(id),
+      entityName: credentials[index].name,
+      route: '/settings',
+      before: previous,
+      after: { ...credentials[index], password: payload.password ? 'rotated' : 'unchanged' },
+      detail: `${credentials[index].scope} ${credentials[index].targetType} credential metadata updated in the XenMange vault.`,
+      happenedAt: '2026-08-24T10:13:00.000Z',
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(credentials[index]),
+    });
+  });
+
   await page.route('**/api/settings/retention/preview*', async (route) => {
     const url = new URL(route.request().url());
     const requestedDomain = url.searchParams.get('domain') || '';
@@ -1872,6 +2114,11 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/governance', async (route) => {
+    const userSummary = {
+      totalUsers: users.length,
+      activeUsers: users.filter((entry) => entry.active !== false).length,
+      activeAdmins: users.filter((entry) => entry.active !== false && entry.role === 'admin').length,
+    };
     const quotaRows = connections.map((connection) => {
       const quota = governanceQuotas.find((entry) => entry.poolRef === 'OpaqueRef:pool1') || null;
       const currentVmCount = vmInventory.length;
@@ -1910,6 +2157,7 @@ async function stubAuthenticatedRoutes(page) {
         quotas: governanceQuotas,
         approvals: governanceApprovals,
         quotaRows,
+        userSummary,
         summary: {
           pendingApprovalCount: governanceApprovals.filter((entry) => entry.status === 'pending').length,
           approvedApprovalCount: governanceApprovals.filter((entry) => entry.status === 'approved').length,
@@ -1947,6 +2195,12 @@ async function stubAuthenticatedRoutes(page) {
   await page.route('**/api/governance/role', async (route) => {
     const payload = route.request().postDataJSON();
     const previousRole = governanceCurrentRole;
+    const roleOrder = { 'read-only': 0, operator: 1, admin: 2 };
+    const currentUserRole = users.find((entry) => entry.id === 1)?.role || 'admin';
+    if ((roleOrder[payload.role || previousRole] ?? 0) > (roleOrder[currentUserRole] ?? 0)) {
+      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'ROLE_ESCALATION_NOT_ALLOWED' }) });
+      return;
+    }
     governanceCurrentRole = payload.role || previousRole;
     recordAudit({
       category: 'governance',
@@ -1962,6 +2216,139 @@ async function stubAuthenticatedRoutes(page) {
       happenedAt: '2026-08-21T15:28:00.000Z',
     });
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ role: governanceCurrentRole }) });
+  });
+
+  await page.route('**/api/users', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          total: users.length,
+          data: users,
+          summary: {
+            totalUsers: users.length,
+            activeUsers: users.filter((entry) => entry.active !== false).length,
+            activeAdmins: users.filter((entry) => entry.active !== false && entry.role === 'admin').length,
+          },
+        }),
+      });
+      return;
+    }
+
+    if (method === 'POST') {
+      const payload = route.request().postDataJSON();
+      const duplicate = users.find((entry) => String(entry.username || '').toLowerCase() === String(payload.username || '').toLowerCase());
+      if (duplicate) {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'USERNAME_ALREADY_EXISTS' }) });
+        return;
+      }
+      const record = {
+        id: users.length + 1,
+        username: payload.username,
+        display_name: payload.displayName || '',
+        email: payload.email || '',
+        role: payload.role || 'operator',
+        active: payload.active !== false,
+        created_at: '2026-08-24T14:20:00.000Z',
+        last_login_at: '',
+        groups: [],
+        group_count: 0,
+      };
+      users.push(record);
+      recordAudit({
+        category: 'governance',
+        action: 'user_created',
+        actionLabel: 'Created local user',
+        entityType: 'user',
+        entityRef: String(record.id),
+        entityName: record.username,
+        route: '/governance',
+        after: record,
+        detail: `Created local ${record.role} account ${record.username}${record.active ? '' : ' in a disabled state'}.`,
+        happenedAt: '2026-08-24T14:20:00.000Z',
+      });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(record) });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+  });
+
+  await page.route('**/api/users/*', async (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const id = Number(url.split('/api/users/')[1].split('/')[0] || 0);
+    const index = users.findIndex((entry) => entry.id === id);
+
+    if (index === -1) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'USER_NOT_FOUND' }) });
+      return;
+    }
+
+    if (method === 'PUT') {
+      const payload = route.request().postDataJSON();
+      const duplicate = users.find((entry) =>
+        entry.id !== id
+        && String(entry.username || '').toLowerCase() === String(payload.username || '').toLowerCase()
+      );
+      if (duplicate) {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'USERNAME_ALREADY_EXISTS' }) });
+        return;
+      }
+      const activeAdminsExcludingCurrent = users.filter((entry) => entry.id !== id && entry.active !== false && entry.role === 'admin').length;
+      const nextRole = payload.role || users[index].role || 'operator';
+      const nextActive = payload.active !== false;
+      if (users[index].role === 'admin' && users[index].active !== false && (nextRole !== 'admin' || !nextActive) && !activeAdminsExcludingCurrent) {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'LAST_ACTIVE_ADMIN_REQUIRED' }) });
+        return;
+      }
+      const previous = { ...users[index] };
+      users[index] = {
+        ...users[index],
+        username: payload.username,
+        display_name: payload.displayName || '',
+        email: payload.email || '',
+        role: nextRole,
+        active: nextActive,
+      };
+      recordAudit({
+        category: 'governance',
+        action: 'user_updated',
+        actionLabel: 'Updated local user',
+        entityType: 'user',
+        entityRef: String(id),
+        entityName: users[index].username,
+        route: '/governance',
+        before: previous,
+        after: users[index],
+        detail: `Updated local account ${users[index].username} (${users[index].role}, ${users[index].active ? 'active' : 'disabled'}).`,
+        happenedAt: '2026-08-24T14:26:00.000Z',
+      });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(users[index]) });
+      return;
+    }
+
+    if (method === 'POST' && url.endsWith('/password')) {
+      recordAudit({
+        category: 'governance',
+        action: 'user_password_reset',
+        actionLabel: 'Reset password for',
+        entityType: 'user',
+        entityRef: String(id),
+        entityName: users[index].username,
+        route: '/governance',
+        after: { ...users[index], password: 'rotated' },
+        detail: `Rotated the local password for ${users[index].username}.`,
+        happenedAt: '2026-08-24T14:28:00.000Z',
+      });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, user: users[index] }) });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
   });
 
   await page.route('**/api/governance/quotas/*', async (route) => {
@@ -2506,6 +2893,19 @@ async function stubAuthenticatedRoutes(page) {
     await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
   });
 
+  await page.route('**/api/vms/templates/*/history', async (route) => {
+    const templateRef = decodeURIComponent(route.request().url().split('/api/vms/templates/')[1].replace('/history', ''));
+    const history = templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: history.length,
+        data: history,
+      }),
+    });
+  });
+
   await page.route('**/api/vms/templates/deployments', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
@@ -2545,6 +2945,20 @@ async function stubAuthenticatedRoutes(page) {
     } else {
       templateGovernance[index] = record;
     }
+    templateGovernanceHistory.unshift({
+      id: `tmplhist-${Date.now()}`,
+      templateRef,
+      templateName: templateInventory.find((entry) => entry.ref === templateRef)?.name_label || templateRef,
+      eventType: 'saved',
+      actor: 'root',
+      happenedAt: '2026-08-20T09:15:00.000Z',
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: `${record.versionLabel || templateRef} governance saved from the template library workbench.`,
+      snapshot: { ...record },
+    });
     recordAudit({
       category: 'templates',
       action: 'template_governance_saved',
@@ -2562,6 +2976,97 @@ async function stubAuthenticatedRoutes(page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(record),
+    });
+  });
+
+  await page.route('**/api/vms/templates/*/promote', async (route) => {
+    const templateRef = decodeURIComponent(route.request().url().split('/api/vms/templates/')[1].replace('/promote', ''));
+    const payload = route.request().postDataJSON();
+    const index = templateGovernance.findIndex((entry) => entry.templateRef === templateRef);
+    const template = templateInventory.find((entry) => entry.ref === templateRef);
+
+    if (index === -1 || !template) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'TEMPLATE_GOVERNANCE_NOT_FOUND' }) });
+      return;
+    }
+
+    const current = templateGovernance[index];
+    if (current.validationStatus !== 'validated') {
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'PROMOTION_REQUIRES_VALIDATED_TEMPLATE' }) });
+      return;
+    }
+
+    const profileLabel = String(current.profileLabel || '').trim().toLowerCase();
+    const baseline = templateGovernance.find((entry) =>
+      entry.templateRef !== templateRef
+      && entry.lifecycleStage === 'stable'
+      && String(entry.profileLabel || '').trim().toLowerCase() === profileLabel
+    ) || null;
+    const deprecated = [];
+
+    if (baseline && payload.retireExistingStable !== false) {
+      baseline.lifecycleStage = 'deprecated';
+      baseline.goldenImage = false;
+      baseline.updatedAt = '2026-08-20T09:17:00.000Z';
+      deprecated.push({ ...baseline });
+      templateGovernanceHistory.unshift({
+        id: `tmplhist-${Date.now()}-retire`,
+        templateRef: baseline.templateRef,
+        templateName: templateInventory.find((entry) => entry.ref === baseline.templateRef)?.name_label || baseline.templateRef,
+        eventType: 'retired',
+        actor: 'root',
+        happenedAt: '2026-08-20T09:17:00.000Z',
+        baselineTemplateRef: templateRef,
+        baselineTemplateName: template.name_label,
+        baselineVersionLabel: current.versionLabel || '',
+        promotionNotes: payload.promotionNotes || '',
+        detail: `${current.versionLabel || templateRef} replaced this stable baseline during promotion.`,
+        snapshot: { ...baseline },
+      });
+    }
+
+    current.lifecycleStage = 'stable';
+    current.goldenImage = true;
+    current.updatedAt = '2026-08-20T09:17:00.000Z';
+    current.notes = [current.notes, payload.promotionNotes || ''].filter(Boolean).join(' ');
+
+    templateGovernanceHistory.unshift({
+      id: `tmplhist-${Date.now()}-promote`,
+      templateRef,
+      templateName: template.name_label,
+      eventType: 'promoted',
+      actor: 'root',
+      happenedAt: '2026-08-20T09:17:00.000Z',
+      baselineTemplateRef: baseline?.templateRef || '',
+      baselineTemplateName: baseline ? (templateInventory.find((entry) => entry.ref === baseline.templateRef)?.name_label || baseline.templateRef) : '',
+      baselineVersionLabel: baseline?.versionLabel || '',
+      promotionNotes: payload.promotionNotes || '',
+      detail: `${current.versionLabel || templateRef} promoted to stable lifecycle stage.`,
+      snapshot: { ...current },
+    });
+
+    recordAudit({
+      category: 'templates',
+      action: 'template_promoted',
+      actionLabel: 'Promoted template',
+      entityType: 'template',
+      entityRef: templateRef,
+      entityName: template.name_label || templateRef,
+      route: '/templates',
+      before: { ...current, lifecycleStage: 'staged' },
+      after: { ...current },
+      detail: `${current.versionLabel || templateRef} promoted to stable${deprecated.length ? ' and retired the previous stable baseline' : ''}.`,
+      happenedAt: '2026-08-20T09:17:00.000Z',
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        promoted: { ...current },
+        deprecated,
+        history: templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef),
+      }),
     });
   });
 
@@ -2847,6 +3352,7 @@ async function stubAuthenticatedRoutes(page) {
     vmInventory,
     templateInventory,
     templateGovernance,
+    templateGovernanceHistory,
     templateDeployments,
     auditLog,
     storageInventory,
@@ -2857,6 +3363,7 @@ async function stubAuthenticatedRoutes(page) {
     governanceCurrentRole,
     governanceQuotas,
     governanceApprovals,
+    users,
     resilienceRunbooks,
     resilienceDrills,
     inventoryWorkspaces,
@@ -2932,6 +3439,44 @@ test('control-plane sign-in can attach a saved pool target from the pools worksp
 
   await expect(page.getByText('connected now')).toBeVisible();
   await expect(page.locator('.data-table').getByText('Production Pool', { exact: true })).toBeVisible();
+});
+
+test('local governance workspace can manage control-plane users and session role posture', async ({ page }) => {
+  const fixtures = await stubAuthenticatedRoutes(page);
+  await page.goto('/');
+
+  await page.getByLabel('Username').fill('admin');
+  await page.getByLabel('Password').fill('admin123!');
+  await page.getByRole('button', { name: 'Sign In to XenMange' }).click();
+
+  await page.getByText('Governance').first().click();
+  await expect(page).toHaveURL(/\/governance$/);
+  await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible();
+  await expect(page.getByText('Role-aware operations, local user administration, pool quotas, and approval-gated destructive actions for the evolving XenMange control plane.')).toBeVisible();
+  await page.getByRole('button', { name: 'Add User' }).click();
+  await page.getByLabel('Username').fill('ops-admin');
+  await page.getByLabel('Initial Password').fill('TempPassword123!');
+  await page.getByLabel('Display Name').fill('Operations Admin');
+  await page.getByLabel('Email').fill('ops-admin@example.com');
+  await page.getByLabel('Role Ceiling').selectOption('operator');
+  await page.getByRole('button', { name: 'Create User' }).click();
+  await expect.poll(() => fixtures.users.some((entry) => entry.username === 'ops-admin')).toBe(true);
+
+  await page.getByRole('button', { name: /Operations Admin/ }).click();
+  await page.getByLabel('Email').fill('ops-admin+updated@example.com');
+  await page.getByLabel('Role Ceiling').selectOption('admin');
+  await page.getByRole('button', { name: 'Save User' }).click();
+  await expect.poll(() => fixtures.users.find((entry) => entry.username === 'ops-admin')?.role || '').toBe('admin');
+
+  await page.getByRole('button', { name: 'Reset Password' }).click();
+  await page.getByLabel('New Password').fill('BetterPassword123!');
+  await page.getByRole('button', { name: 'Rotate Password' }).click();
+  await expect(page.getByText('Edit Local User')).toBeVisible();
+  await page.locator('.floating-window .fw-close').first().click();
+
+  await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Operator/ }).click();
+  await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Admin/ }).click();
+  await expect(page.getByRole('button', { name: 'Add User' })).toBeVisible();
 });
 
 test('vm operations open a floating window and submit lifecycle actions', async ({ page }) => {
@@ -3167,6 +3712,15 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/templates$/);
   await expect(page.getByRole('heading', { name: 'Templates' })).toBeVisible();
   await expect(page.getByText('ubuntu-golden')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('windows-2025-core', { exact: true })).toBeVisible();
+  await expect(page.getByText('Promotion Queue')).toBeVisible();
+  await page.locator('.dash-card').filter({ hasText: 'Promotion Queue' }).getByRole('button', { name: /windows-2025-core/ }).click();
+  await expect(page.getByText('Template Promotion Review')).toBeVisible();
+  await expect(page.getByText('No active stable baseline')).toBeVisible();
+  await page.getByLabel('Promotion Notes').fill('Promoted after the Monday, August 24, 2026 template review.');
+  await page.getByRole('button', { name: 'Promote to Stable' }).click();
+  await expect.poll(() => fixtures.templateGovernance.find((entry) => entry.templateRef === 'OpaqueRef:template2')?.lifecycleStage || '').toBe('stable');
+  await expect.poll(() => fixtures.templateGovernanceHistory.some((entry) => entry.templateRef === 'OpaqueRef:template2' && entry.eventType === 'promoted')).toBe(true);
   await page.locator('.data-table').getByText('ubuntu-golden', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Deploy Template' })).toBeVisible();
   await expect(page.locator('.floating-window').getByText('2026.08-lts').first()).toBeVisible();
@@ -3397,16 +3951,8 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByText('Governance').first().click();
   await expect(page).toHaveURL(/\/governance$/);
   await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible();
-  await expect(page.getByText('Role-aware operations, pool quotas, and approval-gated destructive actions for the evolving XenMange control plane.')).toBeVisible();
+  await expect(page.getByText('Role-aware operations, local user administration, pool quotas, and approval-gated destructive actions for the evolving XenMange control plane.')).toBeVisible();
   await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Operator/ }).click();
-  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByLabel('Default Role').selectOption('operator');
-  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByLabel('Approval Window (minutes)').fill('180');
-  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByRole('button', { name: 'Save Governance Policy' }).click();
-  await page.locator('.dash-card').filter({ hasText: 'Pool Quotas' }).getByRole('button', { name: /Production Pool/ }).click();
-  await page.getByLabel('Max VMs').fill('9');
-  await page.getByLabel('Quota Notes').fill('Updated on Friday, August 21, 2026 for the current production envelope.');
-  await page.locator('.floating-window').last().getByRole('button', { name: 'Save Pool Quota' }).click();
-  await expect.poll(() => fixtures.governanceQuotas.find((entry) => entry.poolRef === 'OpaqueRef:pool1')?.maxVmCount || 0).toBe(9);
   await page.getByRole('button', { name: 'Request Approval' }).click();
   await page.getByLabel('Approval Action').selectOption('vm_suspend');
   await page.getByLabel('Entity Type').selectOption('vm');
@@ -3417,6 +3963,14 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.floating-window').last().locator('form').getByRole('button', { name: 'Request Approval' }).click();
   await expect.poll(() => fixtures.governanceApprovals[0]?.actionKey || '').toBe('vm_suspend');
   await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Admin/ }).click();
+  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByLabel('Default Role').selectOption('operator');
+  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByLabel('Approval Window (minutes)').fill('180');
+  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByRole('button', { name: 'Save Governance Policy' }).click();
+  await page.locator('.dash-card').filter({ hasText: 'Pool Quotas' }).getByRole('button', { name: /Production Pool/ }).click();
+  await page.getByLabel('Max VMs').fill('9');
+  await page.getByLabel('Quota Notes').fill('Updated on Friday, August 21, 2026 for the current production envelope.');
+  await page.locator('.floating-window').last().getByRole('button', { name: 'Save Pool Quota' }).click();
+  await expect.poll(() => fixtures.governanceQuotas.find((entry) => entry.poolRef === 'OpaqueRef:pool1')?.maxVmCount || 0).toBe(9);
   await page.locator('.dash-card').filter({ hasText: 'Approval Queue' }).getByRole('button', { name: 'Approve' }).first().click();
   await expect.poll(() => fixtures.governanceApprovals[0]?.status || '').toBe('approved');
 
@@ -3502,10 +4056,32 @@ test('settings workspace saves runtime configuration and previews retention', as
   await page.getByText('Settings').first().click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByText('Configuration Plane')).toBeVisible();
+  await expect(page.getByText('Production Pool Root')).toBeVisible();
+  await expect(page.getByText('Environment Variable')).toBeVisible();
 
   await page.getByLabel('Application Name').fill('XenMange Ops');
   await page.getByRole('button', { name: 'Save General Settings' }).click();
   await expect(page.getByText('XenMange Ops')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add Credential' }).click();
+  await expect(page.locator('.floating-window .fw-title').last()).toHaveText('Add Vault Credential');
+  await page.getByLabel('Credential Name').fill('Branch Host Root');
+  await page.getByLabel('Visibility').selectOption('private');
+  await page.getByLabel('Target Type').selectOption('host');
+  await page.getByLabel('Target Hint').fill('10.0.0.25');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('branch-secret');
+  await page.getByRole('button', { name: 'Save Vault Credential' }).click();
+  await expect.poll(() => page.locator('body').textContent()).toContain('Branch Host Root');
+
+  await page.getByText('Branch Host Root').click();
+  await expect(page.locator('.floating-window .fw-title').last()).toHaveText('Edit Vault Credential');
+  await page.getByLabel('Credential Name').fill('Branch Host Root Rotated');
+  await page.getByLabel('Rotate Secret').fill('branch-secret-2');
+  await page.getByRole('button', { name: 'Save Credential Changes' }).click();
+  await expect.poll(() => page.locator('body').textContent()).toContain('Branch Host Root Rotated');
+  await page.getByRole('button', { name: 'Delete Credential' }).click();
+  await expect.poll(() => page.locator('body').textContent()).not.toContain('Branch Host Root Rotated');
 
   await page.getByText('Authentication Events').click();
   await expect(page.locator('.floating-window .fw-title').last()).toHaveText('Retention Policy');

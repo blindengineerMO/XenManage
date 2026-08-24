@@ -145,10 +145,78 @@ describe('Template Routes', () => {
       goldenImage: true,
       validationStatus: 'validated',
     }));
+
+    const history = await request('GET', '/api/vms/templates/OpaqueRef%3Atemplate1/history', null, auth.cookie);
+    expect(history.status).toBe(200);
+    expect(history.body.data[0]).toEqual(expect.objectContaining({
+      templateRef: 'OpaqueRef:template1',
+      eventType: 'saved',
+    }));
+  });
+
+  it('should promote a validated staged template and return governance history', async () => {
+    const auth = await login();
+
+    await request('PUT', '/api/vms/templates/OpaqueRef%3Atemplate1/governance', {
+      versionLabel: '2026.07-lts',
+      profileLabel: 'Secure Linux',
+      lifecycleStage: 'stable',
+      goldenImage: true,
+      guestCustomization: 'cloud-init baseline',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-10T00:00:00.000Z',
+      owner: 'Platform Ops',
+      notes: 'Current stable baseline.',
+    }, auth.cookie);
+
+    await request('PUT', '/api/vms/templates/OpaqueRef%3Atemplate2/governance', {
+      versionLabel: '2026.08-lts',
+      profileLabel: 'Secure Linux',
+      lifecycleStage: 'staged',
+      goldenImage: true,
+      guestCustomization: 'cloud-init baseline',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-20T00:00:00.000Z',
+      owner: 'Platform Ops',
+      notes: 'Candidate baseline.',
+    }, auth.cookie);
+
+    const promote = await request('POST', '/api/vms/templates/OpaqueRef%3Atemplate2/promote', {
+      baselineTemplateRef: 'OpaqueRef:template1',
+      retireExistingStable: true,
+      promotionNotes: 'Promoted after the Monday, August 24, 2026 validation review.',
+    }, auth.cookie);
+
+    expect(promote.status).toBe(200);
+    expect(promote.body.promoted).toEqual(expect.objectContaining({
+      templateRef: 'OpaqueRef:template2',
+      lifecycleStage: 'stable',
+      goldenImage: true,
+    }));
+    expect(promote.body.deprecated[0]).toEqual(expect.objectContaining({
+      templateRef: 'OpaqueRef:template1',
+      lifecycleStage: 'deprecated',
+      goldenImage: false,
+    }));
+    expect(Array.isArray(promote.body.history)).toBe(true);
+    expect(promote.body.history.some((entry) => entry.eventType === 'promoted')).toBe(true);
   });
 
   it('should create deployment audit records and allow validation updates', async () => {
     const auth = await login();
+
+    await request('PUT', '/api/vms/templates/OpaqueRef%3Atemplate1/governance', {
+      versionLabel: '2026.08-lts',
+      profileLabel: 'Secure Linux',
+      lifecycleStage: 'stable',
+      goldenImage: true,
+      guestCustomization: 'cloud-init baseline',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-19T00:00:00.000Z',
+      owner: 'Platform Ops',
+      notes: 'Approved for production rollout.',
+    }, auth.cookie);
+
     const deploy = await request('POST', '/api/vms/templates/OpaqueRef%3Atemplate1/deploy', {
       nameLabel: 'ubuntu-prod-01',
       hostRef: 'OpaqueRef:host1',

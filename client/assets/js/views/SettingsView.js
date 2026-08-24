@@ -1,7 +1,9 @@
 const SettingsView = {
   components: {
+    DataTable,
     FloatingWindow,
     StatusBadge,
+    CredentialVaultForm,
     'system-config-section-form': SystemConfigSectionForm,
     'retention-policy-form': RetentionPolicyForm,
   },
@@ -9,7 +11,7 @@ const SettingsView = {
     <div class="animate-fade-in">
       <div v-if="loading" class="empty-state">
         <span class="loading-spinner"></span>
-        <p style="margin-top:12px">Loading runtime configuration, retention controls, and cleanup posture...</p>
+        <p style="margin-top:12px">Loading runtime configuration, vault posture, and retention controls...</p>
       </div>
 
       <template v-else>
@@ -19,9 +21,13 @@ const SettingsView = {
               <span class="mdi mdi-tune-variant"></span>
               Settings
             </h2>
-            <p class="section-subtitle">Centralized runtime configuration, session controls, proxy settings, logging posture, and governed data-retention operations.</p>
+            <p class="section-subtitle">Centralized runtime configuration, credential-vault management, proxy posture, logging defaults, and governed data-retention operations.</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" @click="openCredentialEditor()">
+              <span class="mdi mdi-key-plus"></span>
+              New Credential
+            </button>
             <button class="btn" @click="previewRetention()">
               <span class="mdi mdi-magnify-scan"></span>
               Preview Sweep
@@ -30,7 +36,7 @@ const SettingsView = {
               <span class="mdi mdi-broom"></span>
               Run Retention
             </button>
-            <button class="btn btn-primary" @click="loadSettings">
+            <button class="btn btn-primary" @click="loadAll">
               <span class="mdi mdi-refresh"></span>
               Refresh
             </button>
@@ -40,21 +46,21 @@ const SettingsView = {
         <div class="dashboard-hero">
           <div>
             <div class="dash-card-label">Configuration Plane</div>
-            <h3>Live control for session behavior, proxy posture, logging defaults, and retention governance.</h3>
-            <p>The Settings workspace turns the existing key-value infrastructure into a first-class management surface, with explicit runtime guidance, saved policies, and one-click cleanup previews for historical data domains.</p>
+            <h3>Live control for session behavior, vault-backed Xen targets, proxy posture, logging defaults, and retention governance.</h3>
+            <p>The Settings workspace turns runtime settings and the encrypted credential vault into first-class management surfaces, with explicit key guidance, saved secret inventory, and one-click cleanup previews for historical data domains.</p>
           </div>
           <div class="dashboard-hero-rail">
             <button class="btn btn-primary" @click="$router.push('/governance')">
               <span class="mdi mdi-shield-account-outline"></span>
               Governance
             </button>
-            <button class="btn" @click="$router.push('/activity')">
-              <span class="mdi mdi-timeline-clock-outline"></span>
-              Activity
+            <button class="btn" @click="$router.push('/pools')">
+              <span class="mdi mdi-cluster"></span>
+              Pools
             </button>
-            <button class="btn" @click="$router.push('/alerts')">
-              <span class="mdi mdi-bell-alert-outline"></span>
-              Alerts
+            <button class="btn" @click="$router.push('/hosts')">
+              <span class="mdi mdi-server"></span>
+              Hosts
             </button>
           </div>
         </div>
@@ -126,6 +132,100 @@ const SettingsView = {
               submit-label="Save Retention Runtime"
               @submit="saveSection('retention', $event)">
             </system-config-section-form>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-label">Vault Posture</div>
+            <div class="stack-list">
+              <div class="stack-item" v-for="item in vaultGuidance" :key="item.title">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">{{ item.detail }}</div>
+                </div>
+                <span class="badge" :class="item.badgeClass">{{ item.badge }}</span>
+              </div>
+            </div>
+
+            <div class="detail-section" style="margin-top:16px">
+              <div class="detail-section-title">Vault Runtime</div>
+              <div class="property-grid">
+                <span class="text-muted">Key Source</span><span>{{ formatVaultKeySource(vaultStatus.keySource) }}</span>
+                <span class="text-muted">Development Fallback</span><span>{{ vaultStatus.usingDevelopmentFallback ? 'Enabled' : 'Disabled' }}</span>
+                <span class="text-muted">Previous Key Loaded</span><span>{{ vaultStatus.hasPreviousMasterKey ? 'Yes' : 'No' }}</span>
+                <span class="text-muted">Credential Count</span><span>{{ credentials.length }}</span>
+                <span class="text-muted">Vault DB Path</span><span class="mono property-wrap">{{ vaultStatus.vaultDatabasePath || '-' }}</span>
+                <span class="text-muted">Timezone</span><span>{{ config.general.timezone || '-' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <div class="dash-card">
+            <div class="dash-card-label">Saved Credentials</div>
+            <div class="inventory-toolbar" style="margin-bottom:12px">
+              <div class="text-muted" style="line-height:1.6">
+                Create encrypted pool and host credentials once, then link them from the Pools and Hosts workspaces without returning secrets to the browser.
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-sm" @click="loadCredentials" :disabled="credentialLoading">
+                  <span class="mdi mdi-refresh"></span>
+                  {{ credentialLoading ? 'Refreshing...' : 'Refresh Vault' }}
+                </button>
+                <button class="btn btn-primary btn-sm" @click="openCredentialEditor()">
+                  <span class="mdi mdi-key-plus"></span>
+                  Add Credential
+                </button>
+              </div>
+            </div>
+
+            <data-table
+              v-if="credentials.length || credentialLoading"
+              :columns="credentialColumns"
+              :data="credentials"
+              :loading="credentialLoading"
+              :searchable="true"
+              row-key="id"
+              @row-click="openCredentialEditor">
+              <template #cell-name="{ row }">
+                <span style="color:var(--text-primary);font-weight:500">{{ row.name }}</span>
+              </template>
+              <template #cell-targetType="{ row }">
+                <span class="badge" :class="row.targetType === 'host' ? 'badge-warning' : 'badge-info'">
+                  {{ row.targetType === 'host' ? 'Host' : 'Pool' }}
+                </span>
+              </template>
+              <template #cell-scope="{ row }">
+                <span class="badge" :class="row.scope === 'shared' ? 'badge-success' : 'badge-info'">
+                  {{ row.scope === 'shared' ? 'Shared' : 'Private' }}
+                </span>
+              </template>
+              <template #cell-targetHint="{ row }">
+                <span class="mono">{{ row.targetHint || '-' }}</span>
+              </template>
+              <template #cell-lastUsedAt="{ row }">
+                <span class="mono">{{ row.lastUsedAt ? formatDateTime(row.lastUsedAt) : 'Never' }}</span>
+              </template>
+              <template #cell-updatedAt="{ row }">
+                <span class="mono">{{ row.updatedAt ? formatDateTime(row.updatedAt) : formatDateTime(row.createdAt) }}</span>
+              </template>
+              <template #cell-actions="{ row }">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end" @click.stop>
+                  <button class="btn btn-sm" @click.stop="openCredentialEditor(row)">
+                    <span class="mdi mdi-pencil-outline"></span>
+                  </button>
+                  <button class="btn btn-sm"
+                          :disabled="credentialDeleteId === row.id"
+                          @click.stop="removeCredential(row)">
+                    <span class="mdi" :class="credentialDeleteId === row.id ? 'mdi-loading mdi-spin' : 'mdi-delete-outline'"></span>
+                  </button>
+                </div>
+              </template>
+            </data-table>
+            <div v-else class="empty-state" style="padding:20px 12px">
+              No saved vault credentials yet. Add one here, then bind it to a pool or host target from the operational workspaces.
+            </div>
+            <div class="form-error" v-if="credentialError" style="margin-top:12px">{{ credentialError }}</div>
           </div>
 
           <div class="dash-card">
@@ -231,6 +331,41 @@ const SettingsView = {
           </div>
         </div>
       </floating-window>
+
+      <floating-window :show="showCredentialEditor"
+                       :title="editingCredentialId ? 'Edit Vault Credential' : 'Add Vault Credential'"
+                       :width="620"
+                       :height="520"
+                       @close="closeCredentialEditor">
+        <div>
+          <div class="detail-section" v-if="editingCredentialId">
+            <div class="detail-section-title">Credential Activity</div>
+            <div class="property-grid">
+              <span class="text-muted">Last Used</span><span>{{ credentialDraft?.lastUsedAt ? formatDateTime(credentialDraft.lastUsedAt) : 'Never' }}</span>
+              <span class="text-muted">Updated</span><span>{{ credentialDraft?.updatedAt ? formatDateTime(credentialDraft.updatedAt) : formatDateTime(credentialDraft?.createdAt) }}</span>
+              <span class="text-muted">Scope</span><span>{{ credentialDraft?.scope === 'shared' ? 'Shared' : 'Private' }}</span>
+              <span class="text-muted">Target Type</span><span>{{ credentialDraft?.targetType === 'host' ? 'Host' : 'Pool' }}</span>
+            </div>
+          </div>
+
+          <credential-vault-form
+            :initial-value="credentialDraft"
+            :saving="credentialSaving"
+            :mode="editingCredentialId ? 'edit' : 'create'"
+            :submit-label="editingCredentialId ? 'Save Credential Changes' : 'Save Vault Credential'"
+            @submit="saveCredential">
+          </credential-vault-form>
+
+          <div class="form-actions" v-if="editingCredentialId" style="margin-top:12px">
+            <button class="btn"
+                    :disabled="credentialDeleteId === editingCredentialId"
+                    @click="removeCredential(credentialDraft)">
+              <span class="mdi" :class="credentialDeleteId === editingCredentialId ? 'mdi-loading mdi-spin' : 'mdi-delete-outline'"></span>
+              {{ credentialDeleteId === editingCredentialId ? 'Removing...' : 'Delete Credential' }}
+            </button>
+          </div>
+        </div>
+      </floating-window>
     </div>
   `,
   data() {
@@ -240,7 +375,11 @@ const SettingsView = {
       policySaving: false,
       previewLoading: false,
       runLoading: false,
+      credentialLoading: false,
+      credentialSaving: false,
+      credentialDeleteId: null,
       pageError: '',
+      credentialError: '',
       config: {
         general: { appName: 'XenMange', timezone: 'UTC' },
         network: { publicBaseUrl: '', trustProxy: false },
@@ -254,6 +393,15 @@ const SettingsView = {
         restartRequiredSettings: [],
         liveAppliedSettings: [],
       },
+      vaultStatus: {
+        hasConfiguredMasterKey: false,
+        usingDevelopmentFallback: false,
+        hasPreviousMasterKey: false,
+        rotationRecommended: false,
+        keySource: '',
+        vaultDatabasePath: '',
+      },
+      credentials: [],
       retentionPolicies: [],
       retentionPreview: {
         generatedAt: '',
@@ -261,6 +409,19 @@ const SettingsView = {
       },
       showPolicyEditor: false,
       selectedPolicy: null,
+      showCredentialEditor: false,
+      editingCredentialId: null,
+      credentialDraft: null,
+      credentialColumns: [
+        { key: 'name', label: 'Name' },
+        { key: 'targetType', label: 'Target' },
+        { key: 'scope', label: 'Scope' },
+        { key: 'username', label: 'Username' },
+        { key: 'targetHint', label: 'Hint' },
+        { key: 'lastUsedAt', label: 'Last Used' },
+        { key: 'updatedAt', label: 'Updated' },
+        { key: 'actions', label: 'Actions' },
+      ],
     };
   },
   computed: {
@@ -312,6 +473,8 @@ const SettingsView = {
       const liveAppliedCount = (this.runtime.liveAppliedSettings || []).length;
       const restartRequiredCount = (this.runtime.restartRequiredSettings || []).length;
       const totalPreview = (this.retentionPreview.results || []).reduce((sum, result) => sum + Number(result.candidateCount || 0), 0);
+      const sharedCredentials = this.credentials.filter((credential) => credential.scope === 'shared').length;
+      const hostCredentials = this.credentials.filter((credential) => credential.targetType === 'host').length;
 
       return [
         {
@@ -327,6 +490,13 @@ const SettingsView = {
           value: `${Math.round(Number(this.config.security.sessionMaxAgeMs || 0) / 60000)}m`,
           icon: 'mdi-timer-sand',
           detail: `${this.config.security.failedLoginMaxAttempts || 0} failed attempts within ${this.config.security.failedLoginWindowMinutes || 0} minutes`,
+        },
+        {
+          key: 'vault',
+          label: 'Vault Inventory',
+          value: `${this.credentials.length}`,
+          icon: 'mdi-key-wireless',
+          detail: `${sharedCredentials} shared · ${hostCredentials} host credential(s)`,
         },
         {
           key: 'retention',
@@ -366,15 +536,50 @@ const SettingsView = {
         },
       ];
     },
+    vaultGuidance() {
+      return [
+        {
+          title: 'Master Key Source',
+          detail: this.vaultStatus.usingDevelopmentFallback
+            ? 'Vault secrets currently rely on a development-only derived key because VAULT_ENCRYPTION_KEY is not configured.'
+            : (this.vaultStatus.hasConfiguredMasterKey
+              ? 'VAULT_ENCRYPTION_KEY is loaded from the environment, so vault secret wrapping is explicitly configured.'
+              : 'No vault master key is configured. Production deployments should fail fast until one is supplied.'),
+          badge: this.vaultStatus.usingDevelopmentFallback ? 'Dev Only' : (this.vaultStatus.hasConfiguredMasterKey ? 'Ready' : 'Missing'),
+          badgeClass: this.vaultStatus.usingDevelopmentFallback ? 'badge-warning' : (this.vaultStatus.hasConfiguredMasterKey ? 'badge-success' : 'badge-error'),
+        },
+        {
+          title: 'Rotation Posture',
+          detail: this.vaultStatus.hasPreviousMasterKey
+            ? 'A previous vault master key is loaded, so legacy wrapped DEKs can still be decrypted during rotation.'
+            : 'No previous vault master key is loaded. Set VAULT_ENCRYPTION_KEY_PREVIOUS during a staged key rotation window.',
+          badge: this.vaultStatus.hasPreviousMasterKey ? 'Rotation Window' : 'Single Key',
+          badgeClass: this.vaultStatus.hasPreviousMasterKey ? 'badge-info' : 'badge-warning',
+        },
+        {
+          title: 'Secret Handling',
+          detail: 'Passwords remain encrypted in vault.db and are only decrypted server-side when opening a live Xen pool or host target.',
+          badge: 'Server Only',
+          badgeClass: 'badge-success',
+        },
+      ];
+    },
   },
   mounted() {
-    this.loadSettings();
+    this.loadAll();
   },
   methods: {
-    async loadSettings() {
+    async loadAll() {
       this.loading = true;
       this.pageError = '';
 
+      try {
+        await Promise.all([this.loadSettings(), this.loadCredentials()]);
+      } finally {
+        this.loading = false;
+      }
+    },
+    async loadSettings() {
       try {
         const response = await api.getSystemConfig();
         this.config = {
@@ -385,11 +590,24 @@ const SettingsView = {
           retention: response.retention || this.config.retention,
         };
         this.runtime = response.runtime || this.runtime;
+        this.vaultStatus = response.vault || this.vaultStatus;
         this.retentionPolicies = Array.isArray(response.retentionPolicies) ? response.retentionPolicies : [];
       } catch (error) {
         this.pageError = error.message || 'Failed to load settings.';
+      }
+    },
+    async loadCredentials() {
+      this.credentialLoading = true;
+      this.credentialError = '';
+
+      try {
+        const response = await api.getCredentials();
+        this.credentials = Array.isArray(response.data) ? response.data : [];
+      } catch (error) {
+        this.credentials = [];
+        this.credentialError = error.message || 'Failed to load vault credentials.';
       } finally {
-        this.loading = false;
+        this.credentialLoading = false;
       }
     },
     async saveSection(section, payload) {
@@ -465,12 +683,79 @@ const SettingsView = {
         this.runLoading = false;
       }
     },
+    openCredentialEditor(credential = null) {
+      this.credentialError = '';
+      this.editingCredentialId = credential?.id || null;
+      this.credentialDraft = credential ? { ...credential } : {
+        name: '',
+        scope: 'private',
+        targetType: 'pool',
+        targetHint: '',
+        username: 'root',
+      };
+      this.showCredentialEditor = true;
+    },
+    closeCredentialEditor() {
+      this.showCredentialEditor = false;
+      this.editingCredentialId = null;
+      this.credentialDraft = null;
+    },
+    async saveCredential(payload) {
+      this.credentialSaving = true;
+      this.credentialError = '';
+
+      try {
+        if (this.editingCredentialId) {
+          const updated = await api.updateCredential(this.editingCredentialId, payload);
+          this.credentials = this.credentials.map((credential) =>
+            credential.id === updated.id ? updated : credential
+          );
+          this.credentialDraft = { ...updated };
+        } else {
+          const created = await api.createCredential(payload);
+          this.credentials = [created, ...this.credentials];
+          this.closeCredentialEditor();
+        }
+
+        await this.loadSettings();
+      } catch (error) {
+        this.credentialError = error.message || 'Failed to save the vault credential.';
+      } finally {
+        this.credentialSaving = false;
+      }
+    },
+    async removeCredential(credential) {
+      const targetId = Number(credential?.id || 0);
+      if (!targetId) return;
+
+      this.credentialDeleteId = targetId;
+      this.credentialError = '';
+
+      try {
+        await api.deleteCredential(targetId);
+        this.credentials = this.credentials.filter((entry) => Number(entry.id) !== targetId);
+        if (Number(this.editingCredentialId) === targetId) {
+          this.closeCredentialEditor();
+        }
+        await this.loadSettings();
+      } catch (error) {
+        this.credentialError = error.message || 'Failed to delete the vault credential.';
+      } finally {
+        this.credentialDeleteId = null;
+      }
+    },
     formatDateTime(value) {
       return formatDateTime(value);
     },
     formatDomainLabel(domain) {
       const policy = this.retentionPolicies.find((entry) => entry.domain === domain);
       return policy?.label || domain;
+    },
+    formatVaultKeySource(value) {
+      if (value === 'environment') return 'Environment Variable';
+      if (value === 'derived-development') return 'Derived Development Key';
+      if (value === 'missing') return 'Missing';
+      return value || '-';
     },
   },
 };

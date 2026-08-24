@@ -110,6 +110,11 @@ describe('System Config Routes', () => {
     expect(res.body.retentionPolicies.map((entry) => entry.domain)).toEqual(
       expect.arrayContaining(['audit-log', 'remediation-tasks', 'auth-events'])
     );
+    expect(res.body.vault).toEqual(expect.objectContaining({
+      usingDevelopmentFallback: true,
+      hasConfiguredMasterKey: false,
+      keySource: 'derived-development',
+    }));
   });
 
   it('should persist settings updates and run retention previews and sweeps', async () => {

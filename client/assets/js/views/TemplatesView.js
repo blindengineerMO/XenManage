@@ -5,6 +5,7 @@ const TemplatesView = {
     StatusBadge,
     'template-deploy-form': TemplateDeployForm,
     'template-governance-form': TemplateGovernanceForm,
+    'template-promotion-form': TemplatePromotionForm,
     'template-deployment-validation-form': TemplateDeploymentValidationForm,
   },
   template: `
@@ -48,6 +49,30 @@ const TemplatesView = {
               </div>
               <span class="badge badge-halted">review</span>
             </div>
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-card-label">Promotion Queue</div>
+          <div class="stack-list" v-if="promotionCandidates.length">
+            <button class="stack-item stack-item-button"
+                    v-for="template in promotionCandidates.slice(0, 6)"
+                    :key="template.ref"
+                    @click="openPromotionReview(template)">
+              <div class="capacity-item-main">
+                <strong>{{ template.name_label || 'Template' }}</strong>
+                <div class="text-muted mono" style="font-size:11px">
+                  {{ template.versionLabel || 'No version' }} · {{ template.profileLabel }} · validated {{ formatDateTime(getTemplateGovernanceRecord(template.ref)?.lastValidatedAt) }}
+                </div>
+                <div class="text-muted mono" style="font-size:11px">
+                  {{ resolvePromotionBaseline(template)?.versionLabel || 'No active stable baseline' }} · {{ templateDeploymentSummary(template.ref) }}
+                </div>
+              </div>
+              <span class="badge badge-info">promote</span>
+            </button>
+          </div>
+          <div v-else class="empty-state" style="padding:18px 12px">
+            No staged-and-validated templates are waiting for promotion right now.
           </div>
         </div>
 
@@ -111,6 +136,12 @@ const TemplatesView = {
               <button class="btn" @click="openGovernance(selectedTemplate)">
                 <span class="mdi mdi-shield-edit-outline"></span>
                 Edit Governance
+              </button>
+              <button class="btn"
+                      :disabled="!canPromoteTemplate(selectedTemplate)"
+                      @click="openPromotionReview(selectedTemplate)">
+                <span class="mdi mdi-arrow-up-bold-circle-outline"></span>
+                Compare & Promote
               </button>
               <button class="btn btn-primary" @click="openDeploy(selectedTemplate)">
                 <span class="mdi mdi-rocket-launch-outline"></span>
@@ -201,6 +232,29 @@ const TemplatesView = {
             </div>
             <div v-else class="empty-state" style="padding:18px 12px">
               No deployment validation records exist for this template yet.
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-section-title">Governance History</div>
+            <div class="stack-list" v-if="selectedTemplateHistory.length">
+              <div class="stack-item" v-for="entry in selectedTemplateHistory.slice(0, 6)" :key="entry.id">
+                <div class="capacity-item-main">
+                  <strong>{{ formatHistoryEvent(entry.eventType) }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">
+                    {{ entry.snapshot.versionLabel || selectedTemplate.name_label || entry.templateRef }} · {{ entry.actor || 'system' }} · {{ formatDateTime(entry.happenedAt) }}
+                  </div>
+                  <div class="text-muted mono" style="font-size:11px">
+                    {{ entry.detail || entry.snapshot.notes || 'No additional governance detail recorded.' }}
+                  </div>
+                </div>
+                <span class="badge" :class="templateStageBadgeClass(entry.snapshot.lifecycleStage)">
+                  {{ entry.snapshot.lifecycleStage }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="empty-state" style="padding:18px 12px">
+              Governance saves and promotions will build a template-specific history trail here.
             </div>
           </div>
         </div>
@@ -352,6 +406,85 @@ const TemplatesView = {
           <div class="form-error" v-if="deploymentValidationError" style="text-align:left">{{ deploymentValidationError }}</div>
         </div>
       </floating-window>
+
+      <floating-window :show="showPromotionReview"
+                       title="Template Promotion Review"
+                       :width="860"
+                       :height="700"
+                       @close="showPromotionReview = false">
+        <div v-if="promotionTemplateRecord">
+          <div class="dashboard-hero" style="margin-bottom:12px;padding:18px">
+            <div>
+              <div class="dash-card-label">Promotion Candidate</div>
+              <h3>{{ promotionTemplateRecord.name_label || 'Template' }}</h3>
+              <p>{{ promotionTemplateRecord.versionLabel || 'No version label' }} · {{ promotionTemplateRecord.profileLabel }} · {{ templateDeploymentSummary(promotionTemplateRecord.ref) }}</p>
+            </div>
+            <div class="dashboard-hero-rail">
+              <span class="badge" :class="templateStageBadgeClass(promotionTemplateRecord.lifecycleStage)">{{ promotionTemplateRecord.lifecycleStage }}</span>
+              <status-badge :status="mapValidationStatus(promotionTemplateRecord.validationStatus)"></status-badge>
+            </div>
+          </div>
+
+          <div class="detail-section" style="margin-top:0">
+            <div class="detail-section-title">Baseline Comparison</div>
+            <div class="property-grid">
+              <span class="text-muted">Current Stable</span><span>{{ currentPromotionBaseline?.name_label || 'None' }}</span>
+              <span class="text-muted">Current Stable Version</span><span class="mono">{{ currentPromotionBaseline?.versionLabel || '-' }}</span>
+              <span class="text-muted">Candidate Version</span><span class="mono">{{ promotionTemplateRecord.versionLabel || '-' }}</span>
+              <span class="text-muted">Candidate Validation</span><status-badge :status="mapValidationStatus(promotionTemplateRecord.validationStatus)"></status-badge>
+              <span class="text-muted">Customization</span><span>{{ promotionTemplateRecord.guestCustomization || '-' }}</span>
+              <span class="text-muted">Owner</span><span>{{ getTemplateGovernanceRecord(promotionTemplateRecord.ref)?.owner || '-' }}</span>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-section-title">Promotion Delta</div>
+            <div class="stack-list">
+              <div class="stack-item" v-for="row in promotionDiffRows" :key="row.label">
+                <div class="capacity-item-main">
+                  <strong>{{ row.label }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">Current stable: {{ row.current || '-' }}</div>
+                  <div class="text-muted mono" style="font-size:11px">Candidate: {{ row.next || '-' }}</div>
+                </div>
+                <span class="badge" :class="row.changed ? 'badge-warning' : 'badge-info'">{{ row.changed ? 'changed' : 'same' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <template-promotion-form
+            :initial-value="promotionDraft"
+            :baseline-label="currentPromotionBaseline ? `${currentPromotionBaseline.name_label || currentPromotionBaseline.ref} · ${currentPromotionBaseline.versionLabel || 'no version'}` : ''"
+            :eligible="canPromoteTemplate(promotionTemplateRecord)"
+            :saving="promotionSaving"
+            submit-label="Promote to Stable"
+            @submit="submitPromotion">
+          </template-promotion-form>
+
+          <div class="detail-section">
+            <div class="detail-section-title">Recent Governance Changes</div>
+            <div class="stack-list" v-if="promotionHistory.length">
+              <div class="stack-item" v-for="entry in promotionHistory.slice(0, 6)" :key="entry.id">
+                <div class="capacity-item-main">
+                  <strong>{{ formatHistoryEvent(entry.eventType) }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">
+                    {{ entry.snapshot.versionLabel || promotionTemplateRecord.versionLabel || promotionTemplateRecord.ref }} · {{ entry.actor || 'system' }} · {{ formatDateTime(entry.happenedAt) }}
+                  </div>
+                  <div class="text-muted mono" style="font-size:11px">{{ entry.detail || entry.snapshot.notes || 'No extra notes recorded.' }}</div>
+                </div>
+                <span class="badge" :class="templateStageBadgeClass(entry.snapshot.lifecycleStage)">{{ entry.snapshot.lifecycleStage }}</span>
+              </div>
+            </div>
+            <div v-else-if="promotionHistoryLoading" class="empty-state" style="padding:18px 12px">
+              Loading template governance history...
+            </div>
+            <div v-else class="empty-state" style="padding:18px 12px">
+              No governance history has been recorded for this template yet.
+            </div>
+          </div>
+
+          <div class="form-error" v-if="promotionError" style="text-align:left">{{ promotionError }}</div>
+        </div>
+      </floating-window>
     </div>
   `,
   data() {
@@ -367,17 +500,28 @@ const TemplatesView = {
       governanceTemplateRecord: null,
       deployTemplateRecord: null,
       selectedDeployment: null,
+      promotionTemplateRecord: null,
       showProps: false,
       showGovernance: false,
       showDeploy: false,
       showDeploymentValidation: false,
+      showPromotionReview: false,
       governanceSaving: false,
       governanceError: null,
       deploySaving: false,
       deployError: null,
       deploymentValidationSaving: false,
       deploymentValidationError: null,
+      promotionSaving: false,
+      promotionError: null,
+      promotionHistoryLoading: false,
       deploymentMessage: '',
+      governanceHistoryByTemplate: {},
+      promotionDraft: {
+        baselineTemplateRef: '',
+        retireExistingStable: true,
+        promotionNotes: '',
+      },
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name' },
@@ -414,6 +558,11 @@ const TemplatesView = {
     recentDeployments() {
       return (this.deployments || []).slice(0, 8);
     },
+    promotionCandidates() {
+      return this.normalizedTemplates
+        .filter((template) => this.canPromoteTemplate(template))
+        .sort((left, right) => new Date(this.getTemplateGovernanceRecord(right.ref)?.lastValidatedAt || 0) - new Date(this.getTemplateGovernanceRecord(left.ref)?.lastValidatedAt || 0));
+    },
     governanceCoverageSummary() {
       const governed = this.templates.filter((template) => Boolean(this.governanceMap[template.ref])).length;
       return `${governed} of ${this.templates.length || 0} templates have persisted governance records`;
@@ -426,6 +575,38 @@ const TemplatesView = {
     selectedTemplateDeployments() {
       if (!this.selectedTemplate) return [];
       return this.deployments.filter((deployment) => deployment.templateRef === this.selectedTemplate.ref);
+    },
+    selectedTemplateHistory() {
+      if (!this.selectedTemplate) return [];
+      return this.governanceHistoryByTemplate[this.selectedTemplate.ref] || [];
+    },
+    currentPromotionBaseline() {
+      if (!this.promotionTemplateRecord) return null;
+      return this.resolvePromotionBaseline(this.promotionTemplateRecord);
+    },
+    promotionHistory() {
+      if (!this.promotionTemplateRecord) return [];
+      return this.governanceHistoryByTemplate[this.promotionTemplateRecord.ref] || [];
+    },
+    promotionDiffRows() {
+      if (!this.promotionTemplateRecord) return [];
+      const baseline = this.currentPromotionBaseline;
+      const candidateRecord = this.getTemplateGovernanceRecord(this.promotionTemplateRecord.ref) || {};
+      const baselineRecord = baseline ? (this.getTemplateGovernanceRecord(baseline.ref) || {}) : {};
+      const rows = [
+        { label: 'Version', current: baselineRecord.versionLabel || '', next: candidateRecord.versionLabel || '' },
+        { label: 'Guest Customization', current: baselineRecord.guestCustomization || '', next: candidateRecord.guestCustomization || '' },
+        { label: 'Validation Status', current: baselineRecord.validationStatus || '', next: candidateRecord.validationStatus || '' },
+        { label: 'Validated At', current: baselineRecord.lastValidatedAt ? formatDateTime(baselineRecord.lastValidatedAt) : '', next: candidateRecord.lastValidatedAt ? formatDateTime(candidateRecord.lastValidatedAt) : '' },
+        { label: 'Catalog Owner', current: baselineRecord.owner || '', next: candidateRecord.owner || '' },
+        { label: 'Notes', current: baselineRecord.notes || '', next: candidateRecord.notes || '' },
+      ];
+      return rows.map((row) => ({
+        ...row,
+        current: row.current || '-',
+        next: row.next || '-',
+        changed: row.current !== row.next,
+      }));
     },
   },
   async mounted() {
@@ -512,9 +693,10 @@ const TemplatesView = {
       if (!record) return fallback || ref || '-';
       return record.name_label || record.hostname || record.bridge || record.address || record.ref || fallback || '-';
     },
-    openProperties(row) {
+    async openProperties(row) {
       this.selectedTemplate = row;
       this.showProps = true;
+      await this.loadTemplateHistory(row.ref);
     },
     findTemplateByFocus(focus) {
       return this.normalizedTemplates.find((template) =>
@@ -532,10 +714,71 @@ const TemplatesView = {
       this.deploymentMessage = '';
       this.showDeploy = true;
     },
+    async openPromotionReview(template) {
+      this.promotionTemplateRecord = template;
+      this.promotionError = null;
+      const baseline = this.resolvePromotionBaseline(template);
+      this.promotionDraft = {
+        baselineTemplateRef: baseline?.ref || '',
+        retireExistingStable: Boolean(baseline),
+        promotionNotes: '',
+      };
+      this.showPromotionReview = true;
+      await this.loadTemplateHistory(template.ref, true);
+    },
     openDeploymentValidation(record) {
       this.selectedDeployment = record;
       this.deploymentValidationError = null;
       this.showDeploymentValidation = true;
+    },
+    canPromoteTemplate(template) {
+      if (!template) return false;
+      const governance = this.getTemplateGovernanceRecord(template.ref);
+      return governance?.lifecycleStage === 'staged' && governance?.validationStatus === 'validated';
+    },
+    resolvePromotionBaseline(template) {
+      if (!template) return null;
+      const governance = this.getTemplateGovernanceRecord(template.ref);
+      const profileLabel = String(governance?.profileLabel || '').trim().toLowerCase();
+      const candidates = this.normalizedTemplates
+        .filter((entry) => entry.ref !== template.ref)
+        .filter((entry) => {
+          const entryGovernance = this.getTemplateGovernanceRecord(entry.ref);
+          return entryGovernance?.lifecycleStage === 'stable'
+            && profileLabel
+            && String(entryGovernance.profileLabel || '').trim().toLowerCase() === profileLabel;
+        })
+        .sort((left, right) => new Date(this.getTemplateGovernanceRecord(right.ref)?.updatedAt || 0) - new Date(this.getTemplateGovernanceRecord(left.ref)?.updatedAt || 0));
+      return candidates[0] || null;
+    },
+    templateDeploymentSummary(templateRef) {
+      const deployments = this.deployments.filter((deployment) => deployment.templateRef === templateRef);
+      const validated = deployments.filter((deployment) => deployment.validationStatus === 'validated').length;
+      return `${deployments.length} deployment(s) · ${validated} validated`;
+    },
+    formatHistoryEvent(eventType) {
+      if (eventType === 'promoted') return 'Promoted to Stable';
+      if (eventType === 'retired') return 'Retired Stable Baseline';
+      return 'Governance Saved';
+    },
+    async loadTemplateHistory(templateRef, force = false) {
+      if (!templateRef) return;
+      if (!force && this.governanceHistoryByTemplate[templateRef]) return;
+      this.promotionHistoryLoading = true;
+      try {
+        const response = await api.getTemplateGovernanceHistory(templateRef);
+        this.governanceHistoryByTemplate = {
+          ...this.governanceHistoryByTemplate,
+          [templateRef]: response.data || [],
+        };
+      } catch (_error) {
+        this.governanceHistoryByTemplate = {
+          ...this.governanceHistoryByTemplate,
+          [templateRef]: [],
+        };
+      } finally {
+        this.promotionHistoryLoading = false;
+      }
     },
     async loadAll() {
       this.loading = true;
@@ -592,6 +835,7 @@ const TemplatesView = {
         if (this.selectedTemplate?.ref === record.templateRef) {
           this.selectedTemplate = { ...this.selectedTemplate };
         }
+        await this.loadTemplateHistory(record.templateRef, true);
         this.showGovernance = false;
       } catch (error) {
         this.governanceError = error.message || 'Unable to save template governance';
@@ -637,6 +881,32 @@ const TemplatesView = {
         this.deploymentValidationError = error.message || 'Unable to save deployment validation';
       } finally {
         this.deploymentValidationSaving = false;
+      }
+    },
+    async submitPromotion(payload) {
+      if (!this.promotionTemplateRecord) return;
+
+      this.promotionSaving = true;
+      this.promotionError = null;
+      try {
+        const result = await api.promoteTemplateGovernance(this.promotionTemplateRecord.ref, payload);
+        const nextMap = {
+          [result.promoted.templateRef]: result.promoted,
+          ...Object.fromEntries((result.deprecated || []).map((entry) => [entry.templateRef, entry])),
+        };
+        this.governanceRecords = this.governanceRecords
+          .filter((entry) => !nextMap[entry.templateRef])
+          .concat(Object.values(nextMap));
+        this.governanceHistoryByTemplate = {
+          ...this.governanceHistoryByTemplate,
+          [this.promotionTemplateRecord.ref]: result.history || [],
+        };
+        await this.loadAll();
+        this.showPromotionReview = false;
+      } catch (error) {
+        this.promotionError = error.message || 'Unable to promote template';
+      } finally {
+        this.promotionSaving = false;
       }
     },
   },

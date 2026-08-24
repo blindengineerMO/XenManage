@@ -2,8 +2,34 @@ const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const governanceService = require('../services/governance');
 const auditLogService = require('../services/audit-log');
+const { userModel } = require('../models/security-db');
 
 const router = express.Router();
+
+function currentOperator(req) {
+  return req.session?.appUsername || req.session?.xenUser || 'system';
+}
+
+function getSessionAccount(req) {
+  if (!req.session?.userId) return null;
+  return userModel.getById(req.session.userId);
+}
+
+function requireAdminSession(req, res, next) {
+  const account = getSessionAccount(req);
+  const sessionRole = governanceService.getSessionRole(req.session);
+
+  if (account && account.active && account.role !== 'admin') {
+    return res.status(403).json({ error: 'ADMIN_ROLE_REQUIRED' });
+  }
+
+  if (sessionRole !== 'admin') {
+    return res.status(403).json({ error: 'ADMIN_ROLE_REQUIRED' });
+  }
+
+  req.localAccount = account;
+  next();
+}
 
 function mapPools(records = {}) {
   return Object.entries(records).map(([ref, record]) => ({ ref, ...record }));
@@ -92,6 +118,7 @@ router.get('/', async (req, res) => {
     const policy = governanceService.getPolicy();
     const currentRole = governanceService.getSessionRole(req.session);
     const quotaRows = buildQuotaRows(pools, hosts, vms, quotas);
+    const userSummary = userModel.getSummary();
 
     res.json({
       generatedAt: new Date().toISOString(),
@@ -100,6 +127,7 @@ router.get('/', async (req, res) => {
       quotas,
       approvals,
       quotaRows,
+      userSummary,
       summary: {
         pendingApprovalCount: approvals.filter((entry) => entry.status === 'pending').length,
         approvedApprovalCount: approvals.filter((entry) => entry.status === 'approved').length,
@@ -112,7 +140,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/policy', validate(schemas.governancePolicyUpdate), (req, res) => {
+router.put('/policy', requireAdminSession, validate(schemas.governancePolicyUpdate), (req, res) => {
   try {
     const previous = governanceService.getPolicy();
     const policy = governanceService.updatePolicy(req.body);
@@ -123,7 +151,7 @@ router.put('/policy', validate(schemas.governancePolicyUpdate), (req, res) => {
       entityType: 'policy',
       entityRef: 'governance.policy',
       entityName: 'Governance Policy',
-      operator: req.session?.xenUser || 'system',
+      operator: currentOperator(req),
       route: '/governance',
       status: 'success',
       before: previous,
@@ -138,16 +166,23 @@ router.put('/policy', validate(schemas.governancePolicyUpdate), (req, res) => {
 
 router.put('/role', validate(schemas.governanceRoleUpdate), (req, res) => {
   try {
+    const account = getSessionAccount(req);
+    const desiredRole = req.body.role;
+
+    if (account && account.active && !governanceService.hasRole(account.role, desiredRole)) {
+      return res.status(403).json({ error: 'ROLE_ESCALATION_NOT_ALLOWED' });
+    }
+
     const previousRole = governanceService.getSessionRole(req.session);
-    const nextRole = governanceService.setSessionRole(req.session, req.body.role);
+    const nextRole = governanceService.setSessionRole(req.session, desiredRole);
     auditLogService.record({
       category: 'governance',
       action: 'governance_role_switched',
       actionLabel: 'Switched governance role for',
       entityType: 'session',
       entityRef: req.session?.id || 'session',
-      entityName: req.session?.xenUser || 'session',
-      operator: req.session?.xenUser || 'system',
+      entityName: currentOperator(req),
+      operator: currentOperator(req),
       route: '/governance',
       status: 'success',
       before: { role: previousRole },
@@ -160,7 +195,7 @@ router.put('/role', validate(schemas.governanceRoleUpdate), (req, res) => {
   }
 });
 
-router.put('/quotas/:ref', validate(schemas.opaqueRefParam, 'params'), validate(schemas.governanceQuotaUpdate), (req, res) => {
+router.put('/quotas/:ref', requireAdminSession, validate(schemas.opaqueRefParam, 'params'), validate(schemas.governanceQuotaUpdate), (req, res) => {
   try {
     const previous = governanceService.getQuota(req.params.ref);
     const quota = governanceService.upsertQuota(req.params.ref, req.body);
@@ -171,7 +206,7 @@ router.put('/quotas/:ref', validate(schemas.opaqueRefParam, 'params'), validate(
       entityType: 'pool',
       entityRef: req.params.ref,
       entityName: req.params.ref,
-      operator: req.session?.xenUser || 'system',
+      operator: currentOperator(req),
       route: '/governance',
       status: 'success',
       before: previous,
@@ -184,7 +219,7 @@ router.put('/quotas/:ref', validate(schemas.opaqueRefParam, 'params'), validate(
   }
 });
 
-router.delete('/quotas/:ref', validate(schemas.opaqueRefParam, 'params'), (req, res) => {
+router.delete('/quotas/:ref', requireAdminSession, validate(schemas.opaqueRefParam, 'params'), (req, res) => {
   try {
     const previous = governanceService.getQuota(req.params.ref);
     const result = governanceService.removeQuota(req.params.ref);
@@ -195,7 +230,7 @@ router.delete('/quotas/:ref', validate(schemas.opaqueRefParam, 'params'), (req, 
       entityType: 'pool',
       entityRef: req.params.ref,
       entityName: req.params.ref,
-      operator: req.session?.xenUser || 'system',
+      operator: currentOperator(req),
       route: '/governance',
       status: 'success',
       before: previous,
@@ -210,7 +245,7 @@ router.delete('/quotas/:ref', validate(schemas.opaqueRefParam, 'params'), (req, 
 
 router.post('/approvals', validate(schemas.governanceApprovalRequest), (req, res) => {
   try {
-    const approval = governanceService.requestApproval(req.body, req.session?.xenUser || 'system');
+    const approval = governanceService.requestApproval(req.body, currentOperator(req));
     auditLogService.record({
       category: 'governance',
       action: 'governance_approval_requested',
@@ -218,7 +253,7 @@ router.post('/approvals', validate(schemas.governanceApprovalRequest), (req, res
       entityType: req.body.entityType,
       entityRef: req.body.entityRef,
       entityName: req.body.entityName || req.body.entityRef,
-      operator: req.session?.xenUser || 'system',
+      operator: currentOperator(req),
       route: '/governance',
       status: 'pending',
       before: null,
@@ -231,10 +266,10 @@ router.post('/approvals', validate(schemas.governanceApprovalRequest), (req, res
   }
 });
 
-router.post('/approvals/:id/decision', validate(schemas.governanceApprovalDecision), (req, res) => {
+router.post('/approvals/:id/decision', requireAdminSession, validate(schemas.governanceApprovalDecision), (req, res) => {
   try {
     const previous = governanceService.listApprovals().find((record) => record.id === req.params.id) || null;
-    const approval = governanceService.decideApproval(req.params.id, req.body, req.session?.xenUser || 'system');
+    const approval = governanceService.decideApproval(req.params.id, req.body, currentOperator(req));
     if (!approval) {
       return res.status(404).json({ error: 'APPROVAL_NOT_FOUND' });
     }
@@ -245,7 +280,7 @@ router.post('/approvals/:id/decision', validate(schemas.governanceApprovalDecisi
       entityType: approval.entityType,
       entityRef: approval.entityRef,
       entityName: approval.entityName || approval.entityRef,
-      operator: req.session?.xenUser || 'system',
+      operator: currentOperator(req),
       route: '/governance',
       status: req.body.decision === 'rejected' ? 'warning' : 'success',
       before: previous,

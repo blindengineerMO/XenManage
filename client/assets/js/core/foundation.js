@@ -558,6 +558,44 @@ const demoDb = {
       usedAt: '',
     },
   ],
+  users: [
+    {
+      id: 1,
+      username: 'demo',
+      display_name: 'Demo Operator',
+      email: 'demo@xenmange.local',
+      role: 'admin',
+      active: true,
+      created_at: '2026-08-20T08:00:00.000Z',
+      last_login_at: '2026-08-24T08:05:00.000Z',
+      groups: ['Platform Operations'],
+      group_count: 1,
+    },
+    {
+      id: 2,
+      username: 'readonly-analyst',
+      display_name: 'Read Only Analyst',
+      email: 'analyst@xenmange.local',
+      role: 'read-only',
+      active: true,
+      created_at: '2026-08-21T09:00:00.000Z',
+      last_login_at: '2026-08-23T16:15:00.000Z',
+      groups: ['Reporting'],
+      group_count: 1,
+    },
+    {
+      id: 3,
+      username: 'ops-engineer',
+      display_name: 'Operations Engineer',
+      email: 'ops@xenmange.local',
+      role: 'operator',
+      active: true,
+      created_at: '2026-08-22T10:00:00.000Z',
+      last_login_at: '2026-08-24T07:45:00.000Z',
+      groups: ['Platform Operations'],
+      group_count: 1,
+    },
+  ],
   resilienceRunbooks: [
     {
       poolRef: 'OpaqueRef:pool-demo-1',
@@ -681,11 +719,65 @@ const demoDb = {
       lifecycleStage: 'staged',
       goldenImage: true,
       guestCustomization: 'sysprep-core',
-      validationStatus: 'review',
+      validationStatus: 'validated',
       lastValidatedAt: '2026-08-18T00:00:00.000Z',
       owner: 'Windows Platform',
       notes: 'Awaiting final domain-join and monitoring agent validation before promotion.',
       updatedAt: '2026-08-19T14:20:00.000Z',
+    },
+  ],
+  templateGovernanceHistory: [
+    {
+      id: 'tmplhist-demo-1',
+      templateRef: 'OpaqueRef:template-demo-1',
+      templateName: 'ubuntu-24-golden',
+      eventType: 'saved',
+      actor: 'demo',
+      happenedAt: '2026-08-19T15:10:00.000Z',
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: '2026.08-lts governance saved after production baseline review.',
+      snapshot: {
+        templateRef: 'OpaqueRef:template-demo-1',
+        versionLabel: '2026.08-lts',
+        profileLabel: 'Secure Linux',
+        lifecycleStage: 'stable',
+        goldenImage: true,
+        guestCustomization: 'cloud-init baseline',
+        validationStatus: 'validated',
+        lastValidatedAt: '2026-08-19T00:00:00.000Z',
+        owner: 'Platform Ops',
+        notes: 'Validated against the August Linux baseline and approved for production service rollout.',
+        updatedAt: '2026-08-19T15:10:00.000Z',
+      },
+    },
+    {
+      id: 'tmplhist-demo-2',
+      templateRef: 'OpaqueRef:template-demo-2',
+      templateName: 'windows-2025-core',
+      eventType: 'saved',
+      actor: 'demo',
+      happenedAt: '2026-08-19T14:20:00.000Z',
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: '2026.08-hardened governance saved pending promotion review.',
+      snapshot: {
+        templateRef: 'OpaqueRef:template-demo-2',
+        versionLabel: '2026.08-hardened',
+        profileLabel: 'Secure Windows',
+        lifecycleStage: 'staged',
+        goldenImage: true,
+        guestCustomization: 'sysprep-core',
+        validationStatus: 'validated',
+        lastValidatedAt: '2026-08-18T00:00:00.000Z',
+        owner: 'Windows Platform',
+        notes: 'Awaiting final domain-join and monitoring agent validation before promotion.',
+        updatedAt: '2026-08-19T14:20:00.000Z',
+      },
     },
   ],
   templateDeployments: [
@@ -1026,6 +1118,18 @@ function getDemoGovernanceState() {
 
 function listDemoGovernanceApprovals() {
   return clone([...demoDb.governanceApprovals].sort((left, right) => new Date(right.requestedAt || 0) - new Date(left.requestedAt || 0)));
+}
+
+function listDemoUsers() {
+  return clone([...demoDb.users].sort((left, right) => String(left.username || '').localeCompare(String(right.username || ''))));
+}
+
+function getDemoUserSummary() {
+  return {
+    totalUsers: demoDb.users.length,
+    activeUsers: demoDb.users.filter((user) => user.active !== false).length,
+    activeAdmins: demoDb.users.filter((user) => user.active !== false && user.role === 'admin').length,
+  };
 }
 
 function buildDemoQuotaRows() {
@@ -2165,6 +2269,7 @@ function demoRequest(method, url, body) {
       quotas: clone(demoDb.governanceQuotas),
       approvals,
       quotaRows,
+      userSummary: getDemoUserSummary(),
       summary: {
         pendingApprovalCount: approvals.filter((entry) => entry.status === 'pending').length,
         approvedApprovalCount: approvals.filter((entry) => entry.status === 'approved').length,
@@ -2199,9 +2304,17 @@ function demoRequest(method, url, body) {
 
   if (method === 'PUT' && path === '/api/governance/role') {
     const previousRole = store.governance?.currentRole || demoDb.governancePolicy.defaultRole || 'admin';
+    const desiredRole = body.role || previousRole;
+    const currentUserRole = store.user?.role || 'admin';
+    const roleOrder = { 'read-only': 0, operator: 1, admin: 2 };
+    if ((roleOrder[desiredRole] ?? 0) > (roleOrder[currentUserRole] ?? 0)) {
+      const error = new Error('ROLE_ESCALATION_NOT_ALLOWED');
+      error.code = 'ROLE_ESCALATION_NOT_ALLOWED';
+      throw error;
+    }
     store.governance = {
       ...store.governance,
-      currentRole: body.role || previousRole,
+      currentRole: desiredRole,
       policy: clone(demoDb.governancePolicy),
     };
     recordDemoAudit({
@@ -2217,6 +2330,136 @@ function demoRequest(method, url, body) {
       detail: `Session role changed from ${previousRole} to ${store.governance.currentRole}.`,
     });
     return { role: store.governance.currentRole };
+  }
+
+  if (method === 'GET' && path === '/api/users') {
+    const data = listDemoUsers();
+    return {
+      total: data.length,
+      data,
+      summary: getDemoUserSummary(),
+    };
+  }
+
+  if (method === 'POST' && path === '/api/users') {
+    const duplicate = demoDb.users.find((entry) => String(entry.username || '').toLowerCase() === String(body.username || '').toLowerCase());
+    if (duplicate) {
+      const error = new Error('USERNAME_ALREADY_EXISTS');
+      error.code = 'USERNAME_ALREADY_EXISTS';
+      throw error;
+    }
+    const record = {
+      id: nextDemoId(demoDb.users),
+      username: body.username || '',
+      display_name: body.displayName || '',
+      email: body.email || '',
+      role: body.role || 'operator',
+      active: body.active !== false,
+      created_at: new Date().toISOString(),
+      last_login_at: '',
+      groups: [],
+      group_count: 0,
+    };
+    demoDb.users.push(record);
+    recordDemoAudit({
+      category: 'governance',
+      action: 'user_created',
+      actionLabel: 'Created local user',
+      entityType: 'user',
+      entityRef: String(record.id),
+      entityName: record.username,
+      route: '/governance',
+      before: null,
+      after: record,
+      detail: `Created local ${record.role} account ${record.username}${record.active ? '' : ' in a disabled state'}.`,
+    });
+    return clone(record);
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/users/')) {
+    const userId = Number(path.split('/')[3] || 0);
+    const roleOrder = { 'read-only': 0, operator: 1, admin: 2 };
+    const index = demoDb.users.findIndex((entry) => Number(entry.id) === userId);
+    if (index === -1) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    const previous = clone(demoDb.users[index]);
+    const duplicate = demoDb.users.find((entry) =>
+      Number(entry.id) !== userId
+      && String(entry.username || '').toLowerCase() === String(body.username || previous.username || '').toLowerCase()
+    );
+    if (duplicate) {
+      const error = new Error('USERNAME_ALREADY_EXISTS');
+      error.code = 'USERNAME_ALREADY_EXISTS';
+      throw error;
+    }
+    const activeAdminsExcludingCurrent = demoDb.users.filter((entry) =>
+      Number(entry.id) !== userId && entry.active !== false && entry.role === 'admin'
+    ).length;
+    const nextRole = body.role || previous.role || 'operator';
+    const nextActive = body.active !== false;
+    if (previous.role === 'admin' && previous.active !== false && (nextRole !== 'admin' || !nextActive) && !activeAdminsExcludingCurrent) {
+      const error = new Error('LAST_ACTIVE_ADMIN_REQUIRED');
+      error.code = 'LAST_ACTIVE_ADMIN_REQUIRED';
+      throw error;
+    }
+    demoDb.users[index] = {
+      ...demoDb.users[index],
+      username: body.username || previous.username,
+      display_name: body.displayName || '',
+      email: body.email || '',
+      role: nextRole,
+      active: nextActive,
+    };
+    if (String(store.user?.id || '') === String(userId)) {
+      store.user = {
+        ...store.user,
+        username: demoDb.users[index].username,
+        displayName: demoDb.users[index].display_name || demoDb.users[index].username,
+        role: demoDb.users[index].role,
+      };
+      if ((roleOrder[store.governance.currentRole] ?? 0) > (roleOrder[demoDb.users[index].role] ?? 0)) {
+        store.governance.currentRole = demoDb.users[index].role;
+      }
+    }
+    recordDemoAudit({
+      category: 'governance',
+      action: 'user_updated',
+      actionLabel: 'Updated local user',
+      entityType: 'user',
+      entityRef: String(userId),
+      entityName: demoDb.users[index].username,
+      route: '/governance',
+      before: previous,
+      after: demoDb.users[index],
+      detail: `Updated local account ${demoDb.users[index].username} (${demoDb.users[index].role}, ${demoDb.users[index].active ? 'active' : 'disabled'}).`,
+    });
+    return clone(demoDb.users[index]);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/users/') && path.endsWith('/password')) {
+    const userId = Number(path.split('/')[3] || 0);
+    const index = demoDb.users.findIndex((entry) => Number(entry.id) === userId);
+    if (index === -1) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    recordDemoAudit({
+      category: 'governance',
+      action: 'user_password_reset',
+      actionLabel: 'Reset password for',
+      entityType: 'user',
+      entityRef: String(userId),
+      entityName: demoDb.users[index].username,
+      route: '/governance',
+      before: clone(demoDb.users[index]),
+      after: { ...clone(demoDb.users[index]), password: 'rotated' },
+      detail: `Rotated the local password for ${demoDb.users[index].username}.`,
+    });
+    return { success: true, user: clone(demoDb.users[index]) };
   }
 
   if (method === 'PUT' && path.startsWith('/api/governance/quotas/')) {
@@ -2564,6 +2807,20 @@ function demoRequest(method, url, body) {
     } else {
       demoDb.templateGovernance[index] = record;
     }
+    demoDb.templateGovernanceHistory.unshift({
+      id: `tmplhist-${Date.now()}`,
+      templateRef,
+      templateName: demoDb.vms.find((entry) => entry.ref === templateRef)?.name_label || templateRef,
+      eventType: 'saved',
+      actor: store.username || 'demo',
+      happenedAt: record.updatedAt,
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: `${record.versionLabel || templateRef} governance saved from the template library workbench.`,
+      snapshot: clone(record),
+    });
     recordDemoAudit({
       category: 'templates',
       action: 'template_governance_saved',
@@ -2577,6 +2834,94 @@ function demoRequest(method, url, body) {
       detail: `${record.lifecycleStage} stage with ${record.validationStatus} validation status.`,
     });
     return clone(record);
+  }
+
+  if (method === 'GET' && path.startsWith('/api/vms/templates/') && path.endsWith('/history')) {
+    const templateRef = decodeURIComponent(path.split('/')[4] || '');
+    const records = demoDb.templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef);
+    return { total: records.length, data: clone(records) };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/templates/') && path.endsWith('/promote')) {
+    ensureDemoMutationAllowed({ actionKey: 'template_promote', entityType: 'template', entityRef: decodeURIComponent(path.split('/')[4] || '') });
+    const templateRef = decodeURIComponent(path.split('/')[4] || '');
+    const template = demoDb.vms.find((entry) => entry.ref === templateRef);
+    const index = demoDb.templateGovernance.findIndex((entry) => entry.templateRef === templateRef);
+    if (!template || index === -1) throw new Error('TEMPLATE_GOVERNANCE_NOT_FOUND');
+
+    const current = demoDb.templateGovernance[index];
+    if (current.validationStatus !== 'validated') throw new Error('PROMOTION_REQUIRES_VALIDATED_TEMPLATE');
+
+    const previous = clone(current);
+    const profileLabel = String(current.profileLabel || '').trim().toLowerCase();
+    const baseline = demoDb.templateGovernance.find((entry) =>
+      entry.templateRef !== templateRef
+      && entry.lifecycleStage === 'stable'
+      && String(entry.profileLabel || '').trim().toLowerCase() === profileLabel
+    ) || null;
+    const deprecated = [];
+
+    if (baseline && body.retireExistingStable !== false) {
+      baseline.lifecycleStage = 'deprecated';
+      baseline.goldenImage = false;
+      baseline.updatedAt = new Date().toISOString();
+      deprecated.push(clone(baseline));
+      demoDb.templateGovernanceHistory.unshift({
+        id: `tmplhist-${Date.now()}-retire`,
+        templateRef: baseline.templateRef,
+        templateName: demoDb.vms.find((entry) => entry.ref === baseline.templateRef)?.name_label || baseline.templateRef,
+        eventType: 'retired',
+        actor: store.username || 'demo',
+        happenedAt: baseline.updatedAt,
+        baselineTemplateRef: templateRef,
+        baselineTemplateName: template.name_label || templateRef,
+        baselineVersionLabel: current.versionLabel || '',
+        promotionNotes: body.promotionNotes || '',
+        detail: `${current.versionLabel || templateRef} replaced this stable baseline during promotion.`,
+        snapshot: clone(baseline),
+      });
+    }
+
+    Object.assign(current, {
+      lifecycleStage: 'stable',
+      goldenImage: true,
+      updatedAt: new Date().toISOString(),
+      notes: [current.notes, body.promotionNotes || ''].filter(Boolean).join(' '),
+    });
+
+    demoDb.templateGovernanceHistory.unshift({
+      id: `tmplhist-${Date.now()}-promote`,
+      templateRef,
+      templateName: template.name_label || templateRef,
+      eventType: 'promoted',
+      actor: store.username || 'demo',
+      happenedAt: current.updatedAt,
+      baselineTemplateRef: baseline?.templateRef || '',
+      baselineTemplateName: baseline ? (demoDb.vms.find((entry) => entry.ref === baseline.templateRef)?.name_label || baseline.templateRef) : '',
+      baselineVersionLabel: baseline?.versionLabel || '',
+      promotionNotes: body.promotionNotes || '',
+      detail: `${current.versionLabel || templateRef} promoted to stable lifecycle stage.`,
+      snapshot: clone(current),
+    });
+
+    recordDemoAudit({
+      category: 'templates',
+      action: 'template_promoted',
+      actionLabel: 'Promoted template',
+      entityType: 'template',
+      entityRef: templateRef,
+      entityName: template.name_label || templateRef,
+      route: '/templates',
+      before: previous,
+      after: clone(current),
+      detail: `${current.versionLabel || templateRef} promoted to stable${deprecated.length ? ' and retired the previous stable baseline' : ''}.`,
+    });
+
+    return {
+      promoted: clone(current),
+      deprecated: clone(deprecated),
+      history: clone(demoDb.templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef)),
+    };
   }
 
   if (method === 'GET' && path === '/api/vms/templates/deployments') {

@@ -1,5 +1,6 @@
 const config = require('../config');
 const { settingsModel } = require('../models/connection');
+const credentialVaultService = require('./credential-vault');
 
 const SECTION_KEYS = {
   general: {
@@ -95,6 +96,7 @@ const systemConfigService = {
       security: getSection('security'),
       logging: getSection('logging'),
       retention: getSection('retention'),
+      vault: credentialVaultService.getRuntimeStatus(),
       runtime: {
         env: config.env,
         port: config.port,

@@ -99,6 +99,7 @@ router.put('/templates/:ref/governance', validate(schemas.opaqueRefParam, 'param
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'template_governance_save', entityType: 'template', entityRef: req.params.ref })) return;
     const previousRecord = templateGovernanceService.getGovernance(req.params.ref);
+    const templateRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
     const record = templateGovernanceService.upsertGovernance(req.params.ref, req.body);
     auditLogService.record({
       category: 'templates',
@@ -119,6 +120,63 @@ router.put('/templates/:ref/governance', validate(schemas.opaqueRefParam, 'param
     res.status(500).json({ error: err.message });
   }
 });
+
+router.get('/templates/:ref/history', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
+  try {
+    const history = templateGovernanceService.listHistory(req.params.ref);
+    res.json({ total: history.length, data: history });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/templates/:ref/promote',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.templatePromotion),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'template_promote', entityType: 'template', entityRef: req.params.ref })) return;
+      const templateRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
+      const templateNames = Object.fromEntries((await req.xenApi.getVMs()
+        .then((result) => Object.entries(result.records || {}).map(([ref, record]) => [ref, record?.name_label || ref]))
+        .catch(() => [])));
+      const previousRecord = templateGovernanceService.getGovernance(req.params.ref);
+      const result = templateGovernanceService.promoteTemplate(req.params.ref, req.body, {
+        actor: req.session?.appUsername || req.session?.xenUser || 'system',
+        templateNames,
+      });
+
+      auditLogService.record({
+        category: 'templates',
+        action: 'template_promoted',
+        actionLabel: 'Promoted template',
+        entityType: 'template',
+        entityRef: req.params.ref,
+        entityName: templateRecord?.name_label || templateNames[req.params.ref] || req.params.ref,
+        operator: req.session?.appUsername || req.session?.xenUser || 'system',
+        route: '/templates',
+        status: 'success',
+        before: previousRecord,
+        after: result.promoted,
+        detail: `${result.promoted.versionLabel || req.params.ref} promoted to stable${result.deprecated.length ? ` and retired ${result.deprecated.length} previous baseline(s)` : ''}.`,
+      });
+
+      res.json({
+        promoted: result.promoted,
+        deprecated: result.deprecated,
+        history: result.history,
+      });
+    } catch (err) {
+      const code = err.code || err.message;
+      if (code === 'TEMPLATE_GOVERNANCE_NOT_FOUND') {
+        return res.status(404).json({ error: code });
+      }
+      if (code === 'PROMOTION_REQUIRES_VALIDATED_TEMPLATE') {
+        return res.status(409).json({ error: code });
+      }
+      return res.status(500).json({ error: code || 'TEMPLATE_PROMOTION_FAILED' });
+    }
+  });
 
 router.get('/templates/deployments', async (_req, res) => {
   try {
