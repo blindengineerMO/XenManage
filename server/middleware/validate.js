@@ -37,6 +37,40 @@ const resilienceRunbookSeedSchema = Joi.object({
   sourceTemplateName: Joi.string().allow('').max(160).default(''),
 });
 
+const vmMigrationSeedSchema = Joi.object({
+  enabled: Joi.boolean().default(false),
+  mode: Joi.string().valid('same-pool', 'cross-pool').default('same-pool'),
+  hostRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+  destinationTargetKey: Joi.string().allow('').max(200).default(''),
+  transferNetworkRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+  srRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+  vifNetworkMap: Joi.array().items(
+    Joi.object({
+      vifRef: Joi.string().required().pattern(/^OpaqueRef:/),
+      networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    })
+  ).default([]),
+  live: Joi.boolean().default(true),
+  copy: Joi.boolean().default(false),
+  force: Joi.boolean().default(false),
+  compress: Joi.boolean().default(true),
+  setAsHomeServer: Joi.boolean().default(false),
+  notes: Joi.string().allow('').max(800).default(''),
+  sourceTaskRef: Joi.string().allow('').max(160).default(''),
+  sourceTemplateId: Joi.string().allow('').max(160).default(''),
+  sourceTemplateName: Joi.string().allow('').max(160).default(''),
+});
+
+const remediationLaunchModeValues = [
+  'draft',
+  'queue',
+  'lifecycle-plan',
+  'lifecycle-maintenance',
+  'resilience-runbook',
+  'resilience-drill',
+  'vm-migration',
+];
+
 function validate(schema, source = 'body') {
   return (req, res, next) => {
     const { error, value } = schema.validate(req[source], { abortEarly: false, stripUnknown: true });
@@ -60,6 +94,12 @@ const schemas = {
     host: Joi.string().required().min(1).max(255),
     username: Joi.string().required().min(1).max(100),
     password: Joi.string().allow('').max(255).default(''),
+    connectionId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
+    connectionName: Joi.string().allow('').max(120).default(''),
+    port: Joi.number().integer().min(1).max(65535).default(443),
     vaultCredentialId: Joi.alternatives().try(
       Joi.number().integer().min(1),
       Joi.allow(null)
@@ -78,6 +118,10 @@ const schemas = {
   }),
   opaqueRefParam: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
+  }),
+  vmConsoleParams: Joi.object({
+    ref: Joi.string().required().pattern(/^OpaqueRef:/),
+    consoleRef: Joi.string().required().pattern(/^OpaqueRef:/),
   }),
   connectionCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
@@ -177,10 +221,140 @@ const schemas = {
     nameLabel: Joi.string().trim().required().min(1).max(120),
     sizeBytes: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
   }),
+  storageVdiCreate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    sizeBytes: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
+    type: Joi.string().trim().required().min(1).max(40).default('user'),
+  }),
+  storageSrCreate: Joi.object({
+    hostRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    type: Joi.string().valid('nfs', 'lvmoiscsi', 'ext', 'lvm').required(),
+    contentType: Joi.string().valid('user').default('user'),
+    shared: Joi.boolean().default(false),
+    deviceConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .required(),
+    smConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }).custom((value, helpers) => {
+    const requirements = {
+      nfs: ['server', 'serverpath'],
+      lvmoiscsi: ['target', 'targetIQN', 'SCSIid'],
+      ext: ['device'],
+      lvm: ['device'],
+    };
+
+    const requiredKeys = requirements[value.type] || [];
+    const config = value.deviceConfig || {};
+    const missing = requiredKeys.filter((key) => !String(config[key] || '').trim());
+    if (missing.length) {
+      return helpers.message(`deviceConfig.${missing[0]} is required for ${value.type} storage repositories.`);
+    }
+
+    return value;
+  }),
+  storageVdiResizeParams: Joi.object({
+    ref: Joi.string().required().pattern(/^OpaqueRef:/),
+    vdiRef: Joi.string().required().pattern(/^OpaqueRef:/),
+  }),
+  storageVdiResize: Joi.object({
+    sizeBytes: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
+  }),
+  storageMutation: Joi.object({
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
   vmNicCreate: Joi.object({
     networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
     deviceLabel: Joi.string().allow('').max(12).default(''),
     mac: Joi.string().allow('').max(64).default(''),
+  }),
+  vmDuplicateCreate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    mode: Joi.string().valid('clone', 'copy').default('clone'),
+    srRef: Joi.alternatives().conditional('mode', {
+      is: 'copy',
+      then: Joi.string().required().pattern(/^OpaqueRef:/),
+      otherwise: Joi.string().allow('').default(''),
+    }),
+    startAfter: Joi.boolean().default(false),
+  }),
+  vmMigrationCreate: Joi.object({
+    mode: Joi.string().valid('same-pool', 'cross-pool').default('same-pool'),
+    hostRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    destinationTargetKey: Joi.string().allow('').max(200).default(''),
+    transferNetworkRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    srRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    vifNetworkMap: Joi.array().items(
+      Joi.object({
+        vifRef: Joi.string().required().pattern(/^OpaqueRef:/),
+        networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
+      })
+    ).default([]),
+    live: Joi.boolean().default(true),
+    copy: Joi.boolean().default(false),
+    force: Joi.boolean().default(false),
+    compress: Joi.boolean().default(true),
+    setAsHomeServer: Joi.boolean().default(false),
+  }).custom((value, helpers) => {
+    if (value.mode === 'cross-pool') {
+      if (!String(value.destinationTargetKey || '').trim()) {
+        return helpers.error('any.custom', { message: 'destinationTargetKey is required for cross-pool migrations.' });
+      }
+      if (!String(value.transferNetworkRef || '').trim()) {
+        return helpers.error('any.custom', { message: 'transferNetworkRef is required for cross-pool migrations.' });
+      }
+      if (!String(value.srRef || '').trim()) {
+        return helpers.error('any.custom', { message: 'srRef is required for cross-pool migrations.' });
+      }
+      if (value.copy && value.live) {
+        return helpers.error('any.custom', { message: 'copy and live cannot both be enabled for the same cross-pool migration.' });
+      }
+      return value;
+    }
+
+    if (!String(value.hostRef || '').trim()) {
+      return helpers.error('any.custom', { message: 'hostRef is required for same-pool migrations.' });
+    }
+
+    return value;
+  }, 'vm migration mode validation'),
+  vmExportQuery: Joi.object({
+    metadataOnly: Joi.boolean().default(false),
+  }),
+  vmImportQuery: Joi.object({
+    srRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    restore: Joi.boolean().default(false),
+    force: Joi.boolean().default(false),
+    metadataOnly: Joi.boolean().default(false),
+  }),
+  vmSnapshotParams: Joi.object({
+    ref: Joi.string().required().pattern(/^OpaqueRef:/),
+    snapshotRef: Joi.string().required().pattern(/^OpaqueRef:/),
+  }),
+  vmSnapshotCreate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    mode: Joi.string().valid('snapshot', 'checkpoint').default('snapshot'),
+  }),
+  vmSnapshotMutation: Joi.object({
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
+  hostMaintenanceEnter: Joi.object({
+    networkRef: Joi.alternatives().conditional('evacuateRunningVms', {
+      is: true,
+      then: Joi.string().required().pattern(/^OpaqueRef:/),
+      otherwise: Joi.string().allow('').default(''),
+    }),
+    evacuateBatchSize: Joi.number().integer().min(0).max(64).default(0),
+    evacuateRunningVms: Joi.boolean().default(true),
+  }),
+  hostMaintenanceExit: Joi.object({}),
+  hostPowerMutation: Joi.object({
+    approvalId: Joi.string().allow('').max(120).default(''),
   }),
   templateDeploy: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
@@ -217,6 +391,10 @@ const schemas = {
     baselineTemplateRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
     retireExistingStable: Joi.boolean().default(true),
     promotionNotes: Joi.string().allow('').max(800).default(''),
+  }),
+  templateHistoryRestoreParams: Joi.object({
+    ref: Joi.string().required().pattern(/^OpaqueRef:/),
+    id: Joi.string().trim().required().min(1).max(160),
   }),
   lifecyclePlanUpdate: Joi.object({
     baselineStatus: Joi.string().valid('compliant', 'drifted', 'unknown').default('unknown'),
@@ -256,7 +434,7 @@ const schemas = {
   alertPolicyUpdate: Joi.object({
     enabled: Joi.boolean().default(true),
     name: Joi.string().trim().required().min(1).max(120),
-    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'task').default(''),
+    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task').default(''),
     matchTargetRoute: Joi.string().allow('').valid('', '/hosts', '/storage', '/vms', '/pools', '/networking', '/activity', '/inventory', '/capacity', '/resilience', '/lifecycle', '/governance').default(''),
     matchObject: Joi.string().allow('').max(120).default(''),
     matchSeverity: Joi.string().allow('').valid('', 'critical', 'warning', 'info', 'notice').default(''),
@@ -279,15 +457,16 @@ const schemas = {
     alertSummary: Joi.string().trim().required().min(1).max(180),
     targetRoute: Joi.string().allow('').valid('', '/hosts', '/storage', '/vms', '/pools', '/networking', '/activity', '/inventory', '/capacity', '/resilience', '/lifecycle', '/governance').default(''),
     relatedObject: Joi.string().allow('').max(180).default(''),
-    relatedClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'task', 'alert').default(''),
+    relatedClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'alert').default(''),
     workspaceSummary: Joi.string().allow('').max(240).default(''),
     evidenceChecklist: Joi.array().items(Joi.string().trim().min(1).max(200)).max(8).default([]),
     completionCriteria: Joi.array().items(Joi.string().trim().min(1).max(200)).max(8).default([]),
     lifecyclePlanSeed: lifecyclePlanSeedSchema.allow(null).default(null),
     resilienceRunbookSeed: resilienceRunbookSeedSchema.allow(null).default(null),
+    vmMigrationSeed: vmMigrationSeedSchema.allow(null).default(null),
     templateId: Joi.string().allow('').max(120).default(''),
     templateName: Joi.string().allow('').max(120).default(''),
-    templateLaunchMode: Joi.string().valid('draft', 'queue').default('draft'),
+    templateLaunchMode: Joi.string().valid(...remediationLaunchModeValues).default('draft'),
     recurrenceMode: Joi.string().valid('manual', 'once', 'daily', 'weekly', 'cooldown').default('manual'),
     recurrenceScope: Joi.string().valid('alert', 'object', 'class').default('object'),
     cooldownDays: Joi.number().integer().min(0).max(365).default(0),
@@ -305,7 +484,7 @@ const schemas = {
   remediationTaskTemplateUpdate: Joi.object({
     enabled: Joi.boolean().default(true),
     name: Joi.string().trim().required().min(1).max(120),
-    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'task', 'alert').default(''),
+    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'alert').default(''),
     matchTargetRoute: Joi.string().allow('').valid('', '/hosts', '/storage', '/vms', '/pools', '/networking', '/activity', '/inventory', '/capacity', '/resilience', '/lifecycle', '/governance').default(''),
     matchObject: Joi.string().allow('').max(120).default(''),
     matchSeverity: Joi.string().allow('').valid('', 'critical', 'warning', 'info', 'notice').default(''),
@@ -322,7 +501,8 @@ const schemas = {
     completionCriteria: Joi.array().items(Joi.string().trim().min(1).max(200)).max(8).default([]),
     lifecyclePlanSeed: lifecyclePlanSeedSchema.allow(null).default(null),
     resilienceRunbookSeed: resilienceRunbookSeedSchema.allow(null).default(null),
-    launchMode: Joi.string().valid('draft', 'queue').default('draft'),
+    vmMigrationSeed: vmMigrationSeedSchema.allow(null).default(null),
+    launchMode: Joi.string().valid(...remediationLaunchModeValues).default('draft'),
     recurrenceMode: Joi.string().valid('manual', 'once', 'daily', 'weekly', 'cooldown').default('manual'),
     recurrenceScope: Joi.string().valid('alert', 'object', 'class').default('object'),
     cooldownDays: Joi.alternatives().conditional('recurrenceMode', {
@@ -423,7 +603,7 @@ const schemas = {
     memberUserIds: Joi.array().items(Joi.number().integer().min(1)).max(200).default([]),
   }),
   systemConfigSectionParam: Joi.object({
-    section: Joi.string().valid('general', 'network', 'security', 'logging', 'retention').required(),
+    section: Joi.string().valid('general', 'network', 'security', 'logging', 'performance', 'retention').required(),
   }),
   systemConfigGeneralUpdate: Joi.object({
     appName: Joi.string().trim().required().min(1).max(120),
@@ -442,20 +622,25 @@ const schemas = {
     level: Joi.string().valid('trace', 'debug', 'info', 'warn', 'error').default('info'),
     structuredJson: Joi.boolean().default(false),
   }),
+  systemConfigPerformanceUpdate: Joi.object({
+    collectionEnabled: Joi.boolean().default(true),
+    collectionIntervalSeconds: Joi.number().integer().min(30).max(3600).default(60),
+  }),
   systemConfigRetentionUpdate: Joi.object({
     sweepIntervalHours: Joi.number().integer().min(1).max(168).default(24),
     vacuumAfterSweep: Joi.boolean().default(true),
   }),
   retentionDomainParam: Joi.object({
-    domain: Joi.string().valid('audit-log', 'remediation-tasks', 'auth-events').required(),
+    domain: Joi.string().valid('audit-log', 'remediation-tasks', 'auth-events', 'template-deployment-runs', 'metric-samples', 'metric-hourly-rollups').required(),
   }),
   retentionPolicyUpdate: Joi.object({
     retentionDays: Joi.number().integer().min(1).max(3650).required(),
     enabled: Joi.boolean().default(true),
   }),
   retentionRun: Joi.object({
-    domain: Joi.string().allow('').valid('', 'audit-log', 'remediation-tasks', 'auth-events').default(''),
+    domain: Joi.string().allow('').valid('', 'audit-log', 'remediation-tasks', 'auth-events', 'template-deployment-runs', 'metric-samples', 'metric-hourly-rollups').default(''),
     dryRun: Joi.boolean().default(false),
+    approvalId: Joi.string().allow('').max(120).default(''),
   }),
   logsListQuery: Joi.object({
     page: Joi.number().integer().min(1).default(1),
@@ -473,6 +658,12 @@ const schemas = {
   }),
   metricRangeQuery: Joi.object({
     range: Joi.string().valid('1h', '6h', '24h', '7d', '30d').default('24h'),
+  }),
+  metricRrdQuery: Joi.object({
+    start: Joi.number().integer().min(0).optional(),
+    cf: Joi.string().valid('AVERAGE', 'MIN', 'MAX').default('AVERAGE'),
+    interval: Joi.number().integer().min(1).max(86400).default(60),
+    host: Joi.boolean().default(false),
   }),
   inventoryWorkspaceUpdate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),

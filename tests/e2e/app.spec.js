@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-async function stubAuthenticatedRoutes(page) {
+async function stubAuthenticatedRoutes(page, options = {}) {
   const connections = [
     { id: 1, name: 'Production Pool', host: '10.0.0.1', username: 'root', port: 443, is_default: 1 },
   ];
@@ -21,6 +21,19 @@ async function stubAuthenticatedRoutes(page) {
       lastUsedAt: '2026-08-24T09:15:00.000Z',
       lastUsedBy: 1,
     },
+    {
+      id: 2,
+      ownerUserId: 1,
+      scope: 'private',
+      targetType: 'host',
+      targetHint: '10.0.0.25',
+      name: 'Branch Host Root',
+      username: 'root',
+      createdAt: '2026-08-24T09:10:00.000Z',
+      updatedAt: '2026-08-24T09:11:00.000Z',
+      lastUsedAt: '',
+      lastUsedBy: null,
+    },
   ];
   const hostInventory = [
     {
@@ -30,6 +43,7 @@ async function stubAuthenticatedRoutes(page) {
       uuid: 'host-uuid-1',
       pool: 'OpaqueRef:pool1',
       enabled: true,
+      maintenance_mode: false,
       tags: ['prod'],
       PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif2'],
       PBDs: ['OpaqueRef:pbd1'],
@@ -43,6 +57,7 @@ async function stubAuthenticatedRoutes(page) {
       uuid: 'host-uuid-2',
       pool: 'OpaqueRef:pool1',
       enabled: true,
+      maintenance_mode: false,
       tags: ['prod'],
       PIFs: ['OpaqueRef:pif3', 'OpaqueRef:pif4'],
       PBDs: ['OpaqueRef:pbd1'],
@@ -66,7 +81,10 @@ async function stubAuthenticatedRoutes(page) {
       affinity: 'OpaqueRef:host1',
       VBDs: ['OpaqueRef:vbd1'],
       VIFs: ['OpaqueRef:vif1'],
+      consoles: ['OpaqueRef:console1'],
       HVM_boot_policy: 'UEFI',
+      hardware_platform_version: 3,
+      last_boot_CPU_flags: { aes: 'true', avx: 'true', sse4_2: 'true' },
       platform: { secureboot: 'enabled' },
     },
     {
@@ -84,8 +102,29 @@ async function stubAuthenticatedRoutes(page) {
       affinity: 'OpaqueRef:host2',
       VBDs: ['OpaqueRef:vbd2'],
       VIFs: [],
+      consoles: ['OpaqueRef:console2'],
       HVM_boot_policy: 'UEFI',
+      hardware_platform_version: 3,
+      last_boot_CPU_flags: { aes: 'true', avx: 'true' },
       platform: { secureboot: 'enabled' },
+    },
+  ];
+  const consoleInventory = [
+    {
+      ref: 'OpaqueRef:console1',
+      VM: 'OpaqueRef:vm1',
+      protocol: 'rfb',
+      location: '/console?ref=OpaqueRef:vm1',
+      uuid: 'console-uuid-1',
+      other_config: { display: 'main' },
+    },
+    {
+      ref: 'OpaqueRef:console2',
+      VM: 'OpaqueRef:vm2',
+      protocol: 'rfb',
+      location: '/console?ref=OpaqueRef:vm2',
+      uuid: 'console-uuid-2',
+      other_config: { display: 'main' },
     },
   ];
   const templateInventory = [
@@ -195,7 +234,8 @@ async function stubAuthenticatedRoutes(page) {
     },
   ];
   const templateDeployments = [];
-  const storageInventory = [
+  const templateDeploymentRuns = [];
+  const storageInventory = JSON.parse(JSON.stringify(Array.isArray(options.storageInventory) ? options.storageInventory : [
     {
       ref: 'OpaqueRef:sr1',
       name_label: 'Primary SR',
@@ -205,10 +245,10 @@ async function stubAuthenticatedRoutes(page) {
       uuid: 'sr-uuid-1',
       PBDs: ['OpaqueRef:pbd1'],
     },
-  ];
-  const vdiInventory = [
+  ]));
+  const vdiInventory = JSON.parse(JSON.stringify(Array.isArray(options.vdiInventory) ? options.vdiInventory : [
     { ref: 'OpaqueRef:vdi1', SR: 'OpaqueRef:sr1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd1'] },
-  ];
+  ]));
   const networkInventory = [
     {
       ref: 'OpaqueRef:net1',
@@ -249,6 +289,26 @@ async function stubAuthenticatedRoutes(page) {
       timestamp: '2026-08-19T11:40:00.000Z',
       uuid: 'msg-uuid-2',
       obj_uuid: 'host-uuid-1',
+    },
+    {
+      ref: 'OpaqueRef:msg3',
+      name: 'VM interface flapping',
+      cls: 'VIF',
+      body: 'The primary workload interface is reporting intermittent connectivity.',
+      timestamp: '2026-08-19T11:35:00.000Z',
+      uuid: 'msg-uuid-3',
+      obj_uuid: 'vif-uuid-1',
+      object_ref: 'OpaqueRef:vif1',
+    },
+    {
+      ref: 'OpaqueRef:msg4',
+      name: 'Recovery VLAN drift detected',
+      cls: 'VLAN',
+      body: 'The recovery uplink is reporting VLAN tag drift on the standby path.',
+      timestamp: '2026-08-19T11:30:00.000Z',
+      uuid: 'msg-uuid-4',
+      obj_uuid: 'vlan-uuid-1',
+      object_ref: 'OpaqueRef:pif2',
     },
   ];
   const alertStates = {};
@@ -385,6 +445,10 @@ async function stubAuthenticatedRoutes(page) {
       level: 'info',
       structuredJson: false,
     },
+    performance: {
+      collectionEnabled: true,
+      collectionIntervalSeconds: 60,
+    },
     retention: {
       sweepIntervalHours: 24,
       vacuumAfterSweep: true,
@@ -396,12 +460,38 @@ async function stubAuthenticatedRoutes(page) {
       rotationRecommended: false,
       keySource: 'environment',
       vaultDatabasePath: './data/vault.db',
+      totalCredentialCount: 1,
+      staleCredentialCount: 1,
+      rewrapAvailable: true,
+      scanAvailable: true,
+      scanError: '',
     },
     runtime: {
       env: 'test',
       port: 3000,
       restartRequiredSettings: ['server.port', 'security.failedLoginWindowMinutes', 'security.failedLoginMaxAttempts'],
-      liveAppliedSettings: ['net.trustProxy', 'security.sessionMaxAgeMs', 'logging.level', 'logging.structuredJson', 'retention.sweepIntervalHours', 'retention.vacuumAfterSweep'],
+      liveAppliedSettings: ['net.trustProxy', 'security.sessionMaxAgeMs', 'logging.level', 'logging.structuredJson', 'performance.collectionEnabled', 'performance.collectionIntervalSeconds', 'retention.sweepIntervalHours', 'retention.vacuumAfterSweep'],
+      metricsCollector: {
+        enabled: true,
+        intervalSeconds: 60,
+        active: true,
+        inFlight: false,
+        targetCount: 1,
+        runCount: 4,
+        lastRunAt: '2026-08-24T10:10:00.000Z',
+        lastDurationMs: 42,
+        nextRunAt: '2026-08-24T10:11:00.000Z',
+        lastError: '',
+        lastResult: {
+          source: 'scheduler',
+          captured: true,
+          targetCount: 1,
+          capturedTargetCount: 1,
+          sampleCount: 12,
+          results: [],
+          errors: [],
+        },
+      },
     },
   };
   const retentionPolicies = [
@@ -431,6 +521,33 @@ async function stubAuthenticatedRoutes(page) {
       retentionDays: 60,
       lastRunAt: '',
       lastPurgedCount: 0,
+    },
+    {
+      domain: 'template-deployment-runs',
+      label: 'Template Deployment Runs',
+      description: 'Completed template deployment work persisted in xenmange.db for Activity tracking and post-deploy traceability.',
+      enabled: true,
+      retentionDays: 90,
+      lastRunAt: '2026-08-22T18:10:00.000Z',
+      lastPurgedCount: 0,
+    },
+    {
+      domain: 'metric-samples',
+      label: 'Metric Samples',
+      description: 'Raw persisted telemetry snapshots stored in perf.db for capacity and trend views.',
+      enabled: true,
+      retentionDays: 7,
+      lastRunAt: '2026-08-22T18:10:00.000Z',
+      lastPurgedCount: 3,
+    },
+    {
+      domain: 'metric-hourly-rollups',
+      label: 'Metric Hourly Rollups',
+      description: 'Hourly telemetry aggregates stored in perf.db for longer-range capacity and trend history.',
+      enabled: true,
+      retentionDays: 90,
+      lastRunAt: '2026-08-22T18:10:00.000Z',
+      lastPurgedCount: 1,
     },
   ];
   const resilienceRunbooks = [
@@ -526,6 +643,45 @@ async function stubAuthenticatedRoutes(page) {
     },
   ];
   let targetAttached = false;
+  let liveTargets = [];
+  let activeTargetKey = '';
+
+  const setLiveTargets = (targets = []) => {
+    liveTargets = targets.map((target) => ({ ...target }));
+    activeTargetKey = liveTargets.find((target) => target.active)?.targetKey || liveTargets[0]?.targetKey || '';
+    liveTargets = liveTargets.map((target) => ({
+      ...target,
+      active: target.targetKey === activeTargetKey,
+    }));
+    targetAttached = liveTargets.length > 0;
+  };
+
+  const buildAuthStatus = (overrides = {}) => {
+    const activeTarget = liveTargets.find((target) => target.active) || liveTargets[0] || null;
+    return {
+      authenticated: true,
+      connected: liveTargets.length > 0,
+      authMode: overrides.authMode || 'local',
+      host: overrides.host || activeTarget?.connectionName || activeTarget?.host || '',
+      username: overrides.username || 'admin',
+      currentTargetKey: activeTarget?.targetKey || '',
+      connectedTargets: liveTargets.map((target) => ({ ...target })),
+      user: overrides.user === undefined ? {
+        id: 1,
+        username: 'admin',
+        displayName: 'Platform Administrator',
+        role: 'admin',
+      } : overrides.user,
+      governance: {
+        currentRole: governanceCurrentRole,
+        policy: governancePolicy,
+      },
+    };
+  };
+
+  if (Array.isArray(options.liveTargets) && options.liveTargets.length) {
+    setLiveTargets(options.liveTargets);
+  }
 
   const buildChangedFields = (before = null, after = null) => {
     const left = before && typeof before === 'object' ? before : {};
@@ -707,14 +863,21 @@ async function stubAuthenticatedRoutes(page) {
 
   const buildClusterMetricHistory = (range = '24h') => {
     const hostTotals = {
-      'OpaqueRef:host1': { total: 68719476736, free: 12884901888 },
-      'OpaqueRef:host2': { total: 68719476736, free: 25769803776 },
+      'OpaqueRef:host1': { total: 68719476736, free: 12884901888, cpu: 68 },
+      'OpaqueRef:host2': { total: 68719476736, free: 25769803776, cpu: 44 },
     };
     const totalMemory = Object.values(hostTotals).reduce((sum, entry) => sum + entry.total, 0);
     const usedMemory = Object.values(hostTotals).reduce((sum, entry) => sum + (entry.total - entry.free), 0);
+    const averageCpu = Object.values(hostTotals).reduce((sum, entry) => sum + entry.cpu, 0) / Math.max(1, Object.values(hostTotals).length);
+    const hostNetworkRx = Object.values(hostTotals).reduce((sum, entry, index) => sum + (entry.cpu * 6) + (120 * (index + 1)), 0);
+    const hostNetworkTx = Object.values(hostTotals).reduce((sum, entry, index) => sum + (entry.cpu * 4.2) + (90 * (index + 1)), 0);
     const totalStorage = storageInventory.reduce((sum, entry) => sum + Number(entry.physical_size || 0), 0);
     const usedStorage = storageInventory.reduce((sum, entry) => sum + Number(entry.virtual_allocation || 0), 0);
     const vmMemory = vmInventory.reduce((sum, entry) => sum + Number(entry.memory_static_max || 0), 0);
+    const vmNetworkRx = vmInventory.reduce((sum, entry) => sum + Math.max(12, (Number(entry.VCPUs_at_startup || 0) * 34) + 130), 0);
+    const vmNetworkTx = vmInventory.reduce((sum, entry) => sum + Math.max(10, (Number(entry.VCPUs_at_startup || 0) * 24) + 96), 0);
+    const vmDiskRead = vmInventory.reduce((sum, entry) => sum + Math.max(8, (Number(entry.VCPUs_at_startup || 0) * 18) + 52), 0);
+    const vmDiskWrite = vmInventory.reduce((sum, entry) => sum + Math.max(6, (Number(entry.VCPUs_at_startup || 0) * 12) + 34), 0);
 
     return {
       range,
@@ -729,8 +892,36 @@ async function stubAuthenticatedRoutes(page) {
           points: buildTrendPoints((usedStorage / totalStorage) * 100, { range, amplitude: 5, floor: 0, ceiling: 100, seed: 'cluster-storage' }),
         },
         {
+          metricName: 'cluster_cpu_usage_percent',
+          points: buildTrendPoints(averageCpu, { range, amplitude: 7, floor: 0, ceiling: 100, seed: 'cluster-cpu' }),
+        },
+        {
           metricName: 'cluster_vm_memory_actual_bytes',
           points: buildTrendPoints(vmMemory * 0.78, { range, amplitude: vmMemory * 0.05, floor: 0, seed: 'cluster-vm-memory' }),
+        },
+        {
+          metricName: 'cluster_host_network_rx_kib_per_s',
+          points: buildTrendPoints(hostNetworkRx, { range, amplitude: Math.max(16, hostNetworkRx * 0.14), floor: 0, seed: 'cluster-host-network-rx' }),
+        },
+        {
+          metricName: 'cluster_host_network_tx_kib_per_s',
+          points: buildTrendPoints(hostNetworkTx, { range, amplitude: Math.max(14, hostNetworkTx * 0.13), floor: 0, seed: 'cluster-host-network-tx' }),
+        },
+        {
+          metricName: 'cluster_vm_network_rx_kib_per_s',
+          points: buildTrendPoints(vmNetworkRx, { range, amplitude: Math.max(18, vmNetworkRx * 0.16), floor: 0, seed: 'cluster-vm-network-rx' }),
+        },
+        {
+          metricName: 'cluster_vm_network_tx_kib_per_s',
+          points: buildTrendPoints(vmNetworkTx, { range, amplitude: Math.max(16, vmNetworkTx * 0.15), floor: 0, seed: 'cluster-vm-network-tx' }),
+        },
+        {
+          metricName: 'cluster_vm_disk_read_kib_per_s',
+          points: buildTrendPoints(vmDiskRead, { range, amplitude: Math.max(14, vmDiskRead * 0.14), floor: 0, seed: 'cluster-vm-disk-read' }),
+        },
+        {
+          metricName: 'cluster_vm_disk_write_kib_per_s',
+          points: buildTrendPoints(vmDiskWrite, { range, amplitude: Math.max(12, vmDiskWrite * 0.12), floor: 0, seed: 'cluster-vm-disk-write' }),
         },
       ],
     };
@@ -738,11 +929,13 @@ async function stubAuthenticatedRoutes(page) {
 
   const buildHostMetricHistory = (ref, range = '24h') => {
     const metricsByRef = {
-      'OpaqueRef:host1': { total: 68719476736, free: 12884901888 },
-      'OpaqueRef:host2': { total: 68719476736, free: 25769803776 },
+      'OpaqueRef:host1': { total: 68719476736, free: 12884901888, cpu: 68 },
+      'OpaqueRef:host2': { total: 68719476736, free: 25769803776, cpu: 44 },
     };
-    const metrics = metricsByRef[ref] || { total: 0, free: 0 };
+    const metrics = metricsByRef[ref] || { total: 0, free: 0, cpu: 0 };
     const used = Math.max(0, metrics.total - metrics.free);
+    const networkRx = Math.max(24, Math.round((metrics.cpu * 6) + 120));
+    const networkTx = Math.max(18, Math.round((metrics.cpu * 4.2) + 88));
     return {
       entityType: 'host',
       entityRef: ref,
@@ -753,6 +946,9 @@ async function stubAuthenticatedRoutes(page) {
         { metricName: 'memory_free_bytes', points: buildTrendPoints(metrics.free, { range, amplitude: metrics.total * 0.05, floor: 0, ceiling: metrics.total, seed: `${ref}-free` }) },
         { metricName: 'memory_used_bytes', points: buildTrendPoints(used, { range, amplitude: metrics.total * 0.04, floor: 0, ceiling: metrics.total, seed: `${ref}-used` }) },
         { metricName: 'memory_used_percent', points: buildTrendPoints(metrics.total ? (used / metrics.total) * 100 : 0, { range, amplitude: 6, floor: 0, ceiling: 100, seed: `${ref}-used-percent` }) },
+        { metricName: 'cpu_usage_percent', points: buildTrendPoints(metrics.cpu, { range, amplitude: 7, floor: 0, ceiling: 100, seed: `${ref}-cpu` }) },
+        { metricName: 'network_rx_kib_per_s', points: buildTrendPoints(networkRx, { range, amplitude: Math.max(10, networkRx * 0.18), floor: 0, seed: `${ref}-network-rx` }) },
+        { metricName: 'network_tx_kib_per_s', points: buildTrendPoints(networkTx, { range, amplitude: Math.max(8, networkTx * 0.16), floor: 0, seed: `${ref}-network-tx` }) },
       ],
     };
   };
@@ -761,6 +957,11 @@ async function stubAuthenticatedRoutes(page) {
     const vm = vmInventory.find((entry) => entry.ref === ref) || {};
     const configured = Number(vm.memory_static_max || vm.memory_dynamic_max || 0);
     const actual = configured * 0.78;
+    const cpuUsage = Math.max(8, Math.min(94, (Number(vm.VCPUs_at_startup || 0) * 9) + 18));
+    const networkRx = Math.max(12, (Number(vm.VCPUs_at_startup || 0) * 34) + 130);
+    const networkTx = Math.max(10, (Number(vm.VCPUs_at_startup || 0) * 24) + 96);
+    const diskRead = Math.max(8, (Number(vm.VCPUs_at_startup || 0) * 18) + 52);
+    const diskWrite = Math.max(6, (Number(vm.VCPUs_at_startup || 0) * 12) + 34);
     return {
       entityType: 'vm',
       entityRef: ref,
@@ -770,7 +971,12 @@ async function stubAuthenticatedRoutes(page) {
         { metricName: 'memory_actual_bytes', points: buildTrendPoints(actual, { range, amplitude: configured * 0.08, floor: 0, ceiling: configured, seed: `${ref}-actual` }) },
         { metricName: 'memory_static_max_bytes', points: buildTrendPoints(configured, { range, amplitude: 0, seed: `${ref}-static` }) },
         { metricName: 'memory_usage_percent', points: buildTrendPoints(configured ? (actual / configured) * 100 : 0, { range, amplitude: 8, floor: 0, ceiling: 100, seed: `${ref}-usage` }) },
+        { metricName: 'cpu_usage_percent', points: buildTrendPoints(cpuUsage, { range, amplitude: 9, floor: 0, ceiling: 100, seed: `${ref}-cpu` }) },
         { metricName: 'vcpu_count', points: buildTrendPoints(Number(vm.VCPUs_at_startup || 0), { range, amplitude: 0, seed: `${ref}-vcpu` }) },
+        { metricName: 'network_rx_kib_per_s', points: buildTrendPoints(networkRx, { range, amplitude: Math.max(10, networkRx * 0.19), floor: 0, seed: `${ref}-network-rx` }) },
+        { metricName: 'network_tx_kib_per_s', points: buildTrendPoints(networkTx, { range, amplitude: Math.max(8, networkTx * 0.17), floor: 0, seed: `${ref}-network-tx` }) },
+        { metricName: 'disk_read_kib_per_s', points: buildTrendPoints(diskRead, { range, amplitude: Math.max(8, diskRead * 0.15), floor: 0, seed: `${ref}-disk-read` }) },
+        { metricName: 'disk_write_kib_per_s', points: buildTrendPoints(diskWrite, { range, amplitude: Math.max(6, diskWrite * 0.14), floor: 0, seed: `${ref}-disk-write` }) },
       ],
     };
   };
@@ -792,6 +998,63 @@ async function stubAuthenticatedRoutes(page) {
     };
   };
 
+  const buildCapacityBaseline = () => {
+    const generatedAt = '2026-08-24T10:30:00.000Z';
+    const hostMetricsByRef = {
+      'OpaqueRef:host1': { total: 68719476736, free: 12884901888, cpu: 68 },
+      'OpaqueRef:host2': { total: 68719476736, free: 25769803776, cpu: 44 },
+    };
+
+    return {
+      generatedAt,
+      resolution: 'raw',
+      hosts: hostInventory.map((host) => {
+        const metrics = hostMetricsByRef[host.ref] || { total: 0, free: 0, cpu: 0 };
+        const used = Math.max(0, metrics.total - metrics.free);
+        return {
+          entityRef: host.ref,
+          ts: generatedAt,
+          memory_total_bytes: metrics.total,
+          memory_free_bytes: metrics.free,
+          memory_used_bytes: used,
+          memory_used_percent: metrics.total ? (used / metrics.total) * 100 : 0,
+          cpu_usage_percent: metrics.cpu,
+          network_rx_kib_per_s: Math.max(24, Math.round((metrics.cpu * 6) + 120)),
+          network_tx_kib_per_s: Math.max(18, Math.round((metrics.cpu * 4.2) + 88)),
+        };
+      }),
+      vms: vmInventory.map((vm) => {
+        const configured = Number(vm.memory_static_max || vm.memory_dynamic_max || 0);
+        const actual = configured * 0.78;
+        const cpuUsage = Math.max(8, Math.min(94, (Number(vm.VCPUs_at_startup || 0) * 9) + 18));
+        return {
+          entityRef: vm.ref,
+          ts: generatedAt,
+          memory_actual_bytes: actual,
+          memory_static_max_bytes: configured,
+          memory_usage_percent: configured ? (actual / configured) * 100 : 0,
+          cpu_usage_percent: cpuUsage,
+          vcpu_count: Number(vm.VCPUs_at_startup || 0),
+          network_rx_kib_per_s: Math.max(12, (Number(vm.VCPUs_at_startup || 0) * 34) + 130),
+          network_tx_kib_per_s: Math.max(10, (Number(vm.VCPUs_at_startup || 0) * 24) + 96),
+          disk_read_kib_per_s: Math.max(8, (Number(vm.VCPUs_at_startup || 0) * 18) + 52),
+          disk_write_kib_per_s: Math.max(6, (Number(vm.VCPUs_at_startup || 0) * 12) + 34),
+        };
+      }),
+      storage: storageInventory.map((sr) => {
+        const allocation = Number(sr.virtual_allocation || 0);
+        const physical = Number(sr.physical_size || 0);
+        return {
+          entityRef: sr.ref,
+          ts: generatedAt,
+          allocation_bytes: allocation,
+          physical_bytes: physical,
+          utilization_percent: physical ? (allocation / physical) * 100 : 0,
+        };
+      }),
+    };
+  };
+
   const inferSeverity = (message) => {
     const haystack = `${message?.name || ''} ${message?.body || ''} ${message?.cls || ''}`.toLowerCase();
     if (/(critical|fatal|failed|failure|panic|error|offline|down|corrupt|exhausted|unavailable)/.test(haystack)) return 'critical';
@@ -806,7 +1069,7 @@ async function stubAuthenticatedRoutes(page) {
     if (value === 'sr' || value === 'vdi' || value === 'vbd') return '/storage';
     if (value === 'vm') return '/vms';
     if (value === 'pool') return '/pools';
-    if (value === 'network' || value === 'vif' || value === 'pif') return '/networking';
+    if (value === 'network' || value === 'vif' || value === 'pif' || value === 'bond' || value === 'vlan') return '/networking';
     if (value === 'task') return '/activity';
     return '/inventory';
   };
@@ -877,6 +1140,7 @@ async function stubAuthenticatedRoutes(page) {
       summary: message.name || message.body || message.cls || 'Alert',
       baseSeverity,
       effectiveSeverity: mergedState.severityOverride || baseSeverity,
+      object_ref: message.object_ref || '',
       targetRoute,
       targetLabel: getAlertLabel(message.cls),
       acknowledged: Boolean(mergedState.acknowledged),
@@ -1066,6 +1330,7 @@ async function stubAuthenticatedRoutes(page) {
         host: payload.host,
         username: payload.username,
         port: payload.port || 443,
+        vault_credential_id: payload.vaultCredentialId || null,
         mode: payload.mode,
         pool_connection_id: payload.mode === 'pool-member' ? Number(payload.poolConnectionId) : null,
         pool_name: payload.mode === 'pool-member' ? pool?.name || null : null,
@@ -1110,6 +1375,7 @@ async function stubAuthenticatedRoutes(page) {
         host: payload.host,
         username: payload.username,
         port: payload.port || 443,
+        vault_credential_id: payload.vaultCredentialId || null,
         mode: payload.mode,
         pool_connection_id: payload.mode === 'pool-member' ? Number(payload.poolConnectionId) : null,
         pool_name: payload.mode === 'pool-member' ? pool?.name || null : null,
@@ -1167,7 +1433,7 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/auth/login', async (route) => {
-    targetAttached = false;
+    setLiveTargets([]);
     recordAudit({
       category: 'session',
       action: 'app_session_login',
@@ -1185,36 +1451,44 @@ async function stubAuthenticatedRoutes(page) {
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        authenticated: true,
-        connected: false,
-        authMode: 'local',
-        username: 'admin',
-        user: {
-          id: 1,
-          username: 'admin',
-          displayName: 'Platform Administrator',
-          role: 'admin',
-        },
-        governance: {
-          currentRole: governanceCurrentRole,
-          policy: governancePolicy,
-        },
+        ...buildAuthStatus({ authMode: 'local', username: 'admin' }),
       }),
     });
   });
 
   await page.route('**/api/auth/xen-login', async (route) => {
+    const payload = route.request().postDataJSON();
+    const connection = connections.find((entry) => entry.id === Number(payload.connectionId || 0)) || null;
+    const host = payload.host || connection?.host || '10.0.0.1';
+    const username = payload.username || connection?.username || 'root';
+    const port = Number(payload.port || connection?.port || 443) || 443;
+    const targetKey = connection ? `connection:${connection.id}` : `host:${host.toLowerCase()}|user:${username.toLowerCase()}|port:${port}`;
+    const nextTarget = {
+      targetKey,
+      connectionId: connection?.id || null,
+      connectionName: connection?.name || payload.connectionName || host,
+      host,
+      username,
+      port,
+      connectedAt: '2026-08-20T08:15:00.000Z',
+      lastActivatedAt: '2026-08-20T08:15:00.000Z',
+      active: true,
+    };
+    setLiveTargets([
+      ...liveTargets.filter((target) => target.targetKey !== targetKey).map((target) => ({ ...target, active: false })),
+      nextTarget,
+    ]);
     targetAttached = true;
     recordAudit({
       category: 'session',
       action: 'session_login',
       actionLabel: 'Logged into Xen host',
       entityType: 'session',
-      entityRef: '10.0.0.1',
-      entityName: '10.0.0.1',
+      entityRef: nextTarget.targetKey,
+      entityName: nextTarget.connectionName,
       route: '/login',
-      after: { host: '10.0.0.1', username: 'root' },
-      detail: 'Authenticated to 10.0.0.1 as root.',
+      after: { host, username },
+      detail: `Authenticated to ${host} as ${username}.`,
       happenedAt: '2026-08-20T08:15:00.000Z',
     });
     await route.fulfill({
@@ -1222,38 +1496,97 @@ async function stubAuthenticatedRoutes(page) {
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        authenticated: true,
-        connected: true,
-        authMode: 'legacy-xen',
-        host: '10.0.0.1',
-        username: 'root',
-        governance: {
-          currentRole: governanceCurrentRole,
-          policy: governancePolicy,
-        },
+        ...buildAuthStatus({
+          authMode: 'local',
+          host: nextTarget.connectionName,
+          username: 'admin',
+        }),
       }),
     });
   });
 
   await page.route('**/api/auth/logout', async (route) => {
-    targetAttached = false;
+    const previousActiveTarget = liveTargets.find((target) => target.active) || null;
+    setLiveTargets([]);
     recordAudit({
       category: 'session',
       action: 'session_logout',
       actionLabel: 'Logged out of Xen host',
       entityType: 'session',
-      entityRef: '10.0.0.1',
-      entityName: '10.0.0.1',
+      entityRef: previousActiveTarget?.host || '10.0.0.1',
+      entityName: previousActiveTarget?.connectionName || previousActiveTarget?.host || '10.0.0.1',
       route: '/login',
-      before: { host: '10.0.0.1', username: 'root' },
+      before: previousActiveTarget ? { host: previousActiveTarget.host, username: previousActiveTarget.username } : { host: '10.0.0.1', username: 'root' },
       after: { success: true },
-      detail: 'Session for root on 10.0.0.1 was closed.',
+      detail: `Session for ${previousActiveTarget?.username || 'root'} on ${previousActiveTarget?.host || '10.0.0.1'} was closed.`,
       happenedAt: '2026-08-23T10:31:00.000Z',
     });
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ success: true }),
+    });
+  });
+
+  await page.route('**/api/auth/targets*', async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname !== '/api/auth/targets') {
+      await route.fallback();
+      return;
+    }
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(buildAuthStatus()),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+  });
+
+  await page.route('**/api/auth/targets/activate', async (route) => {
+    const payload = route.request().postDataJSON();
+    const target = liveTargets.find((entry) =>
+      (payload.targetKey && entry.targetKey === payload.targetKey)
+      || (payload.connectionId && Number(entry.connectionId || 0) === Number(payload.connectionId || 0))
+    );
+    if (!target) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'XEN_TARGET_NOT_FOUND' }) });
+      return;
+    }
+
+    setLiveTargets(liveTargets.map((entry) => ({
+      ...entry,
+      active: entry.targetKey === target.targetKey,
+      lastActivatedAt: entry.targetKey === target.targetKey ? '2026-08-24T14:45:00.000Z' : entry.lastActivatedAt,
+    })));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildAuthStatus()),
+    });
+  });
+
+  await page.route('**/api/auth/targets/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    const targetKey = decodeURIComponent(route.request().url().split('/api/auth/targets/')[1] || '');
+    const exists = liveTargets.some((entry) => entry.targetKey === targetKey);
+    if (!exists) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'XEN_TARGET_NOT_FOUND' }) });
+      return;
+    }
+
+    setLiveTargets(liveTargets.filter((entry) => entry.targetKey !== targetKey));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildAuthStatus()),
     });
   });
 
@@ -1577,12 +1910,14 @@ async function stubAuthenticatedRoutes(page) {
   });
 
   await page.route('**/api/tasks', async (route) => {
+    const taskData = [...tasks, ...templateDeploymentRuns]
+      .sort((left, right) => new Date(right.finished || right.created || 0) - new Date(left.finished || left.created || 0));
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: tasks.length,
-        data: tasks,
+        total: taskData.length,
+        data: taskData,
       }),
     });
   });
@@ -1648,6 +1983,9 @@ async function stubAuthenticatedRoutes(page) {
       workspace_summary: taskPayload.workspaceSummary || '',
       evidence_checklist: taskPayload.evidenceChecklist || [],
       completion_criteria: taskPayload.completionCriteria || [],
+      lifecycle_plan_seed: taskPayload.lifecyclePlanSeed || null,
+      resilience_runbook_seed: taskPayload.resilienceRunbookSeed || null,
+      vm_migration_seed: taskPayload.vmMigrationSeed || null,
       template_id: taskPayload.templateId || '',
       template_name: taskPayload.templateName || '',
       template_launch_mode: taskPayload.templateLaunchMode || 'draft',
@@ -1719,6 +2057,9 @@ async function stubAuthenticatedRoutes(page) {
           evidenceChecklist: payload.evidenceChecklist || [],
           completionCriteria: payload.completionCriteria || [],
           launchMode: payload.launchMode || 'draft',
+          lifecyclePlanSeed: payload.lifecyclePlanSeed || null,
+          resilienceRunbookSeed: payload.resilienceRunbookSeed || null,
+          vmMigrationSeed: payload.vmMigrationSeed || null,
           recurrenceMode: payload.recurrenceMode || 'manual',
           recurrenceScope: payload.recurrenceScope || 'object',
           cooldownDays: Number(payload.cooldownDays || 0),
@@ -2091,6 +2432,26 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
+  await page.route('**/api/settings/vault/rewrap', async (route) => {
+    systemConfig.vault.staleCredentialCount = 0;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        result: {
+          scanned: credentials.length,
+          rewrapped: 1,
+          alreadyCurrent: Math.max(credentials.length - 1, 0),
+          failed: 0,
+          staleRemaining: 0,
+          rewrapAvailable: true,
+          scanError: '',
+        },
+        vault: systemConfig.vault,
+      }),
+    });
+  });
+
   await page.route('**/api/settings/retention/policies/*', async (route) => {
     const domain = decodeURIComponent(route.request().url().split('/api/settings/retention/policies/')[1] || '');
     const payload = route.request().postDataJSON();
@@ -2123,6 +2484,10 @@ async function stubAuthenticatedRoutes(page) {
 
   await page.route('**/api/settings/*', async (route) => {
     const section = route.request().url().split('/api/settings/')[1] || '';
+    if (section === 'vault/rewrap') {
+      await route.fallback();
+      return;
+    }
     const payload = route.request().postDataJSON();
     if (!systemConfig[section]) {
       await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
@@ -2134,6 +2499,16 @@ async function stubAuthenticatedRoutes(page) {
       ...systemConfig[section],
       ...payload,
     };
+
+    if (section === 'performance') {
+      systemConfig.runtime.metricsCollector = {
+        ...systemConfig.runtime.metricsCollector,
+        enabled: systemConfig.performance.collectionEnabled,
+        intervalSeconds: systemConfig.performance.collectionIntervalSeconds,
+        active: systemConfig.performance.collectionEnabled,
+        nextRunAt: systemConfig.performance.collectionEnabled ? '2026-08-24T10:19:00.000Z' : '',
+      };
+    }
 
     recordAudit({
       category: 'system',
@@ -2920,17 +3295,28 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
-  await page.route('**/api/pools', async (route) => {
+  await page.route('**/api/pools*', async (route) => {
     if (!targetAttached) {
       await fulfillNeedsConnection(route);
       return;
     }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total: 1,
-        data: [
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || activeTargetKey || '';
+    const recoveryPools = [
+      {
+        ref: 'OpaqueRef:pool9',
+        name_label: 'Recovery Pool',
+        uuid: 'pool-uuid-9',
+        master: 'OpaqueRef:host9',
+        slaves: [],
+        tags: ['dr'],
+        default_SR: 'OpaqueRef:sr9',
+        migration_network: 'OpaqueRef:net9',
+      },
+    ];
+    const data = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? recoveryPools
+      : [
           {
             ref: 'OpaqueRef:pool1',
             name_label: 'Production Pool',
@@ -2941,22 +3327,47 @@ async function stubAuthenticatedRoutes(page) {
             default_SR: 'OpaqueRef:sr1',
             migration_network: 'OpaqueRef:net1',
           },
-        ],
-      }),
-    });
-  });
-
-  await page.route('**/api/hosts', async (route) => {
-    if (!targetAttached) {
-      await fulfillNeedsConnection(route);
-      return;
-    }
+        ];
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: hostInventory.length,
-        data: hostInventory,
+        total: data.length,
+        data,
+      }),
+    });
+  });
+
+  await page.route('**/api/hosts*', async (route) => {
+    if (!targetAttached) {
+      await fulfillNeedsConnection(route);
+      return;
+    }
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || activeTargetKey || '';
+    const data = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? [
+          {
+            ref: 'OpaqueRef:host9',
+            name_label: 'gamma-xen',
+            address: '10.0.1.21',
+            uuid: 'host-uuid-9',
+            pool: 'OpaqueRef:pool9',
+            enabled: true,
+            maintenance_mode: false,
+            tags: ['dr'],
+            PIFs: ['OpaqueRef:pif9'],
+            PBDs: ['OpaqueRef:pbd9'],
+            resident_VMs: [],
+          },
+        ]
+      : hostInventory;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: data.length,
+        data,
       }),
     });
   });
@@ -2976,6 +3387,102 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
+  await page.route('**/api/hosts/*/maintenance/enter', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const payload = route.request().postDataJSON();
+    const host = hostInventory.find((entry) => entry.ref === ref);
+
+    if (!host) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    host.enabled = false;
+    host.maintenance_mode = true;
+    host.other_config = {
+      ...(host.other_config || {}),
+      maintenance_mode: 'true',
+      maintenance_network: payload.networkRef || '',
+    };
+
+    if (payload.evacuateRunningVms) {
+      const destination = hostInventory.find((entry) => entry.pool === host.pool && entry.ref !== host.ref);
+      if (destination) {
+        const movedVmRefs = [...(host.resident_VMs || [])];
+        destination.resident_VMs = [...new Set([...(destination.resident_VMs || []), ...movedVmRefs])];
+        host.resident_VMs = [];
+        vmInventory.forEach((vm) => {
+          if (movedVmRefs.includes(vm.ref)) {
+            vm.resident_on = destination.ref;
+            vm.affinity = destination.ref;
+          }
+        });
+      }
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ref,
+        maintenance_mode: true,
+        maintenanceNetworkRef: payload.networkRef || '',
+        ...host,
+      }),
+    });
+  });
+
+  await page.route('**/api/hosts/*/maintenance/exit', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const host = hostInventory.find((entry) => entry.ref === ref);
+
+    if (!host) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    host.enabled = true;
+    host.maintenance_mode = false;
+    host.other_config = {
+      ...(host.other_config || {}),
+      maintenance_mode: 'false',
+    };
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ref,
+        maintenance_mode: false,
+        ...host,
+      }),
+    });
+  });
+
+  await page.route('**/api/hosts/*/reboot', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, ref }),
+    });
+  });
+
+  await page.route('**/api/hosts/*/shutdown', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const host = hostInventory.find((entry) => entry.ref === ref);
+    if (host) host.enabled = false;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, ref }),
+    });
+  });
+
   await page.route('**/api/metrics/cluster*', async (route) => {
     const url = new URL(route.request().url());
     const range = url.searchParams.get('range') || '24h';
@@ -2986,6 +3493,14 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
+  await page.route('**/api/metrics/capacity-baseline', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(buildCapacityBaseline()),
+    });
+  });
+
   await page.route('**/api/metrics/collect', async (route) => {
     await route.fulfill({
       status: 201,
@@ -2993,7 +3508,7 @@ async function stubAuthenticatedRoutes(page) {
       body: JSON.stringify({
         captured: true,
         ts: Date.parse('2026-08-24T10:30:00.000Z'),
-        sampleCount: 19,
+        sampleCount: 33,
         hostCount: hostInventory.length,
         vmCount: vmInventory.length,
         srCount: storageInventory.length,
@@ -3070,6 +3585,72 @@ async function stubAuthenticatedRoutes(page) {
       body: JSON.stringify({
         total: history.length,
         data: history,
+      }),
+    });
+  });
+
+  await page.route('**/api/vms/templates/*/history/*/restore', async (route) => {
+    const url = new URL(route.request().url());
+    const segments = url.pathname.split('/');
+    const templateRef = decodeURIComponent(segments[4] || '');
+    const historyId = decodeURIComponent(segments[6] || '');
+    const template = templateInventory.find((entry) => entry.ref === templateRef);
+    const sourceEntry = templateGovernanceHistory.find((entry) => entry.templateRef === templateRef && entry.id === historyId);
+
+    if (!sourceEntry) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'TEMPLATE_GOVERNANCE_HISTORY_NOT_FOUND' }) });
+      return;
+    }
+
+    const previous = templateGovernance.find((entry) => entry.templateRef === templateRef) || null;
+    const record = {
+      ...(sourceEntry.snapshot || {}),
+      templateRef,
+      updatedAt: '2026-08-20T09:16:30.000Z',
+    };
+    const index = templateGovernance.findIndex((entry) => entry.templateRef === templateRef);
+    if (index === -1) {
+      templateGovernance.push(record);
+    } else {
+      templateGovernance[index] = record;
+    }
+
+    templateGovernanceHistory.unshift({
+      id: `tmplhist-${Date.now()}-restore`,
+      templateRef,
+      templateName: template?.name_label || templateRef,
+      eventType: 'restored',
+      actor: 'root',
+      happenedAt: '2026-08-20T09:16:30.000Z',
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: `Restored governance snapshot from ${sourceEntry.eventType || 'history'} recorded on ${sourceEntry.happenedAt || 'an earlier revision'}.`,
+      snapshot: { ...record },
+    });
+
+    recordAudit({
+      category: 'templates',
+      action: 'template_governance_restored',
+      actionLabel: 'Restored template governance for',
+      entityType: 'template',
+      entityRef: templateRef,
+      entityName: template?.name_label || templateRef,
+      route: '/templates',
+      before: previous,
+      after: record,
+      detail: `Restored governance from ${sourceEntry.eventType || 'history'} snapshot ${sourceEntry.id}.`,
+      happenedAt: '2026-08-20T09:16:30.000Z',
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        record,
+        sourceEntry,
+        history: templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef),
       }),
     });
   });
@@ -3255,6 +3836,39 @@ async function stubAuthenticatedRoutes(page) {
       updatedAt: '2026-08-20T09:20:00.000Z',
     };
     templateDeployments[index] = record;
+    const runIndex = templateDeploymentRuns.findIndex((entry) => entry.vm_ref === record.vmRef);
+    let deploymentRun = null;
+    if (runIndex !== -1) {
+      const status = String(payload.validationStatus || '').toLowerCase();
+      deploymentRun = {
+        ...templateDeploymentRuns[runIndex],
+        status: status === 'validated' ? 'success' : (status === 'failed' ? 'failure' : (status === 'warning' ? 'warning' : 'pending')),
+        progress: status === 'validated' || status === 'failed' ? 1 : (status === 'warning' ? 0.9 : 0.8),
+        finished: status === 'validated' || status === 'failed' ? '2026-08-20T09:20:00.000Z' : '',
+        result: payload.validationNotes
+          || (status === 'validated'
+            ? `${record.vmName} provisioning and post-deploy validation completed successfully.`
+            : (status === 'failed'
+              ? `${record.vmName} was provisioned, but post-deploy validation failed and needs operator follow-through.`
+              : `${record.vmName} was provisioned and is waiting for operator review.`)),
+        validation_status: record.validationStatus,
+        validation_notes: record.validationNotes,
+        guest_customization: record.guestCustomization,
+        boot_verified: Boolean(record.bootVerified),
+        network_verified: Boolean(record.networkVerified),
+        storage_verified: Boolean(record.storageVerified),
+        policy_tagged: Boolean(record.policyTagged),
+        steps: (templateDeploymentRuns[runIndex].steps || []).map((step) =>
+          step.key === 'validation'
+            ? {
+              ...step,
+              status: status === 'validated' ? 'success' : (status === 'failed' ? 'failure' : (status === 'warning' ? 'warning' : 'pending')),
+              detail: record.validationNotes || step.detail,
+            }
+            : step),
+      };
+      templateDeploymentRuns[runIndex] = deploymentRun;
+    }
     recordAudit({
       category: 'templates',
       action: 'template_deployment_validated',
@@ -3271,7 +3885,7 @@ async function stubAuthenticatedRoutes(page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(record),
+      body: JSON.stringify({ ...record, deploymentRun }),
     });
   });
 
@@ -3358,6 +3972,54 @@ async function stubAuthenticatedRoutes(page) {
       updatedAt: '2026-08-20T09:18:00.000Z',
     };
     templateDeployments.unshift(deploymentAudit);
+    const deploymentRun = {
+      ref: `tmplrun-${nextIndex}`,
+      uuid: `template-deployment-${nextIndex}`,
+      name_label: payload.nameLabel,
+      name_description: deploymentAudit.validationNotes,
+      status: deploymentAudit.validationStatus === 'warning' ? 'warning' : 'pending',
+      progress: deploymentAudit.validationStatus === 'warning' ? 0.9 : 0.8,
+      created: '2026-08-20T09:18:00.000Z',
+      finished: '',
+      result: deploymentAudit.validationStatus === 'warning'
+        ? `${payload.nameLabel} was provisioned and is waiting for operator review before it can be treated as a validated baseline deployment.`
+        : `${payload.nameLabel} was provisioned and is waiting for post-deploy validation checks.`,
+      error_info: [],
+      resident_on: payload.hostRef || '',
+      task_kind: 'template_deployment',
+      source: 'template_deployment',
+      template_ref: 'OpaqueRef:template1',
+      template_name: 'ubuntu-golden',
+      template_version: governance?.versionLabel || '',
+      vm_ref: nextVmRef,
+      vm_name: payload.nameLabel,
+      host_ref: payload.hostRef || '',
+      host_label: hostInventory.find((item) => item.ref === payload.hostRef)?.name_label || '',
+      storage_ref: payload.storageRef || '',
+      storage_label: storageInventory.find((item) => item.ref === payload.storageRef)?.name_label || '',
+      network_ref: payload.networkRef || '',
+      network_label: networkInventory.find((item) => item.ref === payload.networkRef)?.name_label || '',
+      submitted_by: 'root',
+      validation_status: deploymentAudit.validationStatus,
+      validation_notes: deploymentAudit.validationNotes,
+      guest_customization: governance?.guestCustomization || '',
+      boot_verified: false,
+      network_verified: false,
+      storage_verified: false,
+      policy_tagged: Array.isArray(payload.tags) && payload.tags.length > 0,
+      target_route: '/vms',
+      related_class: 'vm',
+      related_object: nextVmRef,
+      steps: [
+        { key: 'clone', label: 'Clone Template', status: 'success', detail: `ubuntu-golden was cloned into ${payload.nameLabel}.` },
+        { key: 'config', label: 'Apply VM Configuration', status: 'success', detail: 'Compute, naming, and metadata settings were applied to the deployed VM.' },
+        { key: 'affinity', label: 'Place on Target Host', status: payload.hostRef ? 'success' : 'info', detail: payload.hostRef ? `Initial placement was directed to ${payload.hostRef}.` : 'No explicit host placement was requested for this deployment.' },
+        { key: 'network', label: 'Attach Primary Network', status: payload.networkRef ? 'success' : 'info', detail: payload.networkRef ? `Primary network attachment was requested for ${payload.networkRef}.` : 'No explicit primary network attachment was requested at deploy time.' },
+        { key: 'power', label: 'Initial Power Action', status: payload.startAfter ? 'success' : 'info', detail: payload.startAfter ? 'The deployed VM was started after provisioning completed.' : 'The deployed VM was left halted for operator-led validation.' },
+        { key: 'validation', label: 'Post-Deploy Validation', status: deploymentAudit.validationStatus === 'warning' ? 'warning' : 'pending', detail: deploymentAudit.validationNotes },
+      ],
+    };
+    templateDeploymentRuns.unshift(deploymentRun);
     recordAudit({
       category: 'templates',
       action: 'template_deployed',
@@ -3367,7 +4029,7 @@ async function stubAuthenticatedRoutes(page) {
       entityName: payload.nameLabel,
       route: '/templates',
       before: templateInventory[0],
-      after: { ...record, deploymentAudit },
+      after: { ...record, deploymentAudit, deploymentRun },
       detail: `ubuntu-golden deployed with ${deploymentAudit.validationStatus} validation status.`,
       happenedAt: '2026-08-20T09:18:00.000Z',
     });
@@ -3375,7 +4037,7 @@ async function stubAuthenticatedRoutes(page) {
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({ ...record, deploymentAudit }),
+      body: JSON.stringify({ ...record, deploymentAudit, deploymentRun }),
     });
   });
 
@@ -3390,35 +4052,392 @@ async function stubAuthenticatedRoutes(page) {
     });
   });
 
+  await page.route(/.*\/api\/vms\/[^/]+\/compatibility$/, async (route) => {
+    const ref = decodeURIComponent(route.request().url().split('/api/vms/')[1].split('/compatibility')[0] || '');
+    const vm = vmInventory.find((entry) => entry.ref === ref);
+    const currentHost = hostInventory.find((host) => host.ref === vm?.resident_on || host.ref === vm?.affinity) || null;
+    const currentCpuModel = String(currentHost?.cpu_info?.modelname || '').trim().toLowerCase();
+    const hosts = hostInventory.map((host) => {
+      const sameCpuFamily = currentCpuModel
+        ? String(host?.cpu_info?.modelname || '').trim().toLowerCase() === currentCpuModel
+        : true;
+      const compatible = Boolean(host.enabled) && !host.maintenance_mode && sameCpuFamily;
+      return {
+        ref: host.ref,
+        uuid: host.uuid || '',
+        name_label: host.name_label || host.ref,
+        address: host.address || '',
+        enabled: Boolean(host.enabled),
+        maintenance_mode: Boolean(host.maintenance_mode),
+        currentResident: host.ref === vm?.resident_on,
+        possiblePlacement: compatible || host.ref === vm?.resident_on,
+        compatible: compatible || host.ref === vm?.resident_on,
+        readiness: compatible || host.ref === vm?.resident_on ? 'compatible' : (host.maintenance_mode ? 'maintenance' : 'incompatible'),
+        compatibilityError: compatible || host.ref === vm?.resident_on ? '' : (host.maintenance_mode ? 'HOST_IN_MAINTENANCE' : 'CPU_FAMILY_MISMATCH'),
+        sameCpuFamily,
+        cpuModel: host?.cpu_info?.modelname || '',
+        cpuCount: Number(host?.cpu_info?.cpu_count || 0) || 0,
+        socketCount: Number(host?.cpu_info?.socket_count || 0) || 0,
+      };
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ref,
+        uuid: vm?.uuid || '',
+        name_label: vm?.name_label || ref,
+        power_state: vm?.power_state || '',
+        resident_on: vm?.resident_on || '',
+        affinity: vm?.affinity || '',
+        hardwarePlatformVersion: vm?.hardware_platform_version || 0,
+        lastBootCpuFlags: vm?.last_boot_CPU_flags || {},
+        possibleHostRefs: hosts.filter((host) => host.possiblePlacement).map((host) => host.ref),
+        hosts,
+        maskingApiAvailable: false,
+      }),
+    });
+  });
+
+  await page.route(/.*\/api\/vms\/[^/]+\/consoles$/, async (route) => {
+    const ref = decodeURIComponent(route.request().url().split('/api/vms/')[1].split('/consoles')[0] || '');
+    const consoles = consoleInventory
+      .filter((entry) => entry.VM === ref)
+      .map((entry) => ({
+        ...entry,
+        launchPath: `/api/vms/${encodeURIComponent(ref)}/consoles/${encodeURIComponent(entry.ref)}/launch`,
+      }));
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: consoles.length,
+        data: consoles,
+      }),
+    });
+  });
+
   await page.route('**/api/storage', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    const payload = route.request().postDataJSON();
+    const host = hostInventory.find((entry) => entry.ref === payload.hostRef);
+    if (!host) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'HOST_NOT_FOUND' }) });
+      return;
+    }
+
+    const nextIndex = storageInventory.length + 1;
+    const created = {
+      ref: `OpaqueRef:sr${nextIndex}`,
+      name_label: payload.nameLabel,
+      name_description: payload.nameDescription || '',
+      type: payload.type || 'nfs',
+      content_type: payload.contentType || 'user',
+      shared: Boolean(payload.shared),
+      physical_size: 0,
+      physical_utilisation: 0,
+      virtual_allocation: 0,
+      uuid: `sr-uuid-${nextIndex}`,
+      PBDs: [],
+      VDIs: [],
+      other_config: {},
+      sm_config: { ...(payload.smConfig || {}) },
+      device_config: { ...(payload.deviceConfig || {}) },
+    };
+
+    storageInventory.push(created);
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify(created),
+    });
+  });
+
+  await page.route('**/api/storage/*/rescan', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const target = storageInventory.find((entry) => entry.ref === ref);
+    if (!target) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    target.other_config = {
+      ...(target.other_config || {}),
+      last_rescan_at: '2026-08-26T18:45:00.000Z',
+    };
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(target),
+    });
+  });
+
+  await page.route('**/api/storage/*/repair', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const target = storageInventory.find((entry) => entry.ref === ref);
+    if (!target) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    const repairedPbdRefs = Array.isArray(target.PBDs) ? [...target.PBDs] : [];
+    target.other_config = {
+      ...(target.other_config || {}),
+      last_repair_at: '2026-08-26T19:10:00.000Z',
+    };
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: storageInventory.length,
-        data: storageInventory,
+        ...target,
+        checkedPbdRefs: Array.isArray(target.PBDs) ? [...target.PBDs] : [],
+        repairedPbdRefs,
+        reattachedCount: repairedPbdRefs.length,
       }),
     });
   });
 
-  await page.route('**/api/storage/OpaqueRef%3Asr1/vdis', async (route) => {
+  await page.route('**/api/storage/*/forget', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const index = storageInventory.findIndex((entry) => entry.ref === ref);
+    if (index === -1) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'SR_NOT_FOUND' }) });
+      return;
+    }
+
+    storageInventory.splice(index, 1);
+    for (let pointer = vdiInventory.length - 1; pointer >= 0; pointer -= 1) {
+      if (vdiInventory[pointer]?.SR === ref) {
+        vdiInventory.splice(pointer, 1);
+      }
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, ref }),
+    });
+  });
+
+  await page.route('**/api/storage/*/destroy', async (route) => {
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const index = storageInventory.findIndex((entry) => entry.ref === ref);
+    if (index === -1) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'SR_NOT_FOUND' }) });
+      return;
+    }
+
+    const mappedVdis = vdiInventory.filter((entry) => entry.SR === ref);
+    if (mappedVdis.length) {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'SR_DESTROY_REQUIRES_EMPTY_REPOSITORY',
+          message: `Destroy requires an empty repository. ${mappedVdis.length} VDI${mappedVdis.length === 1 ? '' : 's'} still map to this storage repository.`,
+        }),
+      });
+      return;
+    }
+
+    storageInventory.splice(index, 1);
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, ref }),
+    });
+  });
+
+  await page.route('**/api/storage/*/vdis', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const target = storageInventory.find((entry) => entry.ref === ref);
+    if (!target) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'NOT_FOUND' }) });
+      return;
+    }
+
+    const payload = route.request().postDataJSON();
+    const nextIndex = vdiInventory.length + 1;
+    const created = {
+      ref: `OpaqueRef:vdi${nextIndex}`,
+      SR: ref,
+      name_label: payload.nameLabel,
+      virtual_size: Number(payload.sizeBytes || 0),
+      type: payload.type || 'user',
+      managed: true,
+      VBDs: [],
+    };
+
+    vdiInventory.push(created);
+    target.virtual_allocation = Number(target.virtual_allocation || 0) + Number(payload.sizeBytes || 0);
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify(created),
+    });
+  });
+
+  await page.route('**/api/storage/*/vdis/*/resize', async (route) => {
+    const url = new URL(route.request().url());
+    const srRef = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const vdiRef = decodeURIComponent(url.pathname.split('/')[5] || '');
+    const target = storageInventory.find((entry) => entry.ref === srRef);
+    const vdi = vdiInventory.find((entry) => entry.ref === vdiRef && entry.SR === srRef);
+    if (!target) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'SR_NOT_FOUND' }) });
+      return;
+    }
+    if (!vdi) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'VDI_NOT_FOUND' }) });
+      return;
+    }
+
+    const payload = route.request().postDataJSON();
+    const previousSize = Number(vdi.virtual_size || 0);
+    const nextSize = Number(payload.sizeBytes || previousSize);
+    vdi.virtual_size = nextSize;
+    target.virtual_allocation = Number(target.virtual_allocation || 0) + (nextSize - previousSize);
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(vdi),
+    });
+  });
+
+  await page.route('**/api/storage/*/vdis/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+
+    const url = new URL(route.request().url());
+    const srRef = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const vdiRef = decodeURIComponent(url.pathname.split('/')[5] || '');
+    const target = storageInventory.find((entry) => entry.ref === srRef);
+    const index = vdiInventory.findIndex((entry) => entry.ref === vdiRef && entry.SR === srRef);
+    if (!target) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'SR_NOT_FOUND' }) });
+      return;
+    }
+    if (index === -1) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'VDI_NOT_FOUND' }) });
+      return;
+    }
+    if (Array.isArray(vdiInventory[index].VBDs) && vdiInventory[index].VBDs.length) {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'VDI_DELETE_REQUIRES_DETACHED_DISK',
+          message: `Delete only supports detached VDIs. ${vdiInventory[index].VBDs.length} attachment path${vdiInventory[index].VBDs.length === 1 ? '' : 's'} still map to this disk.`,
+        }),
+      });
+      return;
+    }
+
+    const [removed] = vdiInventory.splice(index, 1);
+    target.virtual_allocation = Math.max(0, Number(target.virtual_allocation || 0) - Number(removed?.virtual_size || 0));
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, vdiRef }),
+    });
+  });
+
+  await page.route('**/api/storage*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/storage' || route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+
+    const targetKey = url.searchParams.get('targetKey') || activeTargetKey || '';
+    const data = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? [
+          {
+            ref: 'OpaqueRef:sr9',
+            name_label: 'Recovery SR',
+            uuid: 'sr-uuid-9',
+            physical_size: 107374182400,
+            virtual_allocation: 32212254720,
+          },
+        ]
+      : storageInventory;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: vdiInventory.length,
-        data: vdiInventory,
+        total: data.length,
+        data,
       }),
     });
   });
 
-  await page.route('**/api/networks', async (route) => {
+  await page.route('**/api/storage/*/vdis', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+
+    const ref = decodeURIComponent(route.request().url().split('/api/storage/')[1].split('/vdis')[0] || '');
+    const data = vdiInventory.filter((entry) => entry.SR === ref);
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: networkInventory.length,
-        data: networkInventory,
+        total: data.length,
+        data,
+      }),
+    });
+  });
+
+  await page.route('**/api/networks*', async (route) => {
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || activeTargetKey || '';
+    const data = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? [
+          {
+            ref: 'OpaqueRef:net9',
+            name_label: 'Recovery VM Network',
+            bridge: 'xenbr9',
+            managed: true,
+            uuid: 'net-uuid-9',
+            VIFs: [],
+            PIFs: ['OpaqueRef:pif9'],
+            other_config: { vlan: '920' },
+          },
+        ]
+      : networkInventory;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: data.length,
+        data,
       }),
     });
   });
@@ -3522,6 +4541,7 @@ async function stubAuthenticatedRoutes(page) {
     templateGovernance,
     templateGovernanceHistory,
     templateDeployments,
+    templateDeploymentRuns,
     auditLog,
     storageInventory,
     vdiInventory,
@@ -3610,6 +4630,39 @@ test('control-plane sign-in can attach a saved pool target from the pools worksp
   await expect(page.locator('.data-table').getByText('Production Pool', { exact: true })).toBeVisible();
 });
 
+test('pools workspace can activate and detach multiple attached live sessions', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+  await page.goto('/');
+
+  await page.getByLabel('Username').fill('admin');
+  await page.getByLabel('Password').fill('admin123!');
+  await page.getByRole('button', { name: 'Sign In to XenMange' }).click();
+
+  await page.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
+  await page.getByLabel('Pool Password').fill('secret');
+  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+
+  await page.getByRole('button', { name: 'Register Pool' }).click();
+  await page.getByLabel('Profile Name').fill('DR Pool');
+  await page.getByLabel('Pool Address').fill('10.0.0.55');
+  await page.getByRole('button', { name: 'Save Pool Target' }).click();
+
+  await page.locator('.stack-item').filter({ hasText: 'DR Pool' }).getByRole('button', { name: 'Connect' }).click();
+  await page.getByLabel('Pool Password').fill('secret');
+  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+
+  const attachedTargetsCard = page.locator('.dash-card').filter({
+    has: page.locator('.dash-card-label', { hasText: 'Attached Live Targets' }),
+  }).first();
+  await expect(attachedTargetsCard).toContainText('Production Pool');
+  await expect(attachedTargetsCard).toContainText('DR Pool');
+
+  const drRow = attachedTargetsCard.locator('.stack-item').filter({ hasText: 'DR Pool' }).first();
+
+  await drRow.getByRole('button', { name: 'Detach' }).click();
+  await expect(attachedTargetsCard.locator('.stack-item').filter({ hasText: 'DR Pool' })).toHaveCount(0);
+});
+
 test('local governance workspace can manage control-plane users and session role posture', async ({ page }) => {
   const fixtures = await stubAuthenticatedRoutes(page);
   await page.goto('/');
@@ -3671,10 +4724,44 @@ test('local governance workspace can manage control-plane users and session role
 
 test('vm operations open a floating window and submit lifecycle actions', async ({ page }) => {
   let shutdownCalled = false;
+  let rebootCalls = 0;
   let configSaved = false;
   let diskAdded = false;
   let nicAdded = false;
-  await stubAuthenticatedRoutes(page);
+  let migrationSubmitted = false;
+  let crossPoolMigrationSubmitted = false;
+  let duplicateCreated = false;
+  let importCompleted = false;
+  let exportCompleted = false;
+  let snapshotCreated = false;
+  let snapshotReverted = false;
+  let snapshotDeleted = false;
+  await stubAuthenticatedRoutes(page, {
+    liveTargets: [
+      {
+        targetKey: 'host:10.0.0.1|user:root|port:443',
+        connectionId: null,
+        connectionName: 'Production Pool',
+        host: '10.0.0.1',
+        username: 'root',
+        port: 443,
+        connectedAt: '2026-08-24T14:10:00.000Z',
+        lastActivatedAt: '2026-08-24T14:10:00.000Z',
+        active: true,
+      },
+      {
+        targetKey: 'host:10.0.1.1|user:root|port:443',
+        connectionId: null,
+        connectionName: 'Recovery Pool',
+        host: '10.0.1.1',
+        username: 'root',
+        port: 443,
+        connectedAt: '2026-08-24T14:11:00.000Z',
+        lastActivatedAt: '2026-08-24T14:11:00.000Z',
+        active: false,
+      },
+    ],
+  });
 
   const vmRecord = {
     ref: 'OpaqueRef:vm1',
@@ -3694,6 +4781,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     HVM_boot_policy: 'UEFI',
     platform: { secureboot: 'enabled' },
   };
+  const vmRecords = [vmRecord];
   const vdis = [
     { ref: 'OpaqueRef:vdi1', SR: 'OpaqueRef:sr1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd1'] },
   ];
@@ -3701,23 +4789,153 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     { ref: 'OpaqueRef:net1', name_label: 'VM Network', bridge: 'xenbr0', managed: true, uuid: 'net-uuid-1', VIFs: ['OpaqueRef:vif1'], PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif3'], other_config: { vlan: '120' } },
     { ref: 'OpaqueRef:net2', name_label: 'Backup Network', bridge: 'xenbr1', managed: true, uuid: 'net-uuid-2', VIFs: [], PIFs: ['OpaqueRef:pif2', 'OpaqueRef:pif4'], other_config: { vlan: '220' } },
   ];
+  const destinationHosts = [
+    { ref: 'OpaqueRef:host9', name_label: 'gamma-xen', address: '10.0.1.21', uuid: 'host-uuid-9', pool: 'OpaqueRef:pool9', enabled: true, maintenance_mode: false },
+  ];
+  const destinationPools = [
+    { ref: 'OpaqueRef:pool9', name_label: 'Recovery Pool', uuid: 'pool-uuid-9', master: 'OpaqueRef:host9', default_SR: 'OpaqueRef:sr9', migration_network: 'OpaqueRef:net9' },
+  ];
+  const destinationStorage = [
+    { ref: 'OpaqueRef:sr9', name_label: 'Recovery SR', uuid: 'sr-uuid-9', physical_size: 107374182400, virtual_allocation: 32212254720 },
+  ];
+  const destinationNetworks = [
+    { ref: 'OpaqueRef:net9', name_label: 'Recovery VM Network', bridge: 'xenbr9', managed: true, uuid: 'net-uuid-9', VIFs: [], PIFs: ['OpaqueRef:pif9'], other_config: { vlan: '920' } },
+  ];
+  const snapshots = [
+    {
+      ref: 'OpaqueRef:snap1',
+      name_label: 'pre-maintenance',
+      name_description: 'Created before the Monday, August 24, 2026 maintenance window.',
+      snapshot_time: '2026-08-24T08:00:00.000Z',
+      snapshot_mode: 'snapshot',
+    },
+  ];
 
   await page.route('**/api/vms', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: 1,
-        data: [vmRecord],
+        total: vmRecords.length,
+        data: vmRecords,
       }),
     });
   });
 
-  await page.route('**/api/vms/OpaqueRef%3Avm1', async (route) => {
+  await page.route('**/api/vms/import*', async (route) => {
+    const url = new URL(route.request().url());
+    const fileName = route.request().headers()['x-xenmange-filename'] || 'imported-app-01.xva';
+    importCompleted = true;
+    const nextVm = {
+      ref: 'OpaqueRef:vm3',
+      name_label: 'imported-app-01',
+      name_description: 'Imported from an XVA package through the VM portability flow.',
+      power_state: 'Halted',
+      VCPUs_at_startup: 2,
+      VCPUs_max: 2,
+      memory_static_max: 4294967296,
+      memory_dynamic_max: 4294967296,
+      uuid: 'vm-uuid-3',
+      tags: ['imported'],
+      resident_on: 'OpaqueRef:host1',
+      affinity: 'OpaqueRef:host1',
+      VBDs: [],
+      VIFs: [],
+      HVM_boot_policy: 'UEFI',
+      platform: { secureboot: 'enabled' },
+    };
+
+    if (url.searchParams.get('metadataOnly') !== 'true') {
+      const nextVbd = 'OpaqueRef:vbd-import-1';
+      const nextVdi = 'OpaqueRef:vdi-import-1';
+      nextVm.VBDs = [nextVbd];
+      vdis.push({
+        ref: nextVdi,
+        SR: url.searchParams.get('srRef') || 'OpaqueRef:sr1',
+        name_label: 'imported-app-01-root',
+        virtual_size: 21474836480,
+        type: 'user',
+        managed: true,
+        VBDs: [nextVbd],
+      });
+    }
+
+    vmRecords.push(nextVm);
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        fileName,
+        metadataOnly: url.searchParams.get('metadataOnly') === 'true',
+        importedVm: nextVm,
+      }),
+    });
+  });
+
+  await page.route(/.*\/api\/vms\/[^/]+\/snapshots\/[^/]+\/revert$/, async (route) => {
+    const snapshotRef = decodeURIComponent(route.request().url().split('/snapshots/')[1].replace('/revert', ''));
+    snapshotReverted = true;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(vmRecord),
+      body: JSON.stringify({ success: true, snapshotRef }),
+    });
+  });
+
+  await page.route(/.*\/api\/vms\/[^/]+\/snapshots\/[^/]+$/, async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+
+    const snapshotRef = decodeURIComponent(route.request().url().split('/snapshots/')[1]);
+    snapshotDeleted = true;
+    const index = snapshots.findIndex((entry) => entry.ref === snapshotRef);
+    if (index >= 0) snapshots.splice(index, 1);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, snapshotRef }),
+    });
+  });
+
+  await page.route(/.*\/api\/vms\/[^/]+\/snapshots$/, async (route) => {
+    if (route.request().method() === 'POST') {
+      const payload = route.request().postDataJSON();
+      snapshotCreated = true;
+      snapshots.unshift({
+        ref: 'OpaqueRef:snap2',
+        name_label: payload.nameLabel,
+        name_description: payload.nameDescription,
+        snapshot_time: '2026-08-24T12:30:00.000Z',
+        snapshot_mode: payload.mode,
+      });
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(snapshots[0]),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: snapshots.length,
+        data: snapshots,
+      }),
+    });
+  });
+
+  await page.route(/.*\/api\/vms\/OpaqueRef%3A[^/]+$/, async (route) => {
+    const ref = decodeURIComponent(route.request().url().split('/api/vms/')[1]);
+    const record = vmRecords.find((entry) => entry.ref === ref) || {};
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(record),
     });
   });
 
@@ -3732,13 +4950,69 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     });
   });
 
-  await page.route('**/api/networks', async (route) => {
+  await page.route('**/api/pools', async (route) => {
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || '';
+    const pools = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? destinationPools
+      : [{ ref: 'OpaqueRef:pool1', name_label: 'Production Pool', uuid: 'pool-uuid-1', master: 'OpaqueRef:host1', default_SR: 'OpaqueRef:sr1', migration_network: 'OpaqueRef:net1' }];
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total: networks.length,
-        data: networks,
+        total: pools.length,
+        data: pools,
+      }),
+    });
+  });
+
+  await page.route('**/api/hosts', async (route) => {
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || '';
+    const hosts = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? destinationHosts
+      : [
+          { ref: 'OpaqueRef:host1', name_label: 'alpha-xen', address: '10.0.0.11', uuid: 'host-uuid-1', pool: 'OpaqueRef:pool1', enabled: true, maintenance_mode: false },
+          { ref: 'OpaqueRef:host2', name_label: 'beta-xen', address: '10.0.0.12', uuid: 'host-uuid-2', pool: 'OpaqueRef:pool1', enabled: true, maintenance_mode: false },
+        ];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: hosts.length,
+        data: hosts,
+      }),
+    });
+  });
+
+  await page.route('**/api/storage', async (route) => {
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || '';
+    const storageList = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? destinationStorage
+      : [{ ref: 'OpaqueRef:sr1', name_label: 'Primary SR', uuid: 'sr-uuid-1', physical_size: 214748364800, virtual_allocation: 85899345920 }];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: storageList.length,
+        data: storageList,
+      }),
+    });
+  });
+
+  await page.route('**/api/networks', async (route) => {
+    const url = new URL(route.request().url());
+    const targetKey = url.searchParams.get('targetKey') || '';
+    const networkList = targetKey === 'host:10.0.1.1|user:root|port:443'
+      ? destinationNetworks
+      : networks;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: networkList.length,
+        data: networkList,
       }),
     });
   });
@@ -3803,9 +5077,122 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     });
   });
 
+  await page.route(/.*\/api\/vms\/[^/]+\/duplicate$/, async (route) => {
+    const payload = route.request().postDataJSON();
+    const ref = decodeURIComponent(route.request().url().split('/api/vms/')[1].split('/duplicate')[0] || '');
+    const sourceVm = vmRecords.find((entry) => entry.ref === ref) || vmRecord;
+    duplicateCreated = true;
+    const nextVbd = 'OpaqueRef:vbd-copy-1';
+    const nextVdi = 'OpaqueRef:vdi-copy-1';
+    const nextVif = 'OpaqueRef:vif-copy-1';
+    const nextVm = {
+      ...sourceVm,
+      ref: 'OpaqueRef:vm2',
+      uuid: 'vm-uuid-2',
+      name_label: payload.nameLabel,
+      name_description: payload.nameDescription,
+      power_state: payload.startAfter ? 'Running' : 'Halted',
+      VBDs: [nextVbd],
+      VIFs: [nextVif],
+    };
+
+    vmRecords.push(nextVm);
+    vdis.push({
+      ref: nextVdi,
+      SR: payload.srRef || 'OpaqueRef:sr1',
+      name_label: `${payload.nameLabel}-disk-01`,
+      virtual_size: 10737418240,
+      type: 'user',
+      managed: true,
+      VBDs: [nextVbd],
+    });
+    networks[0].VIFs = [...networks[0].VIFs, nextVif];
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...nextVm,
+        duplication_mode: payload.mode,
+        targetSrRef: payload.srRef || '',
+      }),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1/migrate', async (route) => {
+    const payload = route.request().postDataJSON();
+    if (payload.mode === 'cross-pool') {
+      crossPoolMigrationSubmitted = true;
+      const destinationVm = {
+        ...vmRecord,
+        ref: 'OpaqueRef:vm9',
+        uuid: 'vm-uuid-9',
+        resident_on: 'OpaqueRef:host9',
+        affinity: 'OpaqueRef:host9',
+      };
+      vmRecords.push(destinationVm);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...destinationVm,
+          migration_mode: 'cross-pool-live',
+          destinationTargetKey: payload.destinationTargetKey,
+          destinationVmRef: 'OpaqueRef:vm9',
+          destinationVmUuid: 'vm-uuid-9',
+          targetSrRef: payload.srRef,
+          transferNetworkRef: payload.transferNetworkRef,
+          homeServerUpdated: false,
+          homeServerUpdateError: '',
+        }),
+      });
+      return;
+    }
+
+    migrationSubmitted = true;
+    vmRecord.resident_on = payload.hostRef;
+    if (payload.setAsHomeServer) {
+      vmRecord.affinity = payload.hostRef;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...vmRecord,
+        migration_mode: payload.live ? 'live' : 'relocate',
+        migrated_to: payload.hostRef,
+        homeServerUpdated: Boolean(payload.setAsHomeServer),
+        homeServerUpdateError: '',
+      }),
+    });
+  });
+
+  await page.route(/.*\/api\/vms\/[^/]+\/export.*/, async (route) => {
+    exportCompleted = true;
+    const metadataOnly = new URL(route.request().url()).searchParams.get('metadataOnly') === 'true';
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="app-01${metadataOnly ? '-metadata' : ''}.xva"`,
+      },
+      body: metadataOnly ? 'demo-metadata-package' : 'demo-xva-package',
+    });
+  });
+
   await page.route('**/api/vms/shutdown', async (route) => {
     shutdownCalled = true;
     vmRecord.power_state = 'Halted';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true }),
+    });
+  });
+
+  await page.route('**/api/vms/reboot', async (route) => {
+    rebootCalls += 1;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -3822,7 +5209,23 @@ test('vm operations open a floating window and submit lifecycle actions', async 
 
   await page.getByText('Virtual Machines').first().click();
   await expect(page).toHaveURL(/\/vms$/);
-  await page.getByText('app-01').click();
+  await page.getByLabel('Select app-01').click();
+  await expect(page.getByText('1 VMs selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Reboot Selected (1)' }).click();
+  await expect.poll(() => rebootCalls).toBe(1);
+  await page.getByRole('button', { name: 'Clear Selection' }).click();
+  await page.getByRole('button', { name: 'Import XVA' }).click();
+  await page.getByLabel('XVA Package').setInputFiles({
+    name: 'imported-app-01.xva',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('demo-import-payload'),
+  });
+  await page.getByRole('button', { name: 'Import Virtual Machine' }).click();
+  await expect.poll(() => importCompleted).toBe(true);
+  await expect(page.getByRole('heading', { name: 'imported-app-01' })).toBeVisible();
+  await page.locator('.fw-close').first().click();
+
+  await page.getByText('app-01', { exact: true }).click();
 
   await expect(page.getByText('VM Details')).toBeVisible();
   await page.locator('.vm-tab-strip').getByRole('button', { name: 'Config' }).click();
@@ -3845,13 +5248,417 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await expect(page.getByText('data-disk-02')).toBeVisible();
   await expect(page.getByText('Backup Network')).toBeVisible();
 
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Compatibility' }).click();
+  await expect(page.getByText('Host Compatibility Matrix')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('AMD EPYC').first()).toBeVisible();
+
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Console' }).click();
+  await expect(page.getByText('Console Access')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Launch' })).toBeVisible();
+
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Migration' }).click();
+  await page.getByLabel('Destination Host', { exact: true }).selectOption('OpaqueRef:host2');
+  await page.getByRole('button', { name: 'Migrate VM' }).click();
+  await expect.poll(() => migrationSubmitted).toBe(true);
+  await expect(page.locator('.vm-stat-chips').getByText('beta-xen', { exact: true })).toBeVisible();
+
+  await page.getByLabel('Migration Scope').selectOption('cross-pool');
+  await page.getByLabel('Destination Live Target').selectOption('host:10.0.1.1|user:root|port:443');
+  await expect(page.getByLabel('Transfer Network')).toBeVisible();
+  await page.getByLabel('Transfer Network').selectOption('OpaqueRef:net9');
+  await page.getByLabel('Destination Storage').selectOption('OpaqueRef:sr9');
+  await page.getByRole('button', { name: 'Migrate Across Pools' }).click();
+  await expect.poll(() => crossPoolMigrationSubmitted).toBe(true);
+  await expect(page.getByText('vm-uuid-9', { exact: true })).toBeVisible();
+
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Import / Export' }).click();
+  await page.getByRole('button', { name: 'Export Full XVA' }).click();
+  await expect.poll(() => exportCompleted).toBe(true);
+
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Protection' }).click();
+  await page.getByLabel('Snapshot Name').fill('pre-upgrade-checkpoint');
+  await page.getByLabel('Protection Mode').selectOption('checkpoint');
+  await page.getByLabel('Notes').fill('Checkpoint captured before the Monday, August 24, 2026 release cutover.');
+  await page.getByRole('button', { name: 'Create Restore Point' }).click();
+  await expect.poll(() => snapshotCreated).toBe(true);
+  await expect(page.getByText('pre-upgrade-checkpoint')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Revert' }).first().click();
+  await expect.poll(() => snapshotReverted).toBe(true);
+
+  await page.getByRole('button', { name: 'Delete' }).first().click();
+  await expect.poll(() => snapshotDeleted).toBe(true);
+
   await page.getByRole('button', { name: 'Shutdown' }).click();
 
   await expect.poll(() => shutdownCalled).toBe(true);
+  await page.locator('.vm-tab-strip').getByRole('button', { name: 'Clone / Copy' }).click();
+  await page.getByLabel('New VM Name').fill('app-01-copy');
+  await page.getByLabel('Copy Mode').selectOption('copy');
+  await page.getByLabel('Start the duplicated VM after provisioning completes').evaluate((element) => { element.click(); });
+  await page.getByRole('button', { name: 'Create VM Copy' }).click();
+  await expect.poll(() => duplicateCreated).toBe(true);
+  await expect(page.getByRole('heading', { name: 'app-01-copy' })).toBeVisible();
+});
+
+test('hosts workspace supports selected-row maintenance batching', async ({ page }) => {
+  const fixtures = await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Hosts').first().click();
+  await expect(page).toHaveURL(/\/hosts$/);
+  await page.getByLabel('Select alpha-xen').click();
+  await expect(page.getByText('1 hosts selected')).toBeVisible();
+  await expect(page.getByText('1 ready for maintenance')).toBeVisible();
+  await page.getByRole('button', { name: 'Enter Maintenance Selected (1)' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(true);
+  await expect.poll(() => (fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.resident_VMs || []).length).toBe(0);
+  await expect(page.getByText('1 already in maintenance')).toBeVisible();
+  await page.getByRole('button', { name: 'Exit Maintenance Selected (1)' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(false);
+});
+
+test('storage workspace supports selected-row rescans', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+  await page.getByLabel('Select Primary SR').click();
+  await expect(page.getByText('1 repositories selected')).toBeVisible();
+  await expect(page.getByText(/across 1 repository/)).toBeVisible();
+  const [rescanResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/rescan')
+    ),
+    page.getByRole('button', { name: 'Rescan Selected (1)' }).click(),
+  ]);
+  expect(rescanResponse.ok()).toBe(true);
+  await expect.poll(async () => (await rescanResponse.json())?.other_config?.last_rescan_at || '').toBe('2026-08-26T18:45:00.000Z');
+});
+
+test('storage workspace can create a new nfs storage repository from the top-level form', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+
+  const createCard = page.locator('.dash-card').filter({
+    has: page.locator('.dash-card-label').filter({ hasText: 'Create Storage Repository' }),
+  }).first();
+  await createCard.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
+  await createCard.getByLabel('Repository Type').selectOption('nfs');
+  await createCard.getByLabel('Repository Name').fill('Tier 2 NFS');
+  await createCard.getByLabel('Description').fill('Archive-capacity NFS storage');
+  await createCard.getByLabel('NFS Server').fill('10.42.0.25');
+  await createCard.getByLabel('NFS Export Path').fill('/exports/xen/tier2');
+
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().endsWith('/api/storage')
+    ),
+    createCard.getByRole('button', { name: 'Create Storage Repository' }).click(),
+  ]);
+  expect(createResponse.status()).toBe(201);
+  await expect.poll(async () => (await createResponse.json())?.name_label || '').toBe('Tier 2 NFS');
+
+  await expect(page.getByText('Workspace updated')).toBeVisible();
+  await expect(page.getByText('Tier 2 NFS was created on alpha-xen.')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Tier 2 NFS', { exact: true })).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Tier 2 NFS', { exact: true }).first()).toBeVisible();
+});
+
+test('storage detail operations create detached vdis, resize them, delete them, and rescan the repository', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await expect(page.getByText('Storage Operations')).toBeVisible();
+  await expect(page.locator('.dash-card-label').filter({ hasText: 'Create Detached VDI' }).first()).toBeVisible();
+
+  const createVdiCard = page.locator('.dash-card').filter({
+    has: page.locator('.dash-card-label').filter({ hasText: 'Create Detached VDI' }),
+  }).first();
+  await createVdiCard.getByLabel('VDI Name').fill('logs-archive-01');
+  await createVdiCard.getByLabel('VDI Type').selectOption('metadata');
+  await createVdiCard.getByLabel('Capacity (GiB)', { exact: true }).fill('12');
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/vdis')
+    ),
+    page.getByRole('button', { name: 'Create Detached VDI' }).click(),
+  ]);
+  expect(createResponse.status()).toBe(201);
+  await expect.poll(async () => (await createResponse.json())?.name_label || '').toBe('logs-archive-01');
+  const attachedVdisSection = page.locator('.detail-section').filter({
+    has: page.locator('.detail-section-title').filter({ hasText: 'Attached VDIs' }),
+  });
+  await expect(attachedVdisSection.getByText('logs-archive-01').first()).toBeVisible();
+
+  const resizeVdiCard = page.locator('.dash-card').filter({
+    has: page.locator('.dash-card-label').filter({ hasText: 'Resize Existing VDI' }),
+  }).first();
+  await resizeVdiCard.getByLabel('Target VDI').selectOption('OpaqueRef:vdi2');
+  await resizeVdiCard.getByLabel('New Capacity (GiB)', { exact: true }).fill('24');
+  const [resizeResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/vdis/OpaqueRef%3Avdi2/resize')
+    ),
+    resizeVdiCard.getByRole('button', { name: 'Resize VDI' }).click(),
+  ]);
+  expect(resizeResponse.ok()).toBe(true);
+  await expect.poll(async () => (await resizeResponse.json())?.virtual_size || 0).toBe(25769803776);
+  await expect(attachedVdisSection.getByText('24 GiB').first()).toBeVisible();
+
+  const createdVdiRow = attachedVdisSection.locator('.stack-item').filter({
+    hasText: 'logs-archive-01',
+  }).first();
+  const [deleteResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'DELETE'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/vdis/OpaqueRef%3Avdi2')
+    ),
+    createdVdiRow.getByRole('button', { name: 'Delete' }).click(),
+  ]);
+  expect(deleteResponse.ok()).toBe(true);
+  await expect(attachedVdisSection.getByText('logs-archive-01')).toHaveCount(0);
+
+  const [rescanResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/rescan')
+    ),
+    page.getByRole('button', { name: 'Rescan Repository' }).click(),
+  ]);
+  expect(rescanResponse.ok()).toBe(true);
+  await expect.poll(async () => (await rescanResponse.json())?.other_config?.last_rescan_at || '').toBe('2026-08-26T18:45:00.000Z');
+});
+
+test('storage detail operations can repair the selected repository', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await expect(page.getByText('Storage Operations')).toBeVisible();
+
+  const [repairResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/repair')
+    ),
+    page.getByRole('button', { name: 'Repair Repository' }).click(),
+  ]);
+  expect(repairResponse.ok()).toBe(true);
+  await expect.poll(async () => (await repairResponse.json())?.reattachedCount || 0).toBe(1);
+  await expect(page.getByText('Storage operation completed')).toBeVisible();
+  await expect(page.getByText('Primary SR repair refreshed storage metadata and reattached 1 path.')).toBeVisible();
+  await expect(page.getByText('2026-08-26T19:10:00.000Z')).toBeVisible();
+});
+
+test('storage detail operations block attached vdi deletion with attachment-aware guidance', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await expect(page.getByText('Storage Operations')).toBeVisible();
+
+  const attachedVdiRow = page.locator('.detail-section').filter({
+    has: page.locator('.detail-section-title').filter({ hasText: 'Attached VDIs' }),
+  }).locator('.stack-item').filter({ hasText: 'disk-01' }).first();
+  const resizeCard = page.locator('.dash-card').filter({
+    has: page.locator('.dash-card-label').filter({ hasText: 'Resize Existing VDI' }),
+  }).first();
+
+  await expect(attachedVdiRow.getByText('attached')).toBeVisible();
+  await expect(attachedVdiRow.getByText('Delete is limited to detached VDIs. 1 workload attachment still map to this disk.')).toBeVisible();
+  await expect(attachedVdiRow.getByRole('button', { name: 'Delete' })).toBeDisabled();
+  await expect(resizeCard.getByText('Resize Guidance')).toBeVisible();
+  await expect(resizeCard.getByText('This VDI is attached to 1 workload. Resize grows the virtual disk, but guest partition and filesystem expansion still need follow-through inside the workload.')).toBeVisible();
+});
+
+test('storage detail operations can forget a repository from the current workspace inventory', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await expect(page.getByText('Storage Operations')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  const [forgetResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
+    ),
+    page.getByRole('button', { name: 'Forget Repository' }).click(),
+  ]);
+  expect(forgetResponse.ok()).toBe(true);
+
+  await expect(page.getByText('Workspace updated')).toBeVisible();
+  await expect(page.getByText('Primary SR was forgotten and removed from the current storage inventory view.')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Primary SR', { exact: true })).toHaveCount(0);
+});
+
+test('storage detail operations gate destroy for non-empty repositories and can destroy an empty repository', async ({ page }) => {
+  await stubAuthenticatedRoutes(page, {
+    storageInventory: [
+      {
+        ref: 'OpaqueRef:sr1',
+        name_label: 'Primary SR',
+        type: 'lvm',
+        physical_size: 32212254720,
+        virtual_allocation: 21474836480,
+        uuid: 'sr-uuid-1',
+        PBDs: ['OpaqueRef:pbd1'],
+      },
+      {
+        ref: 'OpaqueRef:sr2',
+        name_label: 'Archive SR',
+        type: 'nfs',
+        physical_size: 21474836480,
+        virtual_allocation: 0,
+        uuid: 'sr-uuid-2',
+        PBDs: [],
+      },
+    ],
+    vdiInventory: [
+      { ref: 'OpaqueRef:vdi1', SR: 'OpaqueRef:sr1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd1'] },
+    ],
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Destroy Repository' })).toBeDisabled();
+  await expect(page.getByText('Destroy requires an empty repository. 1 disk still map to this storage repository.')).toBeVisible();
+
+  await page.locator('.floating-window .fw-close').first().click();
+  await page.locator('.data-table').getByText('Archive SR', { exact: true }).click();
+  await expect(page.getByText('Storage Operations')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Destroy Repository' })).toBeEnabled();
+  page.once('dialog', (dialog) => dialog.accept());
+  const [destroyResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
+    ),
+    page.getByRole('button', { name: 'Destroy Repository' }).click(),
+  ]);
+  expect(destroyResponse.ok()).toBe(true);
+
+  await expect(page.getByText('Workspace updated')).toBeVisible();
+  await expect(page.getByText('Archive SR was destroyed and removed from the current storage inventory view.')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Archive SR', { exact: true })).toHaveCount(0);
 });
 
 test('pool and host registration flows live alongside the broader operator workbenches', async ({ page }) => {
   const fixtures = await stubAuthenticatedRoutes(page);
+  let seededVmMigrationSubmitted = false;
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1/migrate', async (route) => {
+    const payload = route.request().postDataJSON();
+    seededVmMigrationSubmitted = true;
+    const vm = fixtures.vmInventory.find((entry) => entry.ref === 'OpaqueRef:vm1');
+    if (vm) {
+      vm.resident_on = payload.hostRef;
+      if (payload.setAsHomeServer) {
+        vm.affinity = payload.hostRef;
+      }
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...(vm || {}),
+        migration_mode: payload.live ? 'live' : 'relocate',
+        migrated_to: payload.hostRef,
+        homeServerUpdated: Boolean(payload.setAsHomeServer),
+        homeServerUpdateError: '',
+      }),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1/snapshots', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: 0,
+        data: [],
+      }),
+    });
+  });
+
+  await page.route('**/api/vms/OpaqueRef%3Avm1', async (route) => {
+    const vm = fixtures.vmInventory.find((entry) => entry.ref === 'OpaqueRef:vm1') || {};
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(vm),
+    });
+  });
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Direct Xen Login' }).click();
@@ -3875,18 +5682,40 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
   await page.getByRole('button', { name: 'Register Host' }).click();
+  await page.getByLabel('Host Name').fill('delta-edge');
+  await page.getByLabel('Host Address').fill('10.0.0.35');
+  await page.getByLabel('Saved Vault Credential').selectOption('2');
+  await page.getByLabel('Attach this standalone host to the current session after save').check();
+  await page.getByRole('button', { name: 'Save Host Target' }).click();
+  await expect(page.locator('.dash-card').filter({ hasText: 'Registered Host Targets' }).getByText('delta-edge', { exact: true })).toBeVisible();
+  await expect(page.getByText('connected now')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Register Host' }).click();
   await page.getByLabel('Host Name').fill('gamma-xen');
   await page.getByLabel('Host Address').fill('10.0.0.13');
   await page.getByLabel('Registration Mode').selectOption('pool-member');
   await page.getByLabel('Target Pool').selectOption('1');
   await page.getByRole('button', { name: 'Save Host Target' }).click();
-  await expect(page.getByText('gamma-xen')).toBeVisible();
+  await expect(page.locator('.dash-card').filter({ hasText: 'Registered Host Targets' }).getByText('gamma-xen', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Pool' }).click();
+  await expect(page).toHaveURL(/\/pools/);
+  await page.getByText('Hosts').first().click();
+  await expect(page).toHaveURL(/\/hosts$/);
   await page.locator('.data-table').getByText('alpha-xen', { exact: true }).first().click();
   await expect(page.getByText('Pool Membership')).toBeVisible();
+  await expect(page.getByText('Operations')).toBeVisible();
   await expect(page.getByText('Related Host Inventory')).toBeVisible();
   await expect(page.getByText('Primary SR')).toBeVisible();
-  await expect(page.getByText('VM Network')).toBeVisible();
-  await page.locator('.floating-window').getByRole('button').last().click();
+  await expect(page.locator('.floating-window').getByText('app-01', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Migration Network').selectOption('OpaqueRef:net1');
+  await page.getByLabel('Evacuation Batch Size').fill('2');
+  await page.getByRole('button', { name: 'Enter Maintenance Mode' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(true);
+  await expect.poll(() => (fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.resident_VMs || []).length).toBe(0);
+  await expect(page.getByRole('button', { name: 'Exit Maintenance Mode' })).toBeVisible();
+  await page.getByRole('button', { name: 'Exit Maintenance Mode' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(false);
+  await page.locator('.floating-window .fw-close').first().click();
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
@@ -3919,6 +5748,9 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Governance Notes').fill('Validated for the August 20, 2026 production ring.');
   await page.getByRole('button', { name: 'Save Governance' }).click();
   await expect.poll(() => fixtures.templateGovernance.find((entry) => entry.templateRef === 'OpaqueRef:template1')?.owner || '').toBe('Cloud Platform');
+  await page.locator('.detail-section').filter({ hasText: 'Governance History' }).locator('.stack-item').nth(1).getByRole('button', { name: 'Restore Snapshot' }).click();
+  await expect.poll(() => fixtures.templateGovernance.find((entry) => entry.templateRef === 'OpaqueRef:template1')?.owner || '').toBe('Platform Ops');
+  await expect(page.getByText('History Restored')).toBeVisible();
   await page.getByRole('button', { name: 'Deploy Template' }).click();
   await page.getByLabel('VM Name').fill('ubuntu-prod-01');
   await page.getByRole('button', { name: 'Deploy VM' }).click();
@@ -3984,11 +5816,32 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.locator('.floating-window').getByText('Primary SR', { exact: true })).toBeVisible();
   await expect(page.getByText('Attached VDIs')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Attachment Topology', { exact: true })).toBeVisible();
+  await expect(page.getByText('2 disks · 2 attachment paths · 2 workloads · 2 hosts')).toBeVisible();
   await expect(page.locator('.floating-window').getByText(/OpaqueRef:vbd1 · app-01/)).toBeVisible();
   await page.locator('.floating-window').getByRole('button', { name: 'Open VM' }).first().click();
   await expect(page).toHaveURL(/\/vms\?/);
   await expect(page.getByText('VM Details')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('app-01', { exact: true })).toBeVisible();
+  await expect(page.locator('.floating-window').getByRole('heading', { name: 'app-01' })).toBeVisible();
+  await page.locator('.floating-window .fw-close').first().click();
+  await page.getByText('Alerts').first().click();
+  await expect(page).toHaveURL(/\/alerts$/);
+  await page.locator('.data-table').getByText('VM interface flapping', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Network View' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Network View' }).click();
+  await expect(page).toHaveURL(/\/networking\?/);
+  await expect(page.locator('.floating-window').getByText('Network Properties', { exact: true })).toBeVisible();
+  await expect(page.getByText('focused interface', { exact: true })).toBeVisible();
+  await page.locator('.floating-window .fw-close').first().click();
+  await page.getByText('Alerts').first().click();
+  await expect(page).toHaveURL(/\/alerts$/);
+  await page.locator('.data-table').getByText('Recovery VLAN drift detected', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Network View' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Network View' }).click();
+  await expect(page).toHaveURL(/\/networking\?/);
+  await expect(page.locator('.floating-window').getByText('Network Properties', { exact: true })).toBeVisible();
+  await expect(page.getByText('Focused VLAN Handoff')).toBeVisible();
+  await expect(page.getByText('VLAN 220 · 2 uplinks · 0 interfaces · 2 hosts')).toBeVisible();
+  await expect(page.getByText('focused uplink', { exact: true })).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
   await page.getByText('Alerts').first().click();
   await expect(page).toHaveURL(/\/alerts$/);
@@ -4016,7 +5869,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Match Text').fill('storage threshold');
   await page.getByLabel('Text Match Mode').selectOption('all');
   await page.getByLabel('Workflow Action').selectOption('capacity');
-  await page.getByLabel('Launch Behavior').selectOption('queue');
+  await page.getByLabel('Launch Behavior').selectOption('resilience-drill');
   await page.getByLabel('Recurrence Guard').selectOption('daily');
   await page.getByLabel('Task Name Template').fill('Template Capacity Review: {summary}');
   await page.getByLabel('Default Assignee').fill('Template Ops');
@@ -4026,21 +5879,34 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Workspace Brief Template').fill('Validate datastore pressure, confirm the follow-through owner, and capture supporting evidence for {summary}.');
   await page.getByLabel('Evidence Checklist').fill('Capture current latency evidence for {summary}.\nReview affected workloads on {object}.');
   await page.getByLabel('Completion Criteria').fill('Named owner accepts the remediation task.\nClosure note is recorded in Activity after validation.');
+  await page.getByLabel('Seed a resilience runbook when this template is queued').evaluate((element) => { element.click(); });
+  await page.getByLabel('Recovery Tier').selectOption('tier-1');
+  await page.getByLabel('HA Policy').selectOption('priority-restart');
+  await page.getByLabel('Restart Priority').selectOption('high');
+  await page.getByLabel('Runbook Owner').fill('Template Ops');
+  await page.getByLabel('Backup Window (hours)').fill('12');
+  await page.getByLabel('Restore-Point Status').selectOption('review');
+  await page.getByLabel('RPO (minutes)').fill('30');
+  await page.getByLabel('RTO (minutes)').fill('90');
+  await page.getByLabel('Standby Host Ref').fill('OpaqueRef:host2');
+  await page.getByLabel('Failover Network Ref').fill('OpaqueRef:net2');
+  await page.getByLabel('Runbook Steps').fill('Validate datastore safety for {summary}.\nExecute a scoped recovery drill.');
+  await page.getByLabel('Runbook Notes').fill('Use the seeded storage alert follow-through to rehearse recovery evidence on Tuesday, August 25, 2026.');
   await page.getByRole('button', { name: 'Create Remediation Template' }).click();
   await expect.poll(() => fixtures.remediationTemplates[0]?.name || '').toBe('Storage Capacity Review Template');
-  await expect(page.getByText('Launch: queue immediately · Guard: daily per object')).toBeVisible();
+  await expect(page.getByText('Launch: launch recovery drill handoff · Guard: daily per object')).toBeVisible();
   await page.locator('.data-table').getByText('Storage nearing threshold', { exact: true }).click();
   await expect(page.getByText('Recommended Templates')).toBeVisible();
-  await page.locator('.stack-item').filter({ hasText: 'Storage Capacity Review Template' }).getByRole('button', { name: 'Queue Now' }).click();
+  await page.locator('.stack-item').filter({ hasText: 'Storage Capacity Review Template' }).getByRole('button', { name: 'Launch Recovery Drill' }).click();
   await expect.poll(() => fixtures.tasks[0]?.name_label || '').toBe('Template Capacity Review: Storage nearing threshold');
-  await expect(page).toHaveURL(/\/activity\?/);
-  await expect(page.locator('.floating-window').getByText('Template Ops', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Queue Immediately')).toBeVisible();
-  await expect(page.getByText('Daily per object')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Due in 2d', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Validate datastore pressure, confirm the follow-through owner, and capture supporting evidence for Storage nearing threshold.')).toBeVisible();
-  await expect(page.getByText('Capture current latency evidence for Storage nearing threshold.')).toBeVisible();
-  await expect(page.getByText('Named owner accepts the remediation task.')).toBeVisible();
+  await expect.poll(() => fixtures.tasks[0]?.template_launch_mode || '').toBe('resilience-drill');
+  await expect(page).toHaveURL(/\/resilience\?/);
+  const alertSeededRunbookWindow = page.locator('.floating-window').last();
+  await expect(alertSeededRunbookWindow.locator('.fw-title')).toHaveText('Recovery Drill Handoff');
+  await expect(alertSeededRunbookWindow.getByText('Execution-first handoff active')).toBeVisible();
+  await expect(alertSeededRunbookWindow.getByText('Seeded from remediation task')).toBeVisible();
+  await expect(alertSeededRunbookWindow.getByText('Log Recovery Drill')).toBeVisible();
+  await page.locator('.floating-window .fw-close').last().click();
   await page.getByText('Capacity').first().click();
   await expect(page).toHaveURL(/\/capacity$/);
   await expect(page.getByText('Telemetry Window', { exact: true })).toBeVisible();
@@ -4057,12 +5923,19 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect.poll(() => Boolean(fixtures.alertStates['OpaqueRef:msg2']?.suppressionUntil)).toBe(true);
 
   await page.getByText('Activity').first().click();
-  await expect(page).toHaveURL(/\/activity$/);
+  await expect(page).toHaveURL(/\/activity/);
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
   await page.getByRole('button', { name: 'Tasks' }).click();
   await expect(page.getByText('Patch compliance scan')).toBeVisible();
+  await expect.poll(() => fixtures.templateDeploymentRuns.find((entry) => entry.vm_name === 'ubuntu-prod-01')?.status || '').toBe('success');
+  await expect(page.locator('.data-table').getByText('ubuntu-prod-01', { exact: true })).toBeVisible();
+  await page.locator('.data-table').getByText('ubuntu-prod-01', { exact: true }).click();
+  await expect(page.getByText('Deployment Context')).toBeVisible();
+  await expect(page.getByText('Deployment Steps')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open Deployed VM' })).toBeVisible();
+  await page.locator('.floating-window .fw-close').first().click();
   await page.getByRole('button', { name: 'Recent Changes' }).click();
-  await expect(page.getByText('Saved template governance for 2026.08-lts')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Restored template governance' }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Log Center' }).click();
   await expect(page.getByRole('button', { name: 'Auth Events' })).toBeVisible();
   await expect(page.locator('.data-table').getByText('Storage nearing threshold', { exact: true })).toBeVisible();
@@ -4094,10 +5967,25 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByRole('button', { name: 'Open Workspace' }).click();
   await expect(page).toHaveURL(/\/storage\?/);
   await expect(page.locator('.floating-window').getByText('Attachment Topology', { exact: true })).toBeVisible();
+  await expect(page.getByText('Focused VBD Handoff')).toBeVisible();
+  await expect(page.getByText('OpaqueRef:vbd1 · 2 disks · 2 attachment paths · 2 workloads · 2 hosts')).toBeVisible();
   await expect(page.getByText('focused attachment')).toBeVisible();
   await page.locator('.stack-item').filter({ hasText: 'focused attachment' }).getByRole('button', { name: 'Open Host' }).click();
   await expect(page).toHaveURL(/\/hosts\?/);
   await expect(page.getByText('Related Host Inventory')).toBeVisible();
+  await page.locator('.floating-window .fw-close').first().click();
+
+  await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await page.getByRole('button', { name: 'VDIs' }).click();
+  await page.getByPlaceholder('Search live inventory, alerts, tasks, UUIDs, and tags...').fill('disk-01');
+  await expect(page.getByText('disk-01')).toBeVisible();
+  await page.locator('.data-table').getByText('disk-01', { exact: true }).click();
+  await page.getByRole('button', { name: 'Open Workspace' }).click();
+  await expect(page).toHaveURL(/\/storage\?/);
+  await expect(page.locator('.floating-window').getByText('Attachment Topology', { exact: true })).toBeVisible();
+  await expect(page.getByText('Focused VDI Handoff')).toBeVisible();
+  await expect(page.getByText('OpaqueRef:vdi1 · 2 disks · 2 attachment paths · 2 workloads · 2 hosts')).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
 
   await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
@@ -4108,7 +5996,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.data-table').getByText('VIF app-01', { exact: true }).click();
   await page.getByRole('button', { name: 'Open Workspace' }).click();
   await expect(page).toHaveURL(/\/networking\?/);
-  await expect(page.getByText('focused interface')).toBeVisible();
+  await expect(page.getByText('focused interface', { exact: true })).toBeVisible();
   await page.locator('.stack-item').filter({ hasText: 'focused interface' }).getByRole('button', { name: 'Open VM' }).click();
   await expect(page).toHaveURL(/\/vms\?/);
   await expect(page.getByText('VM Details')).toBeVisible();
@@ -4124,12 +6012,9 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByText('Host Alpha')).toBeVisible();
   await expect(page.getByText('Target Production Pool')).toBeVisible();
   await page.getByRole('button', { name: 'Open Target' }).click();
-  await expect(page).toHaveURL(/\/login/);
-  await expect(page.getByRole('button', { name: 'Direct Xen Login' })).toHaveClass(/btn-primary/);
-  await expect(page.getByLabel('Host Address')).toHaveValue('10.0.0.1');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
   await expect(page).toHaveURL(/\/inventory$/);
+  await page.locator('.stack-item').filter({ hasText: 'Host Alpha' }).getByRole('button', { name: 'Apply' }).click();
+  await expect(page.locator('.data-table').getByText('alpha-xen', { exact: true })).toBeVisible();
   await page.locator('.data-table').getByText('alpha-xen', { exact: true }).click();
   await expect(page.getByText('Inventory Result Detail')).toBeVisible();
   await page.getByRole('button', { name: 'Open Workspace' }).click();
@@ -4189,12 +6074,42 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.floating-window .fw-close').first().click();
 
   await page.getByText('Capacity').first().click();
-  await expect(page).toHaveURL(/\/capacity$/);
+  await expect(page).toHaveURL(/\/capacity/);
   await expect(page.getByRole('heading', { name: 'Capacity' })).toBeVisible();
   await expect(page.getByText('Headroom, saturation, and imbalance before they become incidents.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /alpha-xen 10\.0\.0\.11 · 2 VMs/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /alpha-xen 10\.0\.0\.11/ })).toBeVisible();
   await expect(page.getByText('Top VM Consumers')).toBeVisible();
   await expect(page.getByText('Noisy-Neighbor Candidates')).toBeVisible();
+  await expect(page.getByText(/pressure leader/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Create Follow-through' }).click();
+  await expect(page.getByText('Forecast Follow-through')).toBeVisible();
+  await page.locator('.floating-window').last().getByRole('button', { name: 'Create Follow-through' }).click();
+  await expect.poll(() => fixtures.tasks[0]?.name_label || '').toContain('Capacity Follow-through');
+  await expect(page).toHaveURL(/\/activity/);
+  await expect(page.getByRole('button', { name: 'Open Target Workspace' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Launch Maintenance Handoff' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Draft Lifecycle Plan' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Target Workspace' }).click();
+  await expect(page).toHaveURL(/\/capacity/);
+  await expect(page.getByText('Capacity Host Detail')).toBeVisible();
+  await expect(page.getByText('Telemetry Guidance')).toBeVisible();
+  await page.locator('.floating-window .fw-close').last().click();
+  await page.getByRole('button', { name: 'Launch Maintenance Handoff' }).click();
+  await expect(page).toHaveURL(/\/lifecycle/);
+  const maintenanceHandoffWindow = page.locator('.floating-window').last();
+  await expect(maintenanceHandoffWindow.locator('.fw-title')).toHaveText('Maintenance Handoff');
+  await expect(maintenanceHandoffWindow.getByText('Execution-first handoff active')).toBeVisible();
+  await expect(maintenanceHandoffWindow.getByText('Seeded from remediation task')).toBeVisible();
+  await expect(maintenanceHandoffWindow.getByRole('button', { name: 'Save Lifecycle Plan Before Maintenance' })).toBeVisible();
+  await maintenanceHandoffWindow.getByRole('button', { name: 'Enter Maintenance Mode' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(true);
+  await expect.poll(() => fixtures.tasks[0]?.status || '').toBe('in_progress');
+  await expect(maintenanceHandoffWindow.getByText('Host is already in maintenance mode')).toBeVisible();
+  await maintenanceHandoffWindow.getByRole('button', { name: 'Exit Maintenance Mode' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(false);
+  await page.locator('.floating-window .fw-close').last().click();
+  await page.getByText('Capacity').first().click();
+  await expect(page).toHaveURL(/\/capacity/);
   await page.getByRole('button', { name: /db-01/ }).click();
   await expect(page.getByText('Placement Guidance')).toBeVisible();
   await page.locator('.floating-window .fw-close').last().click();
@@ -4231,6 +6146,152 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.floating-window').last().locator('form').getByRole('button', { name: 'Log Drill' }).click();
   await expect.poll(() => fixtures.resilienceDrills[0]?.drillType || '').toBe('failover');
   await expect.poll(() => fixtures.resilienceDrills[0]?.summary || '').toBe('Failover run completed within the target envelope.');
+
+  fixtures.tasks.unshift({
+    ref: 'OpaqueRef:remediation-seed-resilience',
+    uuid: 'remediation-task-seed-resilience',
+    name_label: 'Capacity Recovery Drill: Production Pool',
+    name_description: 'Execute a targeted recovery drill for the primary production pool.',
+    status: 'pending',
+    progress: 0,
+    created: '2026-08-25T13:05:00.000Z',
+    finished: '',
+    result: 'Queued for operator follow-through.',
+    error_info: [],
+    resident_on: 'OpaqueRef:pool1',
+    task_kind: 'remediation',
+    source: 'remediation',
+    action_type: 'resilience',
+    assignee: 'Recovery Ops',
+    due_date: '2026-08-26',
+    related_alert_ref: '',
+    related_alert_uuid: '',
+    related_alert_summary: 'Recovery drill follow-through',
+    related_class: 'pool',
+    related_object: 'OpaqueRef:pool1',
+    target_route: '/resilience',
+    workspace_summary: 'Open Resilience and execute a recovery drill for Production Pool.',
+    evidence_checklist: ['Validate failover sequencing.', 'Capture drill findings.'],
+    completion_criteria: ['Drill outcome is recorded.', 'Next step is documented.'],
+    resilience_runbook_seed: {
+      enabled: true,
+      recoveryTier: 'tier-1',
+      haPolicy: 'priority-restart',
+      restartPriority: 'high',
+      backupWindowHours: 8,
+      rpoMinutes: 20,
+      rtoMinutes: 60,
+      restorePointStatus: 'current',
+      owner: 'Recovery Ops',
+      standbyHostRef: 'OpaqueRef:host2',
+      failoverNetworkRef: 'OpaqueRef:net2',
+      runbookSteps: [
+        'Confirm backup readiness for Production Pool.',
+        'Execute a scoped failover drill and record findings.',
+      ],
+      notes: 'Seeded from the Tuesday, August 25, 2026 resilience execution handoff test.',
+    },
+    template_id: '',
+    template_name: '',
+    template_launch_mode: 'draft',
+    recurrence_mode: 'manual',
+    recurrence_scope: 'object',
+    recurrence_cooldown_days: 0,
+    recurrence_window_key: 'opaqueref:pool1',
+    created_by: 'root',
+    updated_at: '2026-08-25T13:05:00.000Z',
+  });
+
+  await page.getByText('Activity').first().click();
+  await expect(page).toHaveURL(/\/activity/);
+  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.locator('.data-table').getByText('Capacity Recovery Drill: Production Pool', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Launch Recovery Drill Handoff' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Draft Recovery Runbook' })).toBeVisible();
+  await page.getByRole('button', { name: 'Launch Recovery Drill Handoff' }).click();
+  await expect(page).toHaveURL(/\/resilience/);
+  const seededRunbookWindow = page.locator('.floating-window').last();
+  await expect(seededRunbookWindow.locator('.fw-title')).toHaveText('Recovery Drill Handoff');
+  await expect(seededRunbookWindow.getByText('Execution-first handoff active')).toBeVisible();
+  await expect(seededRunbookWindow.getByText('Seeded from remediation task')).toBeVisible();
+  await seededRunbookWindow.getByLabel('Drill Type').selectOption('failover');
+  await seededRunbookWindow.getByLabel('Outcome').selectOption('success');
+  await seededRunbookWindow.getByLabel('Scope').fill('Seeded recovery execution rehearsal');
+  await seededRunbookWindow.getByLabel('Executed At').fill('2026-08-25T13:15');
+  await seededRunbookWindow.getByLabel('Duration (minutes)').fill('28');
+  await seededRunbookWindow.getByLabel('Summary').fill('Seeded recovery drill completed cleanly.');
+  await seededRunbookWindow.getByLabel('Findings').fill('Runbook sequencing covered the standby path without operator drift.');
+  await seededRunbookWindow.getByLabel('Next Step').fill('Use the same path for the next quarterly validation.');
+  await seededRunbookWindow.getByRole('button', { name: 'Log Recovery Drill' }).click();
+  await expect.poll(() => fixtures.resilienceDrills[0]?.summary || '').toBe('Seeded recovery drill completed cleanly.');
+  await expect.poll(() => fixtures.tasks.find((task) => task.ref === 'OpaqueRef:remediation-seed-resilience')?.status || '').toBe('success');
+
+  fixtures.tasks.unshift({
+    ref: 'OpaqueRef:remediation-seed-vm-migration',
+    uuid: 'remediation-task-seed-vm-migration',
+    name_label: 'Pressure Relief Migration: app-01',
+    name_description: 'Move app-01 back onto alpha-xen to relieve forecast pressure after the evacuation drill.',
+    status: 'pending',
+    progress: 0,
+    created: '2026-08-25T13:20:00.000Z',
+    finished: '',
+    result: 'Queued for operator follow-through.',
+    error_info: [],
+    resident_on: 'OpaqueRef:vm1',
+    task_kind: 'remediation',
+    source: 'remediation',
+    action_type: 'capacity',
+    assignee: 'Capacity Ops',
+    due_date: '2026-08-26',
+    related_alert_ref: '',
+    related_alert_uuid: '',
+    related_alert_summary: 'VM-attributed forecast pressure',
+    related_class: 'vm',
+    related_object: 'OpaqueRef:vm1',
+    target_route: '/vms',
+    workspace_summary: 'Draft a VM migration for app-01 and move it back to alpha-xen.',
+    evidence_checklist: ['Confirm destination host readiness.', 'Record the placement change.'],
+    completion_criteria: ['Migration completes successfully.', 'Task result captures the destination host.'],
+    vm_migration_seed: {
+      enabled: true,
+      mode: 'same-pool',
+      hostRef: 'OpaqueRef:host1',
+      destinationTargetKey: '',
+      transferNetworkRef: '',
+      srRef: '',
+      vifNetworkMap: [],
+      live: true,
+      copy: false,
+      force: false,
+      compress: true,
+      setAsHomeServer: true,
+      notes: 'Seeded from the Tuesday, August 25, 2026 capacity handoff test.',
+    },
+    template_id: '',
+    template_name: '',
+    template_launch_mode: 'draft',
+    recurrence_mode: 'manual',
+    recurrence_scope: 'object',
+    recurrence_cooldown_days: 0,
+    recurrence_window_key: 'opaqueref:vm1',
+    created_by: 'root',
+    updated_at: '2026-08-25T13:20:00.000Z',
+  });
+
+  await page.getByText('Activity').first().click();
+  await expect(page).toHaveURL(/\/activity/);
+  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.locator('.data-table').getByText('Pressure Relief Migration: app-01', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Draft VM Migration' })).toBeVisible();
+  await page.getByRole('button', { name: 'Draft VM Migration' }).click();
+  await expect(page).toHaveURL(/\/vms/);
+  await expect(page.locator('.floating-window .fw-title').first()).toHaveText('VM Details');
+  await expect(page.locator('.vm-tab-button.active')).toContainText('Migration');
+  await expect(page.getByLabel('Destination Host', { exact: true })).toHaveValue('OpaqueRef:host1');
+  await page.getByRole('button', { name: 'Migrate VM' }).click();
+  await expect.poll(() => seededVmMigrationSubmitted).toBe(true);
+  await expect.poll(() => fixtures.tasks.find((task) => task.ref === 'OpaqueRef:remediation-seed-vm-migration')?.status || '').toBe('success');
+  await expect(page.locator('.vm-stat-chips').getByText('alpha-xen', { exact: true })).toBeVisible();
 });
 
 test('settings workspace saves runtime configuration and previews retention', async ({ page }) => {
@@ -4248,10 +6309,19 @@ test('settings workspace saves runtime configuration and previews retention', as
   await expect(page.getByText('Configuration Plane')).toBeVisible();
   await expect(page.getByText('Production Pool Root')).toBeVisible();
   await expect(page.getByText('Environment Variable')).toBeVisible();
+  await expect(page.getByText('1 stale wrap(s)')).toBeVisible();
+  await expect(page.locator('.dash-card-label').filter({ hasText: 'Telemetry Collection' }).first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Re-wrap Legacy Keys' }).first().click();
+  await expect(page.getByText('1 stale credential wrap(s) were re-wrapped under the current master key. 1 credential(s) were already current.')).toBeVisible();
 
   await page.getByLabel('Application Name').fill('XenMange Ops');
   await page.getByRole('button', { name: 'Save General Settings' }).click();
   await expect(page.getByText('XenMange Ops')).toBeVisible();
+
+  await page.getByLabel('Collection Interval (seconds)').fill('180');
+  await page.getByRole('button', { name: 'Save Telemetry Settings' }).click();
+  await expect(page.getByText('Polling every 180 second(s) across live Xen targets while the server is running.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add Credential' }).click();
   await expect(page.locator('.floating-window .fw-title').last()).toHaveText('Add Vault Credential');

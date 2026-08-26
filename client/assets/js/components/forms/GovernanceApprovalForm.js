@@ -21,8 +21,17 @@ const GovernanceApprovalForm = {
             <option value="vm_shutdown">VM Shutdown</option>
             <option value="vm_reboot">VM Reboot</option>
             <option value="vm_suspend">VM Suspend</option>
+            <option value="host_reboot">Host Reboot</option>
+            <option value="host_shutdown">Host Shutdown</option>
             <option value="connection_delete">Remove Saved Pool Target</option>
             <option value="host_target_delete">Remove Saved Host Target</option>
+            <option value="credential_delete">Delete Vault Credential</option>
+            <option value="retention_sweep_run">Run Retention Sweep</option>
+            <option value="alert_policy_delete">Delete Alert Policy</option>
+            <option value="remediation_template_delete">Delete Remediation Template</option>
+            <option value="inventory_workspace_delete">Delete Inventory Workspace</option>
+            <option value="lifecycle_plan_delete">Delete Lifecycle Plan</option>
+            <option value="resilience_runbook_delete">Delete Recovery Runbook</option>
           </select>
         </div>
 
@@ -32,6 +41,13 @@ const GovernanceApprovalForm = {
             <option value="vm">VM</option>
             <option value="connection">Connection</option>
             <option value="host-target">Host Target</option>
+            <option value="credential">Credential</option>
+            <option value="retention-domain">Retention Domain</option>
+            <option value="alert-policy">Alert Policy</option>
+            <option value="task-template">Task Template</option>
+            <option value="workspace">Workspace</option>
+            <option value="host">Host</option>
+            <option value="pool">Pool</option>
           </select>
         </div>
       </div>

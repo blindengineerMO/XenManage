@@ -151,7 +151,7 @@ const ActivityView = {
           <div>
             <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed Task' }}</span>
             <div class="text-muted mono" style="font-size:11px">
-              {{ isRemediationTask(row) ? 'remediation' : 'background task' }} · {{ row.assignee || 'unassigned' }}
+              {{ taskSourceLabel(row) }} · {{ row.assignee || row.submitted_by || 'unassigned' }}
             </div>
           </div>
         </template>
@@ -226,13 +226,42 @@ const ActivityView = {
             <span class="text-muted">Status</span><status-badge :status="selectedTask.status || 'info'"></status-badge>
             <span class="text-muted">Name</span><span>{{ selectedTask.name_label || '-' }}</span>
             <span class="text-muted">Description</span><span>{{ selectedTask.name_description || '-' }}</span>
-            <span class="text-muted">Source</span><span>{{ isRemediationTask(selectedTask) ? 'Remediation Task' : 'Xen Background Task' }}</span>
+            <span class="text-muted">Source</span><span>{{ taskSourceTitle(selectedTask) }}</span>
             <span class="text-muted">Progress</span><span class="mono">{{ formatTaskProgress(selectedTask.progress) }}</span>
             <span class="text-muted">Created</span><span class="mono">{{ formatDateTime(selectedTask.created) }}</span>
             <span class="text-muted">Finished</span><span class="mono">{{ formatDateTime(selectedTask.finished) }}</span>
             <span class="text-muted">Resident On</span><span class="mono property-wrap">{{ selectedTask.resident_on || '-' }}</span>
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedTask.uuid || '-' }}</span>
             <span class="text-muted">Result</span><span class="property-wrap">{{ taskResult(selectedTask) }}</span>
+          </div>
+
+          <div class="detail-section" v-if="isTemplateDeploymentTask(selectedTask)">
+            <div class="detail-section-title">Deployment Context</div>
+            <div class="property-grid">
+              <span class="text-muted">Template</span><span>{{ selectedTask.template_name || selectedTask.template_ref || '-' }}</span>
+              <span class="text-muted">Template Version</span><span class="mono">{{ selectedTask.template_version || '-' }}</span>
+              <span class="text-muted">Deployed VM</span><span>{{ selectedTask.vm_name || selectedTask.vm_ref || '-' }}</span>
+              <span class="text-muted">Host</span><span>{{ selectedTask.host_label || selectedTask.host_ref || '-' }}</span>
+              <span class="text-muted">Storage</span><span>{{ selectedTask.storage_label || selectedTask.storage_ref || '-' }}</span>
+              <span class="text-muted">Network</span><span>{{ selectedTask.network_label || selectedTask.network_ref || '-' }}</span>
+              <span class="text-muted">Submitted By</span><span>{{ selectedTask.submitted_by || '-' }}</span>
+              <span class="text-muted">Validation Status</span><status-badge :status="selectedTask.validation_status || selectedTask.status || 'pending'"></status-badge>
+              <span class="text-muted">Guest Customization</span><span>{{ selectedTask.guest_customization || '-' }}</span>
+              <span class="text-muted">Validation Notes</span><span class="property-wrap">{{ selectedTask.validation_notes || '-' }}</span>
+            </div>
+          </div>
+
+          <div class="detail-section" v-if="isTemplateDeploymentTask(selectedTask) && selectedTask.steps && selectedTask.steps.length">
+            <div class="detail-section-title">Deployment Steps</div>
+            <div class="stack-list">
+              <div class="stack-item" v-for="step in selectedTask.steps" :key="step.key">
+                <div class="capacity-item-main">
+                  <strong>{{ step.label }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ step.detail || 'No detail recorded for this step.' }}</div>
+                </div>
+                <status-badge :status="step.status || 'info'"></status-badge>
+              </div>
+            </div>
           </div>
 
           <div class="detail-section" v-if="isRemediationTask(selectedTask)">
@@ -298,7 +327,7 @@ const ActivityView = {
             <div class="form-error" v-if="remediationError" style="text-align:left;margin-top:12px">{{ remediationError }}</div>
           </div>
 
-          <div class="detail-section" v-if="isRemediationTask(selectedTask) && (canOpenTaskAlert(selectedTask) || selectedTask.target_route || canDraftLifecyclePlan(selectedTask) || canDraftResilienceRunbook(selectedTask))">
+          <div class="detail-section" v-if="isRemediationTask(selectedTask) && (canOpenTaskAlert(selectedTask) || selectedTask.target_route || canLaunchLifecycleMaintenance(selectedTask) || canDraftLifecyclePlan(selectedTask) || canLaunchResilienceDrill(selectedTask) || canDraftResilienceRunbook(selectedTask) || canDraftVmMigration(selectedTask))">
             <div class="detail-section-title">Follow-through</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-primary btn-sm"
@@ -314,16 +343,52 @@ const ActivityView = {
                 Open Target Workspace
               </button>
               <button class="btn btn-sm"
+                      v-if="canLaunchLifecycleMaintenance(selectedTask)"
+                      @click="openTaskLifecycleMaintenance(selectedTask)">
+                <span class="mdi mdi-wrench-clock"></span>
+                Launch Maintenance Handoff
+              </button>
+              <button class="btn btn-sm"
                       v-if="canDraftLifecyclePlan(selectedTask)"
                       @click="openTaskLifecycleDraft(selectedTask)">
                 <span class="mdi mdi-calendar-edit-outline"></span>
                 Draft Lifecycle Plan
               </button>
               <button class="btn btn-sm"
+                      v-if="canLaunchResilienceDrill(selectedTask)"
+                      @click="openTaskResilienceDrill(selectedTask)">
+                <span class="mdi mdi-clipboard-pulse-outline"></span>
+                Launch Recovery Drill Handoff
+              </button>
+              <button class="btn btn-sm"
                       v-if="canDraftResilienceRunbook(selectedTask)"
                       @click="openTaskResilienceDraft(selectedTask)">
                 <span class="mdi mdi-book-edit-outline"></span>
                 Draft Recovery Runbook
+              </button>
+              <button class="btn btn-sm"
+                      v-if="canDraftVmMigration(selectedTask)"
+                      @click="openTaskVmMigrationDraft(selectedTask)">
+                <span class="mdi mdi-swap-horizontal-bold"></span>
+                Draft VM Migration
+              </button>
+            </div>
+          </div>
+
+          <div class="detail-section" v-if="isTemplateDeploymentTask(selectedTask) && (selectedTask.vm_ref || selectedTask.template_ref)">
+            <div class="detail-section-title">Follow-through</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm"
+                      v-if="selectedTask.vm_ref"
+                      @click="openDeploymentVm(selectedTask)">
+                <span class="mdi mdi-monitor-cellphone"></span>
+                Open Deployed VM
+              </button>
+              <button class="btn btn-sm"
+                      v-if="selectedTask.template_ref"
+                      @click="openDeploymentTemplate(selectedTask)">
+                <span class="mdi mdi-file-document-multiple-outline"></span>
+                Open Template
               </button>
             </div>
           </div>
@@ -629,6 +694,39 @@ const ActivityView = {
     taskSlaMeta(task) {
       const meta = getTaskDueMeta(task);
       if (this.isRemediationTask(task)) return meta;
+      if (this.isTemplateDeploymentTask(task)) {
+        const status = String(task.status || '').toLowerCase();
+        if (status === 'success') {
+          return {
+            ...meta,
+            tone: 'success',
+            label: 'Validated',
+            detail: task.validation_notes || task.result || 'Deployment validation completed successfully.',
+          };
+        }
+        if (status === 'failure') {
+          return {
+            ...meta,
+            tone: 'critical',
+            label: 'Validation Failed',
+            detail: task.validation_notes || task.result || 'Deployment validation failed and needs operator follow-through.',
+          };
+        }
+        if (status === 'warning') {
+          return {
+            ...meta,
+            tone: 'warning',
+            label: 'Needs Review',
+            detail: task.validation_notes || task.result || 'Deployment is waiting for operator review.',
+          };
+        }
+        return {
+          ...meta,
+          tone: 'info',
+          label: 'Awaiting Validation',
+          detail: task.validation_notes || task.result || 'Deployment provisioning finished and validation is still pending.',
+        };
+      }
       return {
         ...meta,
         label: 'Background',
@@ -640,7 +738,15 @@ const ActivityView = {
       return getTaskSlaBadgeClass(this.taskSlaMeta(task));
     },
     formatTemplateLaunchMode(value) {
-      return value === 'queue' ? 'Queue Immediately' : 'Open Draft First';
+      const map = {
+        queue: 'Queue Immediately',
+        'lifecycle-plan': 'Launch Lifecycle Draft',
+        'lifecycle-maintenance': 'Launch Maintenance Handoff',
+        'resilience-runbook': 'Launch Recovery Runbook Draft',
+        'resilience-drill': 'Launch Recovery Drill Handoff',
+        'vm-migration': 'Launch VM Migration Handoff',
+      };
+      return map[String(value || 'draft').toLowerCase()] || 'Open Draft First';
     },
     formatTaskRecurrence(task) {
       const mode = String(task?.recurrence_mode || 'manual').toLowerCase();
@@ -660,11 +766,25 @@ const ActivityView = {
     },
     taskResult(task) {
       if (task.result) return String(task.result);
+      if (this.isTemplateDeploymentTask(task) && task.validation_notes) return String(task.validation_notes);
       if (task.error_info && task.error_info.length) return task.error_info.map(String).join(' | ');
       return '-';
     },
     isRemediationTask(task) {
       return String(task?.task_kind || task?.source || '').toLowerCase() === 'remediation';
+    },
+    isTemplateDeploymentTask(task) {
+      return String(task?.task_kind || task?.source || '').toLowerCase() === 'template_deployment';
+    },
+    taskSourceLabel(task) {
+      if (this.isRemediationTask(task)) return 'remediation';
+      if (this.isTemplateDeploymentTask(task)) return 'template deployment';
+      return 'background task';
+    },
+    taskSourceTitle(task) {
+      if (this.isRemediationTask(task)) return 'Remediation Task';
+      if (this.isTemplateDeploymentTask(task)) return 'Template Deployment Run';
+      return 'Xen Background Task';
     },
     formatActionTypeLabel(value) {
       const map = {
@@ -810,41 +930,70 @@ const ActivityView = {
     canDraftLifecyclePlan(task) {
       return Boolean(task?.lifecycle_plan_seed?.enabled);
     },
+    canLaunchLifecycleMaintenance(task) {
+      return this.canDraftLifecyclePlan(task);
+    },
     canDraftResilienceRunbook(task) {
       return Boolean(task?.resilience_runbook_seed?.enabled);
+    },
+    canLaunchResilienceDrill(task) {
+      return this.canDraftResilienceRunbook(task);
+    },
+    canDraftVmMigration(task) {
+      return Boolean(task?.vm_migration_seed?.enabled);
+    },
+    buildTaskFocus(task) {
+      return {
+        kind: 'task',
+        ref: task?.ref || '',
+        uuid: task?.uuid || '',
+        name: task?.name_label || '',
+        cls: 'task',
+        source: 'activity',
+      };
     },
     openTaskLifecycleDraft(task) {
       if (!this.canDraftLifecyclePlan(task)) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/lifecycle', {
-        kind: 'task',
-        ref: task.ref || '',
-        uuid: task.uuid || '',
-        name: task.name_label || '',
-        cls: 'task',
-        source: 'activity',
-      }, {
+      this.$router.push(buildFocusedRoute('/lifecycle', this.buildTaskFocus(task), {
         seedAction: 'lifecycle-plan',
+      }));
+    },
+    openTaskLifecycleMaintenance(task) {
+      if (!this.canLaunchLifecycleMaintenance(task)) return;
+      this.showProps = false;
+      this.$router.push(buildFocusedRoute('/lifecycle', this.buildTaskFocus(task), {
+        seedAction: 'lifecycle-maintenance',
       }));
     },
     openTaskResilienceDraft(task) {
       if (!this.canDraftResilienceRunbook(task)) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/resilience', {
-        kind: 'task',
-        ref: task.ref || '',
-        uuid: task.uuid || '',
-        name: task.name_label || '',
-        cls: 'task',
-        source: 'activity',
-      }, {
+      this.$router.push(buildFocusedRoute('/resilience', this.buildTaskFocus(task), {
         seedAction: 'resilience-runbook',
+      }));
+    },
+    openTaskResilienceDrill(task) {
+      if (!this.canLaunchResilienceDrill(task)) return;
+      this.showProps = false;
+      this.$router.push(buildFocusedRoute('/resilience', this.buildTaskFocus(task), {
+        seedAction: 'resilience-drill',
+      }));
+    },
+    openTaskVmMigrationDraft(task) {
+      if (!this.canDraftVmMigration(task)) return;
+      this.showProps = false;
+      this.$router.push(buildFocusedRoute('/vms', this.buildTaskFocus(task), {
+        seedAction: 'vm-migration',
       }));
     },
     openTaskTargetWorkspace(task) {
       if (!task?.target_route) return;
 
       const cls = String(task.related_class || '').toLowerCase();
+      const relatedObject = String(task.related_object || '').trim();
+      const relatedObjectRef = relatedObject.startsWith('OpaqueRef:') ? relatedObject : '';
+      const relatedObjectUuid = relatedObjectRef ? '' : relatedObject;
       const kindMap = {
         host: 'host',
         sr: 'storage',
@@ -855,14 +1004,39 @@ const ActivityView = {
         network: 'network',
         vif: 'network',
         pif: 'network',
+        bond: 'network',
+        vlan: 'network',
       };
 
       this.showProps = false;
       this.$router.push(buildFocusedRoute(task.target_route, {
         kind: kindMap[cls] || '',
-        uuid: task.related_object || '',
+        ref: relatedObjectRef,
+        uuid: relatedObjectUuid,
         name: task.related_alert_summary || task.name_label || '',
         cls,
+        source: 'activity',
+      }));
+    },
+    openDeploymentVm(task) {
+      if (!task?.vm_ref) return;
+      this.showProps = false;
+      this.$router.push(buildFocusedRoute('/vms', {
+        kind: 'vm',
+        ref: task.vm_ref,
+        name: task.vm_name || task.name_label || '',
+        cls: 'vm',
+        source: 'activity',
+      }));
+    },
+    openDeploymentTemplate(task) {
+      if (!task?.template_ref) return;
+      this.showProps = false;
+      this.$router.push(buildFocusedRoute('/templates', {
+        kind: 'template',
+        ref: task.template_ref,
+        name: task.template_name || '',
+        cls: 'template',
         source: 'activity',
       }));
     },

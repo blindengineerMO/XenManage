@@ -64,6 +64,98 @@ function deleteWrappedDek(id) {
   getSecurityDb().prepare('DELETE FROM vault_key_material WHERE id = ?').run(id);
 }
 
+function getWrappedDekRecord(id) {
+  return getSecurityDb().prepare(`
+    SELECT id, wrapped_dek, wrap_iv, wrap_auth_tag, key_version, created_at
+    FROM vault_key_material
+    WHERE id = ?
+  `).get(id) || null;
+}
+
+function updateWrappedDek(id, payload = {}) {
+  getSecurityDb().prepare(`
+    UPDATE vault_key_material
+    SET wrapped_dek = ?,
+        wrap_iv = ?,
+        wrap_auth_tag = ?,
+        key_version = COALESCE(key_version, 0) + 1
+    WHERE id = ?
+  `).run(payload.encrypted, payload.iv, payload.authTag, id);
+
+  return getWrappedDekRecord(id);
+}
+
+function listScopedCredentials(userId = null) {
+  if (userId) return credentialModel.listVisible(userId);
+  return credentialModel.listAll();
+}
+
+function canManageRecord(record, userId = null, role = 'operator') {
+  if (!record) return false;
+  if (!userId) return role === 'admin';
+  return ensureMutable(record, userId, role);
+}
+
+function unwrapDekRecord(wrapped, keys) {
+  try {
+    return {
+      dek: decryptBuffer(wrapped.wrapped_dek, wrapped.wrap_iv, wrapped.wrap_auth_tag, keys.current),
+      source: 'current',
+    };
+  } catch (error) {
+    if (!keys.previous) throw error;
+    return {
+      dek: decryptBuffer(wrapped.wrapped_dek, wrapped.wrap_iv, wrapped.wrap_auth_tag, keys.previous),
+      source: 'previous',
+    };
+  }
+}
+
+function inspectRewrapCandidates(records = []) {
+  const summary = {
+    totalCredentialCount: records.length,
+    staleCredentialCount: 0,
+    rewrapAvailable: false,
+    scanAvailable: false,
+    scanError: '',
+  };
+
+  if (!records.length) {
+    summary.scanAvailable = true;
+    return summary;
+  }
+
+  let keys;
+  try {
+    keys = getMasterKeys();
+  } catch (error) {
+    summary.scanError = error.message || 'VAULT_KEY_SCAN_FAILED';
+    return summary;
+  }
+
+  summary.rewrapAvailable = Boolean(keys.previous);
+  summary.scanAvailable = true;
+
+  records.forEach((record) => {
+    const wrapped = getWrappedDekRecord(record.dek_key_id);
+    if (!wrapped) {
+      summary.scanError = summary.scanError || 'VAULT_KEY_NOT_FOUND';
+      return;
+    }
+
+    try {
+      const unwrap = unwrapDekRecord(wrapped, keys);
+      if (unwrap.source === 'previous') {
+        summary.staleCredentialCount += 1;
+      }
+    } catch (error) {
+      summary.scanError = summary.scanError || (error.message || 'VAULT_KEY_SCAN_FAILED');
+    }
+  });
+
+  return summary;
+}
+
 function toPublicRecord(record) {
   if (!record) return null;
   return {
@@ -97,6 +189,7 @@ const credentialVaultService = {
   getRuntimeStatus() {
     const configuredCurrentKey = Boolean(String(config.vault.encryptionKey || '').trim());
     const configuredPreviousKey = Boolean(String(config.vault.previousEncryptionKey || '').trim());
+    const rotationSummary = inspectRewrapCandidates(credentialModel.listAll());
 
     return {
       hasConfiguredMasterKey: configuredCurrentKey,
@@ -105,6 +198,11 @@ const credentialVaultService = {
       rotationRecommended: configuredCurrentKey && !configuredPreviousKey,
       keySource: configuredCurrentKey ? 'environment' : (config.env === 'production' ? 'missing' : 'derived-development'),
       vaultDatabasePath: config.db.vaultPath,
+      totalCredentialCount: rotationSummary.totalCredentialCount,
+      staleCredentialCount: rotationSummary.staleCredentialCount,
+      rewrapAvailable: rotationSummary.rewrapAvailable,
+      scanAvailable: rotationSummary.scanAvailable,
+      scanError: rotationSummary.scanError,
     };
   },
 
@@ -210,28 +308,74 @@ const credentialVaultService = {
       throw forbidden;
     }
 
-    const wrapped = getSecurityDb().prepare(`
-      SELECT wrapped_dek, wrap_iv, wrap_auth_tag
-      FROM vault_key_material
-      WHERE id = ?
-    `).get(existing.dek_key_id);
+    const wrapped = getWrappedDekRecord(existing.dek_key_id);
 
     if (!wrapped) {
       throw new Error('VAULT_KEY_NOT_FOUND');
     }
 
-    const { current, previous } = getMasterKeys();
-    let dek;
-    try {
-      dek = decryptBuffer(wrapped.wrapped_dek, wrapped.wrap_iv, wrapped.wrap_auth_tag, current);
-    } catch (error) {
-      if (!previous) throw error;
-      dek = decryptBuffer(wrapped.wrapped_dek, wrapped.wrap_iv, wrapped.wrap_auth_tag, previous);
-    }
+    const unwrap = unwrapDekRecord(wrapped, getMasterKeys());
 
-    const password = decryptBuffer(existing.encrypted_password, existing.enc_iv, existing.enc_auth_tag, dek).toString('utf8');
+    const password = decryptBuffer(existing.encrypted_password, existing.enc_iv, existing.enc_auth_tag, unwrap.dek).toString('utf8');
     credentialModel.markUsed(id, userId);
     return password;
+  },
+
+  rewrapAll(userId = null, role = 'operator') {
+    const records = listScopedCredentials(userId)
+      .filter((record) => canManageRecord(record, userId, role));
+
+    let keys;
+    try {
+      keys = getMasterKeys();
+    } catch (error) {
+      const wrappedError = new Error(error.message || 'VAULT_KEY_SCAN_FAILED');
+      wrappedError.code = error.message || 'VAULT_KEY_SCAN_FAILED';
+      throw wrappedError;
+    }
+
+    if (!keys.previous) {
+      const error = new Error('VAULT_PREVIOUS_KEY_NOT_CONFIGURED');
+      error.code = 'VAULT_PREVIOUS_KEY_NOT_CONFIGURED';
+      throw error;
+    }
+
+    const result = {
+      scanned: records.length,
+      rewrapped: 0,
+      alreadyCurrent: 0,
+      failed: 0,
+      staleRemaining: 0,
+      rewrapAvailable: true,
+      scanError: '',
+    };
+
+    records.forEach((record) => {
+      const wrapped = getWrappedDekRecord(record.dek_key_id);
+      if (!wrapped) {
+        result.failed += 1;
+        result.scanError = result.scanError || 'VAULT_KEY_NOT_FOUND';
+        return;
+      }
+
+      try {
+        const unwrap = unwrapDekRecord(wrapped, keys);
+        if (unwrap.source === 'current') {
+          result.alreadyCurrent += 1;
+          return;
+        }
+
+        const nextWrapped = encryptBuffer(unwrap.dek, keys.current);
+        updateWrappedDek(record.dek_key_id, nextWrapped);
+        result.rewrapped += 1;
+      } catch (error) {
+        result.failed += 1;
+        result.scanError = result.scanError || (error.message || 'VAULT_REWRAP_FAILED');
+      }
+    });
+
+    result.staleRemaining = inspectRewrapCandidates(records).staleCredentialCount;
+    return result;
   },
 };
 

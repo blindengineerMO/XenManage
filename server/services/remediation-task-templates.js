@@ -71,6 +71,36 @@ function normalizeResilienceRunbookSeed(value = {}, fallback = null) {
   };
 }
 
+function normalizeVmMigrationSeed(value = {}, fallback = null) {
+  const source = value && typeof value === 'object' ? value : {};
+  const current = fallback && typeof fallback === 'object' ? fallback : null;
+  const enabled = source.enabled !== undefined ? Boolean(source.enabled) : Boolean(current?.enabled);
+
+  if (!enabled && !current && !Object.keys(source).length) return null;
+
+  return {
+    enabled,
+    mode: String(source.mode || current?.mode || 'same-pool').trim().toLowerCase(),
+    hostRef: String(source.hostRef || current?.hostRef || '').trim(),
+    destinationTargetKey: String(source.destinationTargetKey || current?.destinationTargetKey || '').trim(),
+    transferNetworkRef: String(source.transferNetworkRef || current?.transferNetworkRef || '').trim(),
+    srRef: String(source.srRef || current?.srRef || '').trim(),
+    vifNetworkMap: (Array.isArray(source.vifNetworkMap) ? source.vifNetworkMap : Array.isArray(current?.vifNetworkMap) ? current.vifNetworkMap : [])
+      .map((entry) => ({
+        vifRef: String(entry?.vifRef || '').trim(),
+        networkRef: String(entry?.networkRef || '').trim(),
+      }))
+      .filter((entry) => entry.vifRef && entry.networkRef)
+      .slice(0, 16),
+    live: source.live !== undefined ? Boolean(source.live) : Boolean(current?.live ?? true),
+    copy: source.copy !== undefined ? Boolean(source.copy) : Boolean(current?.copy),
+    force: source.force !== undefined ? Boolean(source.force) : Boolean(current?.force),
+    compress: source.compress !== undefined ? Boolean(source.compress) : Boolean(current?.compress ?? true),
+    setAsHomeServer: source.setAsHomeServer !== undefined ? Boolean(source.setAsHomeServer) : Boolean(current?.setAsHomeServer),
+    notes: String(source.notes || current?.notes || '').trim(),
+  };
+}
+
 function normalizeTemplate(template = {}, current = {}) {
   return {
     id: current.id || template.id || `remediation-template-${crypto.randomUUID()}`,
@@ -93,6 +123,7 @@ function normalizeTemplate(template = {}, current = {}) {
     completionCriteria: normalizeStringList(template.completionCriteria, current.completionCriteria),
     lifecyclePlanSeed: normalizeLifecyclePlanSeed(template.lifecyclePlanSeed, current.lifecyclePlanSeed),
     resilienceRunbookSeed: normalizeResilienceRunbookSeed(template.resilienceRunbookSeed, current.resilienceRunbookSeed),
+    vmMigrationSeed: normalizeVmMigrationSeed(template.vmMigrationSeed, current.vmMigrationSeed),
     launchMode: String(template.launchMode || current.launchMode || 'draft').trim().toLowerCase(),
     recurrenceMode: String(template.recurrenceMode || current.recurrenceMode || 'manual').trim().toLowerCase(),
     recurrenceScope: String(template.recurrenceScope || current.recurrenceScope || 'object').trim().toLowerCase(),

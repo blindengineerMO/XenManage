@@ -6,6 +6,10 @@ const VMsView = {
     'metric-trend-card': MetricTrendCard,
     'vm-config-form': VMConfigForm,
     'vm-device-form': VMDeviceForm,
+    'vm-import-form': VMImportForm,
+    'vm-migration-form': VMMigrationForm,
+    'vm-duplicate-form': VMDuplicateForm,
+    'vm-snapshot-form': VMSnapshotForm,
   },
   template: `
     <div class="animate-fade-in">
@@ -17,13 +21,76 @@ const VMsView = {
           </h2>
           <p class="section-subtitle">Searchable VM inventory with a richer operator detail workspace for placement, attached resources, and configuration tasks.</p>
         </div>
-        <button class="btn btn-primary" @click="loadVMs">
-          <span class="mdi mdi-refresh"></span>
-          Refresh
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" @click="openImportWindow">
+            <span class="mdi mdi-package-up"></span>
+            Import XVA
+          </button>
+          <button class="btn btn-primary" @click="loadVMs">
+            <span class="mdi mdi-refresh"></span>
+            Refresh
+          </button>
+        </div>
       </div>
 
-      <data-table :columns="columns" :data="vms" :loading="loading" :searchable="true" @row-click="openProperties">
+      <div class="dash-card" v-if="selectedVmRows.length" style="margin-bottom:16px">
+        <div class="dash-card-label">Batch VM Actions</div>
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div>
+            <strong>{{ selectedVmRows.length }} VMs selected</strong>
+            <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ selectedVmSelectionSummary }}</div>
+          </div>
+          <div class="dashboard-hero-rail" style="gap:8px">
+            <button class="btn btn-sm btn-primary"
+                    v-if="selectedVmStateCounts.halted"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkVmAction('start')">
+              <span class="mdi mdi-play"></span>
+              {{ bulkActionBusy === 'start' ? 'Starting...' : `Start Selected (${selectedVmStateCounts.halted})` }}
+            </button>
+            <button class="btn btn-sm"
+                    v-if="selectedVmStateCounts.running"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkVmAction('shutdown')">
+              <span class="mdi mdi-stop"></span>
+              {{ bulkActionBusy === 'shutdown' ? 'Stopping...' : `Shutdown Selected (${selectedVmStateCounts.running})` }}
+            </button>
+            <button class="btn btn-sm"
+                    v-if="selectedVmStateCounts.running"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkVmAction('reboot')">
+              <span class="mdi mdi-restart"></span>
+              {{ bulkActionBusy === 'reboot' ? 'Rebooting...' : `Reboot Selected (${selectedVmStateCounts.running})` }}
+            </button>
+            <button class="btn btn-sm"
+                    v-if="selectedVmStateCounts.running"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkVmAction('suspend')">
+              <span class="mdi mdi-pause"></span>
+              {{ bulkActionBusy === 'suspend' ? 'Suspending...' : `Suspend Selected (${selectedVmStateCounts.running})` }}
+            </button>
+            <button class="btn btn-sm btn-primary"
+                    v-if="selectedVmStateCounts.suspended"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkVmAction('resume')">
+              <span class="mdi mdi-play-circle-outline"></span>
+              {{ bulkActionBusy === 'resume' ? 'Resuming...' : `Resume Selected (${selectedVmStateCounts.suspended})` }}
+            </button>
+            <button class="btn btn-sm" :disabled="Boolean(bulkActionBusy)" @click="clearVmSelection">Clear Selection</button>
+          </div>
+        </div>
+        <div class="form-error" v-if="bulkError" style="text-align:left;margin-top:12px">{{ bulkError }}</div>
+      </div>
+
+      <data-table :columns="columns"
+                  :data="vms"
+                  :loading="loading"
+                  :searchable="true"
+                  :selectable="true"
+                  :selected-keys="selectedVmRefs"
+                  row-key="ref"
+                  @selection-change="handleVmSelectionChange"
+                  @row-click="openProperties">
         <template #cell-name_label="{ row }">
           <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed' }}</span>
         </template>
@@ -155,13 +222,36 @@ const VMsView = {
 
               <div class="detail-section">
                 <div class="detail-section-title">Historical VM Footprint</div>
-                <metric-trend-card
-                  title="VM Memory Utilization"
-                  subtitle="Persisted workload memory demand relative to configured memory."
-                  :series="vmMetricSeries('memory_usage_percent')"
-                  value-kind="percent"
-                  :accent-status="historyStatus(vmMetricSeries('memory_usage_percent'), { warning: 75, critical: 90 })">
-                </metric-trend-card>
+                <div class="dashboard-panels">
+                  <metric-trend-card
+                    title="VM Memory Utilization"
+                    subtitle="Persisted workload memory demand relative to configured memory."
+                    :series="vmMetricSeries('memory_usage_percent')"
+                    value-kind="percent"
+                    :accent-status="historyStatus(vmMetricSeries('memory_usage_percent'), { warning: 75, critical: 90 })">
+                  </metric-trend-card>
+                  <metric-trend-card
+                    title="VM CPU Utilization"
+                    subtitle="Persisted RRD-derived vCPU pressure averaged across this workload's configured CPUs."
+                    :series="vmMetricSeries('cpu_usage_percent')"
+                    value-kind="percent"
+                    :accent-status="historyStatus(vmMetricSeries('cpu_usage_percent'), { warning: 70, critical: 90 })">
+                  </metric-trend-card>
+                  <metric-trend-card
+                    title="VM Network Throughput"
+                    subtitle="Persisted VM ingress and egress throughput."
+                    :series="combinedVmMetricSeries(['network_rx_kib_per_s', 'network_tx_kib_per_s'])"
+                    value-kind="throughput"
+                    accent-status="info">
+                  </metric-trend-card>
+                  <metric-trend-card
+                    title="VM Disk Throughput"
+                    subtitle="Persisted VM read and write throughput."
+                    :series="combinedVmMetricSeries(['disk_read_kib_per_s', 'disk_write_kib_per_s'])"
+                    value-kind="throughput"
+                    accent-status="info">
+                  </metric-trend-card>
+                </div>
               </div>
             </div>
 
@@ -247,6 +337,430 @@ const VMsView = {
               </div>
             </div>
 
+            <div v-else-if="activeTab === 'compatibility'">
+              <div class="dashboard-panels">
+                <div class="dash-card">
+                  <div class="dash-card-label">Placement Compatibility</div>
+                  <p class="text-muted" style="margin-bottom:12px">
+                    Current XAPI guidance favors preflight host compatibility checks over direct CPU masking. XenMange evaluates candidate hosts and highlights where the workload can boot or migrate safely.
+                  </p>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>Eligible Hosts</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ compatibilityHosts.length ? `${compatibleHostCount} compatible of ${compatibilityHosts.length} evaluated host${compatibilityHosts.length === 1 ? '' : 's'}` : 'No host compatibility data was returned for this workload.' }}
+                        </div>
+                      </div>
+                      <span class="badge" :class="compatibleHostCount ? 'badge-running' : 'badge-warning'">
+                        {{ compatibleHostCount ? 'ready' : 'review' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Hardware Platform Version</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ vmCompatibility.hardwarePlatformVersion ? `Virtual hardware platform ${vmCompatibility.hardwarePlatformVersion}` : 'No explicit virtual hardware platform requirement was reported.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">vm</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>CPU Feature Baseline</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ compatibilityFlagCount ? `${compatibilityFlagCount} last-boot CPU feature flag${compatibilityFlagCount === 1 ? '' : 's'} captured for operator review` : 'The current XAPI record did not expose last-boot CPU flags for this workload.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">baseline</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="dash-card">
+                  <div class="dash-card-label">Compatibility Guidance</div>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>Current Host Family</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ selectedVmHost?.cpu_info?.modelname || 'No active resident host CPU model was found for this VM.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">cpu</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>XAPI Coverage Note</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          Host CPU feature mutation calls are removed in the current official XAPI reference, so XenMange surfaces compatibility evidence and migration prechecks instead of exposing stale masking toggles.
+                        </div>
+                      </div>
+                      <span class="badge badge-warning">docs</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="detail-section">
+                <div class="detail-section-title">Host Compatibility Matrix</div>
+                <data-table :columns="compatibilityColumns" :data="compatibilityHosts" :loading="false" :searchable="true">
+                  <template #cell-name_label="{ row }">
+                    <span style="color:var(--text-primary);font-weight:500">{{ row.name_label }}</span>
+                  </template>
+                  <template #cell-readiness="{ row }">
+                    <status-badge :status="row.readiness"></status-badge>
+                  </template>
+                  <template #cell-compatible="{ row }">
+                    <span class="badge" :class="row.compatible ? 'badge-running' : 'badge-warning'">
+                      {{ row.compatible ? 'compatible' : 'blocked' }}
+                    </span>
+                  </template>
+                  <template #cell-cpuModel="{ row }">
+                    <span class="mono">{{ row.cpuModel || '-' }}</span>
+                  </template>
+                  <template #cell-compatibilityError="{ row }">
+                    <span class="mono property-wrap">{{ row.compatibilityError || (row.compatible ? 'Placement checks passed.' : '-') }}</span>
+                  </template>
+                </data-table>
+              </div>
+
+              <div class="detail-section" v-if="compatibilityFlagRows.length">
+                <div class="detail-section-title">Last Boot CPU Flags</div>
+                <div class="property-grid">
+                  <template v-for="flag in compatibilityFlagRows" :key="flag.key">
+                    <span class="text-muted mono">{{ flag.key }}</span>
+                    <span class="mono">{{ flag.value }}</span>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="activeTab === 'console'">
+              <div class="dashboard-panels">
+                <div class="dash-card">
+                  <div class="dash-card-label">Console Access</div>
+                  <p class="text-muted" style="margin-bottom:12px">
+                    Launch a session-authenticated VM console directly from the workload workspace. XenMange resolves the current XAPI console record and opens the browser-accessible endpoint through a guarded launch view.
+                  </p>
+                  <div class="stack-list" v-if="vmConsoles.length">
+                    <div v-for="consoleRecord in vmConsoles" :key="consoleRecord.ref" class="stack-item">
+                      <div>
+                        <strong>{{ consoleRecord.protocolLabel }}</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ consoleRecord.location || consoleRecord.absoluteLocation || consoleRecord.ref }}
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <span class="badge badge-info">{{ consoleRecord.protocol || 'unknown' }}</span>
+                        <button class="btn btn-primary btn-sm"
+                                type="button"
+                                :disabled="!consoleRecord.launchUrl"
+                                @click="launchConsole(consoleRecord)">
+                          <span class="mdi mdi-monitor-arrow-down-variant"></span>
+                          Launch
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="empty-state">
+                    <p>No XAPI console records were returned for this VM.</p>
+                  </div>
+                </div>
+
+                <div class="dash-card">
+                  <div class="dash-card-label">Operator Notes</div>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>Preferred Session</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ primaryConsole ? `${primaryConsole.protocolLabel} via ${primaryConsole.protocol || 'unknown'} transport` : 'No preferred console session is currently available.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">launch</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Fallback Behavior</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          If the remote console endpoint refuses inline framing, the launch view still provides a direct hand-off into the resolved console session in a separate browser surface.
+                        </div>
+                      </div>
+                      <span class="badge badge-warning">fallback</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="activeTab === 'migration'">
+              <div class="dashboard-panels">
+                <div class="dash-card">
+                  <div class="dash-card-label">Move Workload Placement</div>
+                  <p class="text-muted" style="margin-bottom:12px">
+                    Relocate a halted VM, live-migrate it within the current pool, or remap it across an attached destination fabric without leaving the VM details workspace.
+                  </p>
+                  <vm-migration-form
+                    :initial-value="selectedVM"
+                    :initial-draft="migrationInitialDraft"
+                    :host-options="migrationHostOptions"
+                    :destination-targets="migrationTargetOptions"
+                    :destination-hosts="migrationDestinationHosts"
+                    :destination-storage-options="migrationDestinationStorage"
+                    :destination-network-options="migrationDestinationNetworks"
+                    :source-network-options="attachedVmNetworks"
+                    :destination-loading="migrationDestinationLoading"
+                    :destination-error="migrationDestinationError"
+                    :active-target-key="currentTargetKey"
+                    :saving="migrationSaving"
+                    @destination-target-change="handleMigrationTargetChange"
+                    @submit="submitVMMigration">
+                  </vm-migration-form>
+                </div>
+
+                <div class="dash-card">
+                  <div class="dash-card-label">Migration Guidance</div>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>Current Host</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ selectedVmHost ? `${selectedVmHost.name_label || selectedVmHost.ref} · ${selectedVmHost.address || selectedVmHost.uuid || '-'}` : 'No resident host is currently mapped for this VM.' }}
+                        </div>
+                      </div>
+                      <span class="badge" :class="selectedVmHost && selectedVmHost.enabled ? 'badge-running' : 'badge-warning'">
+                        {{ selectedVmHost && selectedVmHost.enabled ? 'ready' : 'check' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Eligible Destinations</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ migrationHostOptions.length ? `${migrationHostOptions.length} pool host${migrationHostOptions.length === 1 ? '' : 's'} available for same-pool placement` : 'No alternate enabled hosts were found in the current pool.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">pool</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Attached Target Fabrics</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ migrationTargetOptions.length ? `${migrationTargetOptions.length} additional live target${migrationTargetOptions.length === 1 ? '' : 's'} available for cross-pool placement` : 'Attach another live target to unlock cross-pool migration and storage remapping.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">fabric</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Runtime Mode</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ selectedVM && (selectedVM.power_state === 'Running' || selectedVM.power_state === 'Suspended')
+                            ? 'This VM can stay online during a live migration if the target host is compatible.'
+                            : 'This VM is not running, so XenMange will submit a relocate-style move instead of a live migration.' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVM && (selectedVM.power_state === 'Running' || selectedVM.power_state === 'Suspended') ? 'live' : 'relocate' }}</span>
+                    </div>
+                    <div class="stack-item" v-if="migrationDestinationTargetLabel">
+                      <div>
+                        <strong>Destination Fabric Context</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ migrationDestinationTargetLabel }}{{ migrationDestinationPools.length ? ` · ${migrationDestinationPools.length} pool${migrationDestinationPools.length === 1 ? '' : 's'}` : '' }}{{ migrationDestinationStorage.length ? ` · ${migrationDestinationStorage.length} SR option${migrationDestinationStorage.length === 1 ? '' : 's'}` : '' }}
+                        </div>
+                      </div>
+                      <span class="badge badge-info">target</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="activeTab === 'portability'">
+              <div class="dashboard-panels">
+                <div class="dash-card">
+                  <div class="dash-card-label">Export Virtual Machine</div>
+                  <p class="text-muted" style="margin-bottom:12px">
+                    Stream a XenServer XVA package or a metadata-only archive directly from the selected workload without leaving the VM details workspace.
+                  </p>
+                  <div class="form-actions" style="justify-content:flex-start">
+                    <button class="form-btn"
+                            type="button"
+                            :disabled="Boolean(exportBusy)"
+                            @click="exportSelectedVM(false)">
+                      <span class="mdi mdi-package-down"></span>
+                      {{ exportBusy === 'full' ? 'Exporting...' : 'Export Full XVA' }}
+                    </button>
+                    <button class="btn btn-sm"
+                            type="button"
+                            :disabled="Boolean(exportBusy)"
+                            @click="exportSelectedVM(true)">
+                      <span class="mdi mdi-file-document-outline"></span>
+                      {{ exportBusy === 'metadata' ? 'Exporting...' : 'Export Metadata' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="dash-card">
+                  <div class="dash-card-label">Portability Guidance</div>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>Archive Scope</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          Full XVA exports include disk payloads for all attached VDIs. Metadata exports capture placement and VM definition details without the disk image bulk.
+                        </div>
+                      </div>
+                      <span class="badge badge-info">scope</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Import Targeting</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          Use the top-level Import XVA action to register or restore workloads into any reachable storage target, then reopen the created VM here for post-import validation.
+                        </div>
+                      </div>
+                      <span class="badge badge-info">workflow</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Attached Resources</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ attachedVmDisks.length }} disk{{ attachedVmDisks.length === 1 ? '' : 's' }} · {{ attachedVmNetworks.length }} network path{{ attachedVmNetworks.length === 1 ? '' : 's' }} mapped for this workload.
+                        </div>
+                      </div>
+                      <span class="badge badge-info">inventory</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="activeTab === 'duplicate'">
+              <div class="dashboard-panels">
+                <div class="dash-card">
+                  <div class="dash-card-label">Create Clone or Full Copy</div>
+                  <p class="text-muted" style="margin-bottom:12px">
+                    Provision a fast Copy-on-Write clone for rapid testing, or a full copy when you need isolated disks and explicit storage placement.
+                  </p>
+                  <vm-duplicate-form
+                    :initial-value="selectedVM"
+                    :storage-options="relatedStorage"
+                    :submit-label="'Create VM Copy'"
+                    :saving="duplicateSaving"
+                    @submit="submitVMDuplicate">
+                  </vm-duplicate-form>
+                </div>
+
+                <div class="dash-card">
+                  <div class="dash-card-label">Duplication Guidance</div>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>Source Readiness</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          XenAPI clone and copy operations require the source VM to be halted before provisioning begins.
+                        </div>
+                      </div>
+                      <span class="badge" :class="selectedVM.power_state === 'Halted' ? 'badge-running' : 'badge-warning'">
+                        {{ selectedVM.power_state === 'Halted' ? 'ready' : selectedVM.power_state || 'state' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Mode Selection</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          Fast clone keeps disks on a CoW chain for speed, while full copy breaks out full disks onto a selected SR.
+                        </div>
+                      </div>
+                      <span class="badge badge-info">parity</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="activeTab === 'protection'">
+              <div class="dashboard-panels">
+                <div class="dash-card">
+                  <div class="dash-card-label">Create Restore Point</div>
+                  <p class="text-muted" style="margin-bottom:12px">
+                    Capture a disk snapshot or a checkpoint before patching, application upgrades, or operator-led remediation.
+                  </p>
+                  <vm-snapshot-form
+                    :submit-label="'Create Restore Point'"
+                    :saving="snapshotSaving"
+                    @submit="submitVMSnapshot">
+                  </vm-snapshot-form>
+                </div>
+
+                <div class="dash-card">
+                  <div class="dash-card-label">Protection Summary</div>
+                  <div class="stack-list">
+                    <div class="stack-item">
+                      <div>
+                        <strong>{{ vmSnapshots.length }} restore point{{ vmSnapshots.length === 1 ? '' : 's' }}</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          {{ latestSnapshot ? `Latest ${formatDateTime(latestSnapshot.snapshot_time)}` : 'No VM snapshots or checkpoints have been captured yet.' }}
+                        </div>
+                      </div>
+                      <span class="badge" :class="latestSnapshot ? 'badge-running' : 'badge-warning'">
+                        {{ latestSnapshot ? (latestSnapshot.snapshot_mode || 'snapshot') : 'empty' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Operator Guidance</strong>
+                        <div class="text-muted mono" style="font-size:11px">
+                          Use checkpoints for risky live changes and disk snapshots for rollback points that do not need runtime memory preserved.
+                        </div>
+                      </div>
+                      <span class="badge badge-info">workflow</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="detail-section">
+                <div class="detail-section-title">Recovery Points</div>
+                <div v-if="vmSnapshots.length" class="stack-list vm-snapshot-list">
+                  <div v-for="snapshot in vmSnapshots" :key="snapshot.ref" class="stack-item vm-snapshot-row">
+                    <div>
+                      <strong>{{ snapshot.name_label || snapshot.ref }}</strong>
+                      <div class="text-muted mono" style="font-size:11px">
+                        {{ formatDateTime(snapshot.snapshot_time) }} · {{ snapshot.ref }}
+                      </div>
+                      <div class="text-muted" style="margin-top:6px;font-size:12px">
+                        {{ snapshot.name_description || 'No operator note was recorded for this restore point.' }}
+                      </div>
+                    </div>
+
+                    <div class="vm-snapshot-actions">
+                      <span class="badge" :class="snapshot.snapshot_mode === 'checkpoint' ? 'badge-warning' : 'badge-info'">
+                        {{ snapshot.snapshot_mode === 'checkpoint' ? 'checkpoint' : 'snapshot' }}
+                      </span>
+                      <button class="btn btn-sm"
+                              :disabled="Boolean(snapshotBusy)"
+                              @click="snapshotAction('revert', snapshot)">
+                        <span class="mdi mdi-restore"></span>
+                        {{ snapshotBusy === `revert:${snapshot.ref}` ? 'Reverting...' : 'Revert' }}
+                      </button>
+                      <button class="btn btn-danger btn-sm"
+                              :disabled="Boolean(snapshotBusy)"
+                              @click="snapshotAction('delete', snapshot)">
+                        <span class="mdi mdi-delete-outline"></span>
+                        {{ snapshotBusy === `delete:${snapshot.ref}` ? 'Deleting...' : 'Delete' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="empty-state vm-snapshot-empty">
+                  <span class="mdi mdi-camera-off-outline" style="font-size:32px;color:var(--text-secondary)"></span>
+                  <p style="margin-top:12px">Create the first restore point for this workload to make rollback and checkpoint recovery available from the VM details pane.</p>
+                </div>
+              </div>
+            </div>
+
             <div v-else-if="activeTab === 'config'">
               <div class="dashboard-panels">
                 <div class="dash-card">
@@ -323,6 +837,29 @@ const VMsView = {
           </template>
         </div>
       </floating-window>
+
+      <floating-window :show="showImportWindow"
+                       title="Import Virtual Machine"
+                       :width="700"
+                       :height="620"
+                       @close="closeImportWindow">
+        <div class="stack-list">
+          <div class="form-error" v-if="importError" style="text-align:left">{{ importError }}</div>
+          <div v-if="importStatusMessage" class="stack-item">
+            <div>
+              <strong>Import Completed</strong>
+              <div class="text-muted mono" style="font-size:11px">{{ importStatusMessage }}</div>
+            </div>
+            <span class="badge badge-running">ready</span>
+          </div>
+          <vm-import-form
+            :storage-options="importStorageOptions"
+            :saving="importSaving"
+            :submit-label="'Import Virtual Machine'"
+            @submit="submitVMImport">
+          </vm-import-form>
+        </div>
+      </floating-window>
     </div>
   `,
   data() {
@@ -330,25 +867,56 @@ const VMsView = {
       loading: true,
       vms: [],
       showProps: false,
+      showImportWindow: false,
       selectedVM: null,
       detailLoading: false,
       detailError: null,
       actionError: null,
       actionBusy: '',
+      importSaving: false,
+      importError: null,
+      importStatusMessage: '',
+      exportBusy: '',
       configSaving: false,
       diskSaving: false,
       nicSaving: false,
+      migrationSaving: false,
+      migrationDestinationLoading: false,
+      migrationDestinationError: null,
+      migrationDestinationTargetKey: '',
+      migrationDestinationHosts: [],
+      migrationDestinationPools: [],
+      migrationDestinationStorage: [],
+      migrationDestinationNetworks: [],
+      duplicateSaving: false,
+      snapshotSaving: false,
       activeTab: 'overview',
       lastAppliedFocusKey: '',
+      automationTasks: [],
+      migrationSeed: null,
+      migrationSourceTask: null,
+      selectedVmRefs: [],
+      bulkActionBusy: '',
+      bulkError: null,
       relatedHosts: [],
       relatedPools: [],
       relatedStorage: [],
       relatedNetworks: [],
       relatedVdis: [],
+      vmCompatibility: { hosts: [], lastBootCpuFlags: {}, possibleHostRefs: [], hardwarePlatformVersion: 0, maskingApiAvailable: false },
+      vmConsoles: [],
+      vmSnapshots: [],
       vmMetricHistory: { metrics: [] },
+      snapshotBusy: '',
       tabs: [
         { key: 'overview', label: 'Overview', icon: 'mdi-card-account-details-outline' },
         { key: 'resources', label: 'Resources', icon: 'mdi-vector-link' },
+        { key: 'compatibility', label: 'Compatibility', icon: 'mdi-chip' },
+        { key: 'console', label: 'Console', icon: 'mdi-monitor-dashboard' },
+        { key: 'migration', label: 'Migration', icon: 'mdi-swap-horizontal-bold' },
+        { key: 'portability', label: 'Import / Export', icon: 'mdi-package-variant-closed' },
+        { key: 'duplicate', label: 'Clone / Copy', icon: 'mdi-content-copy' },
+        { key: 'protection', label: 'Protection', icon: 'mdi-camera-timer' },
         { key: 'config', label: 'Config', icon: 'mdi-tune-variant' },
         { key: 'devices', label: 'Add Devices', icon: 'mdi-plus-box-multiple-outline' },
       ],
@@ -373,9 +941,53 @@ const VMsView = {
         { key: 'managed', label: 'State' },
         { key: 'ref', label: 'Reference' },
       ],
+      compatibilityColumns: [
+        { key: 'name_label', label: 'Host' },
+        { key: 'readiness', label: 'Readiness' },
+        { key: 'compatible', label: 'Placement' },
+        { key: 'cpuModel', label: 'CPU Model' },
+        { key: 'compatibilityError', label: 'Operator Note' },
+      ],
     };
   },
   computed: {
+    currentTargetKey() {
+      return String(store.currentTargetKey || '').trim();
+    },
+    selectedVmRows() {
+      const selected = new Set(Array.isArray(this.selectedVmRefs) ? this.selectedVmRefs : []);
+      return this.vms.filter((vm) => selected.has(vm.ref));
+    },
+    selectedVmStateCounts() {
+      return this.selectedVmRows.reduce((counts, vm) => {
+        const state = String(vm.power_state || '').trim().toLowerCase();
+        if (state === 'running') counts.running += 1;
+        else if (state === 'halted') counts.halted += 1;
+        else if (state === 'suspended') counts.suspended += 1;
+        else counts.other += 1;
+        return counts;
+      }, { running: 0, halted: 0, suspended: 0, other: 0 });
+    },
+    selectedVmSelectionSummary() {
+      const parts = [];
+      if (this.selectedVmStateCounts.running) parts.push(`${this.selectedVmStateCounts.running} running`);
+      if (this.selectedVmStateCounts.halted) parts.push(`${this.selectedVmStateCounts.halted} halted`);
+      if (this.selectedVmStateCounts.suspended) parts.push(`${this.selectedVmStateCounts.suspended} suspended`);
+      if (this.selectedVmStateCounts.other) parts.push(`${this.selectedVmStateCounts.other} other`);
+      return parts.length ? parts.join(' · ') : 'No selected VM power states were recognized.';
+    },
+    migrationInitialDraft() {
+      return this.migrationSeed ? { ...this.migrationSeed } : null;
+    },
+    migrationTargetOptions() {
+      return (Array.isArray(store.connectedTargets) ? store.connectedTargets : [])
+        .filter((target) => String(target?.targetKey || '').trim())
+        .filter((target) => String(target.targetKey || '').trim() !== this.currentTargetKey);
+    },
+    migrationDestinationTargetLabel() {
+      const target = this.migrationTargetOptions.find((entry) => entry.targetKey === this.migrationDestinationTargetKey) || null;
+      return target ? (target.connectionName || target.host || target.targetKey) : '';
+    },
     selectedVmHost() {
       if (!this.selectedVM) return null;
 
@@ -435,6 +1047,21 @@ const VMsView = {
           vlan: (network.other_config || {}).vlan || '-',
         }));
     },
+    migrationHostOptions() {
+      const currentHostRef = this.selectedVmHost?.ref || this.selectedVM?.resident_on || this.selectedVM?.affinity || '';
+      return this.relatedHosts
+        .filter((host) => host.ref !== currentHostRef)
+        .filter((host) => this.hostBelongsToSelectedPool(host))
+        .sort((left, right) => {
+          if (Boolean(left.enabled) !== Boolean(right.enabled)) {
+            return left.enabled ? -1 : 1;
+          }
+          return String(left.name_label || left.address || left.ref).localeCompare(String(right.name_label || right.address || right.ref));
+        });
+    },
+    importStorageOptions() {
+      return Array.isArray(this.relatedStorage) ? this.relatedStorage : [];
+    },
     overviewCards() {
       return [
         {
@@ -467,6 +1094,26 @@ const VMsView = {
         },
       ];
     },
+    latestSnapshot() {
+      return this.vmSnapshots[0] || null;
+    },
+    compatibilityHosts() {
+      return Array.isArray(this.vmCompatibility?.hosts) ? this.vmCompatibility.hosts : [];
+    },
+    compatibleHostCount() {
+      return this.compatibilityHosts.filter((host) => host.compatible).length;
+    },
+    compatibilityFlagRows() {
+      return Object.entries(this.vmCompatibility?.lastBootCpuFlags || {})
+        .map(([key, value]) => ({ key, value: String(value) }))
+        .slice(0, 18);
+    },
+    compatibilityFlagCount() {
+      return this.compatibilityFlagRows.length;
+    },
+    primaryConsole() {
+      return this.vmConsoles[0] || null;
+    },
   },
   async mounted() {
     if (!store.authenticated) {
@@ -483,12 +1130,41 @@ const VMsView = {
         await this.syncRouteFocus();
       },
     },
+    vms() {
+      const validRefs = new Set(this.vms.map((vm) => vm.ref));
+      this.selectedVmRefs = this.selectedVmRefs.filter((ref) => validRefs.has(ref));
+    },
   },
   methods: {
     formatBytes,
+    formatThroughput,
+    formatDateTime,
     truncateList,
+    downloadBlob(content, type, filename) {
+      const blob = content instanceof Blob ? content : new Blob([content], { type });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    },
     vmMetricSeries(metricName) {
       return (this.vmMetricHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
+    },
+    combinedVmMetricSeries(metricNames = []) {
+      const buckets = new Map();
+      (Array.isArray(metricNames) ? metricNames : []).forEach((metricName) => {
+        const points = this.vmMetricSeries(metricName);
+        points.forEach((point) => {
+          const ts = Number(point?.ts || 0);
+          if (!ts) return;
+          buckets.set(ts, (buckets.get(ts) || 0) + Number(point?.value || 0));
+        });
+      });
+      return [...buckets.entries()]
+        .sort((left, right) => left[0] - right[0])
+        .map(([ts, value]) => ({ ts, value }));
     },
     historyStatus(series, thresholds = {}) {
       const points = Array.isArray(series) ? series : [];
@@ -509,30 +1185,175 @@ const VMsView = {
       }
       await this.syncRouteFocus();
     },
-    async openProperties(row) {
+    handleVmSelectionChange(keys) {
+      this.selectedVmRefs = Array.isArray(keys) ? keys : [];
+      this.bulkError = null;
+    },
+    clearVmSelection() {
+      this.selectedVmRefs = [];
+      this.bulkError = null;
+    },
+    async ensureAutomationTasksLoaded(force = false) {
+      if (!force && this.automationTasks.length) return;
+
+      const result = await api.getTasks().catch(() => ({ data: [] }));
+      this.automationTasks = result.data || [];
+    },
+    async openProperties(row, options = {}) {
+      const nextActiveTab = String(options.activeTab || '').trim() || 'overview';
+      const nextMigrationSeed = options.migrationSeed && typeof options.migrationSeed === 'object'
+        ? { ...options.migrationSeed }
+        : null;
+
       this.selectedVM = row;
       this.showProps = true;
-      this.activeTab = 'overview';
+      this.activeTab = nextActiveTab;
       this.actionError = null;
+      this.exportBusy = '';
+      this.migrationSeed = nextMigrationSeed;
+      this.migrationSourceTask = options.migrationSourceTask || null;
       await this.loadVmDetail(row.ref);
+
+      if (nextMigrationSeed?.mode === 'cross-pool' && nextMigrationSeed.destinationTargetKey) {
+        await this.ensureMigrationDestinationContext(nextMigrationSeed.destinationTargetKey);
+      }
+    },
+    async ensureImportContext() {
+      try {
+        const [hosts, pools, storage, networks] = await Promise.all([
+          api.getHosts().catch(() => ({ data: [] })),
+          api.getPools().catch(() => ({ data: [] })),
+          api.getSRs().catch(() => ({ data: [] })),
+          api.getNetworks().catch(() => ({ data: [] })),
+        ]);
+        this.relatedHosts = hosts.data || [];
+        this.relatedPools = pools.data || [];
+        this.relatedStorage = storage.data || [];
+        this.relatedNetworks = networks.data || [];
+      } catch (error) {
+        this.importError = error.message || 'Unable to load import targets';
+      }
+    },
+    resetMigrationDestinationContext() {
+      this.migrationDestinationLoading = false;
+      this.migrationDestinationError = null;
+      this.migrationDestinationTargetKey = '';
+      this.migrationDestinationHosts = [];
+      this.migrationDestinationPools = [];
+      this.migrationDestinationStorage = [];
+      this.migrationDestinationNetworks = [];
+    },
+    async loadMigrationDestinationContext(targetKey = '') {
+      const normalizedTargetKey = String(targetKey || '').trim();
+      if (!normalizedTargetKey) {
+        this.resetMigrationDestinationContext();
+        return;
+      }
+
+      this.migrationDestinationLoading = true;
+      this.migrationDestinationError = null;
+      this.migrationDestinationTargetKey = normalizedTargetKey;
+
+      try {
+        const [hosts, pools, storage, networks] = await Promise.all([
+          api.getHosts(normalizedTargetKey).catch(() => ({ data: [] })),
+          api.getPools(normalizedTargetKey).catch(() => ({ data: [] })),
+          api.getSRs(normalizedTargetKey).catch(() => ({ data: [] })),
+          api.getNetworks(normalizedTargetKey).catch(() => ({ data: [] })),
+        ]);
+
+        this.migrationDestinationHosts = hosts.data || [];
+        this.migrationDestinationPools = pools.data || [];
+        this.migrationDestinationStorage = storage.data || [];
+        this.migrationDestinationNetworks = networks.data || [];
+      } catch (error) {
+        this.migrationDestinationError = error.message || 'Unable to load destination migration inventory';
+      } finally {
+        this.migrationDestinationLoading = false;
+      }
+    },
+    async ensureMigrationDestinationContext(preferredTargetKey = '') {
+      const nextTargetKey = String(preferredTargetKey || this.migrationDestinationTargetKey || this.migrationTargetOptions[0]?.targetKey || '').trim();
+      if (!nextTargetKey) {
+        this.resetMigrationDestinationContext();
+        return;
+      }
+
+      if (this.migrationDestinationTargetKey === nextTargetKey && (
+        this.migrationDestinationHosts.length
+        || this.migrationDestinationStorage.length
+        || this.migrationDestinationNetworks.length
+      )) {
+        return;
+      }
+
+      await this.loadMigrationDestinationContext(nextTargetKey);
+    },
+    async handleMigrationTargetChange(targetKey) {
+      await this.loadMigrationDestinationContext(targetKey);
+    },
+    async openImportWindow() {
+      this.importError = null;
+      this.importStatusMessage = '';
+      await this.ensureImportContext();
+      this.showImportWindow = true;
+    },
+    closeImportWindow() {
+      this.showImportWindow = false;
+      this.importSaving = false;
+      this.importError = null;
     },
     findVmByFocus(focus) {
       return this.vms.find((vm) =>
         recordMatchesRouteFocus(vm, focus, ['ref', 'uuid', 'name_label'])
       ) || null;
     },
+    findTaskByFocus(focus) {
+      return this.automationTasks.find((task) =>
+        recordMatchesRouteFocus(task, focus, ['ref', 'uuid', 'name_label'])
+      ) || null;
+    },
+    findVmByTask(task) {
+      if (!task) return null;
+
+      const relatedObject = String(task.related_object || '').trim();
+      const relatedObjectLower = relatedObject.toLowerCase();
+      const relatedClass = String(task.related_class || '').trim().toLowerCase();
+
+      if (relatedObject && (!relatedClass || relatedClass === 'vm')) {
+        const directMatch = this.vms.find((vm) =>
+          [vm.ref, vm.uuid, vm.name_label]
+            .filter(Boolean)
+            .map((value) => String(value).trim().toLowerCase())
+            .includes(relatedObjectLower)
+        );
+        if (directMatch) return directMatch;
+      }
+
+      const haystack = `${task.name_label || ''} ${task.name_description || ''} ${task.workspace_summary || ''} ${task.related_alert_summary || ''}`.toLowerCase();
+      return this.vms.find((vm) => {
+        const label = String(vm.name_label || '').trim().toLowerCase();
+        return Boolean(label) && haystack.includes(label);
+      }) || null;
+    },
     async loadVmDetail(ref) {
       this.detailLoading = true;
       this.detailError = null;
       this.vmMetricHistory = { metrics: [] };
+      this.vmSnapshots = [];
+      this.vmCompatibility = { hosts: [], lastBootCpuFlags: {}, possibleHostRefs: [], hardwarePlatformVersion: 0, maskingApiAvailable: false };
+      this.vmConsoles = [];
       try {
-        const [vm, hosts, pools, storage, networks, metricHistory] = await Promise.all([
+        const [vm, hosts, pools, storage, networks, metricHistory, snapshots, compatibility, consoles] = await Promise.all([
           api.getVM(ref),
           api.getHosts().catch(() => ({ data: [] })),
           api.getPools().catch(() => ({ data: [] })),
           api.getSRs().catch(() => ({ data: [] })),
           api.getNetworks().catch(() => ({ data: [] })),
           api.getVmMetricHistory(ref).catch(() => ({ metrics: [] })),
+          api.getVMSnapshots(ref).catch(() => ({ data: [] })),
+          api.getVMCompatibility(ref).catch(() => ({ hosts: [], lastBootCpuFlags: {}, possibleHostRefs: [], hardwarePlatformVersion: 0, maskingApiAvailable: false })),
+          api.getVMConsoles(ref).catch(() => ({ data: [] })),
         ]);
 
         this.selectedVM = { ...(this.selectedVM || {}), ...(vm || {}) };
@@ -541,6 +1362,11 @@ const VMsView = {
         this.relatedStorage = storage.data || [];
         this.relatedNetworks = networks.data || [];
         this.vmMetricHistory = metricHistory || { metrics: [] };
+        this.vmSnapshots = (snapshots.data || [])
+          .map((entry) => this.normalizeSnapshot(entry))
+          .sort((left, right) => new Date(right.snapshot_time || 0) - new Date(left.snapshot_time || 0));
+        this.vmCompatibility = compatibility || { hosts: [], lastBootCpuFlags: {}, possibleHostRefs: [], hardwarePlatformVersion: 0, maskingApiAvailable: false };
+        this.vmConsoles = (consoles.data || []).map((entry) => this.normalizeConsoleRecord(entry));
 
         const vdiResults = await Promise.all(
           this.relatedStorage.map((sr) =>
@@ -550,11 +1376,33 @@ const VMsView = {
           )
         );
         this.relatedVdis = vdiResults.flat();
+        await this.ensureMigrationDestinationContext();
       } catch (error) {
         this.detailError = error.message || 'Unable to load VM detail';
+        this.resetMigrationDestinationContext();
       } finally {
         this.detailLoading = false;
       }
+    },
+    normalizeSnapshot(entry = {}) {
+      return {
+        ...entry,
+        snapshot_mode: entry.snapshot_mode === 'checkpoint' ? 'checkpoint' : 'snapshot',
+        snapshot_time: entry.snapshot_time || entry.snapshotTime || '',
+      };
+    },
+    normalizeConsoleRecord(entry = {}) {
+      const protocol = String(entry.protocol || '').trim().toLowerCase();
+      return {
+        ...entry,
+        protocol,
+        protocolLabel: protocol === 'rfb'
+          ? 'Remote Frame Buffer Console'
+          : protocol === 'rdp'
+            ? 'Remote Desktop Console'
+            : 'Remote Console',
+        launchUrl: entry.launchUrl || entry.launchPath || '',
+      };
     },
     poolContainsHost(pool, host) {
       if (!pool || !host) return false;
@@ -570,6 +1418,33 @@ const VMsView = {
 
       return poolRefs.has(host.ref) || poolRefs.has(host.uuid);
     },
+    hostBelongsToSelectedPool(host) {
+      if (!host) return false;
+      if (!this.selectedVmPool) return true;
+
+      const directMatches = [
+        host.pool,
+        host.pool_ref,
+        host.pool_uuid,
+        host.pool_name,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+
+      const poolKeys = [
+        this.selectedVmPool.ref,
+        this.selectedVmPool.uuid,
+        this.selectedVmPool.name_label,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+
+      if (directMatches.some((value) => poolKeys.includes(value))) {
+        return true;
+      }
+
+      return this.poolContainsHost(this.selectedVmPool, host);
+    },
     async refreshVmDetail(ref) {
       await this.loadVMs();
       const updated = this.vms.find((vm) => vm.ref === ref);
@@ -580,15 +1455,39 @@ const VMsView = {
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);
-      if (!focus || (focus.kind && focus.kind !== 'vm')) {
+      const seedAction = String(this.$route.query.seedAction || '').trim().toLowerCase();
+
+      if (!focus || (focus.kind && !['vm', 'task'].includes(focus.kind))) {
         this.lastAppliedFocusKey = '';
         return;
       }
 
       if (this.loading || !this.vms.length) return;
 
-      const key = getRouteFocusKey(focus);
+      const key = `${getRouteFocusKey(focus)}|${seedAction}`;
       if (this.lastAppliedFocusKey === key) return;
+
+      if (focus.kind === 'task') {
+        await this.ensureAutomationTasksLoaded();
+        let task = this.findTaskByFocus(focus);
+        if (!task) {
+          await this.ensureAutomationTasksLoaded(true);
+          task = this.findTaskByFocus(focus);
+        }
+        if (!task) return;
+
+        if (seedAction === 'vm-migration' && task.vm_migration_seed?.enabled) {
+          const vm = this.findVmByTask(task);
+          if (!vm) return;
+          await this.openProperties(vm, {
+            activeTab: 'migration',
+            migrationSeed: task.vm_migration_seed,
+            migrationSourceTask: task,
+          });
+          this.lastAppliedFocusKey = key;
+        }
+        return;
+      }
 
       const match = this.findVmByFocus(focus);
       if (!match) return;
@@ -596,34 +1495,127 @@ const VMsView = {
       await this.openProperties(match);
       this.lastAppliedFocusKey = key;
     },
+    isRemediationTask(task) {
+      return String(task?.task_kind || '').toLowerCase() === 'remediation'
+        || String(task?.source || '').toLowerCase() === 'remediation';
+    },
+    async syncMigrationSourceTaskStatus(status, result) {
+      if (!this.migrationSourceTask?.ref || !this.isRemediationTask(this.migrationSourceTask)) return;
+
+      const currentStatus = String(this.migrationSourceTask.status || '').trim().toLowerCase();
+      if (['success', 'warning', 'failure', 'cancelled'].includes(currentStatus)) return;
+
+      const updatedTask = await api.updateRemediationTask(this.migrationSourceTask.ref, {
+        status,
+        assignee: this.migrationSourceTask.assignee || store.username || '',
+        dueDate: this.migrationSourceTask.due_date || this.migrationSourceTask.dueDate || '',
+        result,
+        nameDescription: this.migrationSourceTask.name_description || this.migrationSourceTask.nameDescription || '',
+      });
+
+      this.automationTasks = this.automationTasks.map((task) => task.ref === updatedTask.ref ? updatedTask : task);
+      this.migrationSourceTask = updatedTask;
+    },
+    getEligibleBatchVms(action) {
+      if (action === 'start') {
+        return this.selectedVmRows.filter((vm) => String(vm.power_state || '').trim().toLowerCase() === 'halted');
+      }
+      if (action === 'resume') {
+        return this.selectedVmRows.filter((vm) => String(vm.power_state || '').trim().toLowerCase() === 'suspended');
+      }
+      if (['shutdown', 'reboot', 'suspend'].includes(action)) {
+        return this.selectedVmRows.filter((vm) => String(vm.power_state || '').trim().toLowerCase() === 'running');
+      }
+      return [];
+    },
+    async performVmAction(action, ref, options = {}) {
+      const approvalId = await this.resolveGovernanceApproval(action, ref);
+      return api.vmAction(action, ref, approvalId ? { ...options, approvalId } : options);
+    },
     async vmAction(action, ref, options = {}) {
       this.actionError = null;
       this.actionBusy = action + (options.force ? '-force' : '');
       try {
-        const approvalId = await this.resolveGovernanceApproval(action, ref);
-        await api.vmAction(action, ref, approvalId ? { ...options, approvalId } : options);
+        await this.performVmAction(action, ref, options);
         await this.refreshVmDetail(ref);
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.actionError = 'Governance approval is required before continuing this VM power operation.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before continuing this VM power operation.'
+          );
+          return;
+        }
         this.actionError = error.message || 'Action failed';
       } finally {
         this.actionBusy = '';
       }
     },
-    async resolveGovernanceApproval(action, ref) {
-      if (!['shutdown', 'reboot', 'suspend'].includes(action)) return '';
-      if ((store.governance?.currentRole || 'admin') === 'admin') return '';
-      if (!store.governance?.policy?.requireDestructiveApproval) return '';
+    async applyBulkVmAction(action, options = {}) {
+      const targets = this.getEligibleBatchVms(action);
+      if (!targets.length) {
+        this.bulkError = 'No selected VMs are currently eligible for that power action.';
+        return;
+      }
 
-      const actionKey = action === 'shutdown' ? 'vm_shutdown' : action === 'reboot' ? 'vm_reboot' : 'vm_suspend';
-      const governance = await api.getGovernance();
-      const approval = (governance.approvals || []).find((entry) =>
-        entry.status === 'approved'
-        && entry.actionKey === actionKey
-        && entry.entityType === 'vm'
-        && entry.entityRef === ref
-      );
+      this.bulkError = null;
+      this.bulkActionBusy = action + (options.force ? '-force' : '');
+      let completed = 0;
 
-      return approval?.id || '';
+      try {
+        for (const vm of targets) {
+          try {
+            await this.performVmAction(action, vm.ref, options);
+            completed += 1;
+          } catch (error) {
+            if (error.code === 'APPROVAL_REQUIRED') {
+              this.bulkError = 'Governance approval is required before continuing this bulk VM power operation.';
+              await handoffToGovernanceApproval(
+                this.$router,
+                error.approvalDraft,
+                'Approval required before continuing this bulk VM power operation.'
+              );
+              return;
+            }
+
+            this.bulkError = completed
+              ? `Processed ${completed} VM(s) before stopping: ${error.message || 'Unable to continue the batch action.'}`
+              : (error.message || 'Unable to continue the batch action.');
+            return;
+          }
+        }
+      } finally {
+        this.bulkActionBusy = '';
+      }
+
+      await this.loadVMs();
+
+      if (this.selectedVM?.ref && targets.some((vm) => vm.ref === this.selectedVM.ref)) {
+        const updated = this.vms.find((vm) => vm.ref === this.selectedVM.ref) || this.selectedVM;
+        this.selectedVM = updated;
+        await this.loadVmDetail(this.selectedVM.ref);
+      }
+    },
+    async resolveGovernanceApproval(action, ref, target = null) {
+      const actionMap = {
+        shutdown: 'vm_shutdown',
+        reboot: 'vm_reboot',
+        suspend: 'vm_suspend',
+        revert: 'vm_snapshot_revert',
+        delete: 'vm_snapshot_delete',
+      };
+      const actionKey = actionMap[action];
+      if (!actionKey) return '';
+      const vm = this.vms.find((entry) => entry.ref === ref) || this.selectedVM;
+      return resolveGovernanceApproval({
+        actionKey,
+        entityType: target ? 'vm-snapshot' : 'vm',
+        entityRef: target?.ref || ref,
+        entityName: target?.name_label || vm?.name_label || vm?.uuid || 'Virtual machine',
+        route: '/vms',
+      });
     },
     async submitVmConfig(payload) {
       if (!this.selectedVM) return;
@@ -694,6 +1686,187 @@ const VMsView = {
         this.actionError = error.message || 'Unable to add virtual NIC';
       } finally {
         this.nicSaving = false;
+      }
+    },
+    async submitVMDuplicate(payload) {
+      if (!this.selectedVM) return;
+
+      this.actionError = null;
+      this.duplicateSaving = true;
+      try {
+        const record = await api.duplicateVM(this.selectedVM.ref, payload);
+        await this.loadVMs();
+        const created = this.vms.find((entry) => entry.ref === record?.ref) || record;
+        if (created?.ref) {
+          await this.openProperties(created);
+        } else {
+          await this.refreshVmDetail(this.selectedVM.ref);
+          this.activeTab = 'duplicate';
+        }
+      } catch (error) {
+        this.actionError = error.message || 'Unable to create VM clone or full copy';
+      } finally {
+        this.duplicateSaving = false;
+      }
+    },
+    async exportSelectedVM(metadataOnly = false) {
+      if (!this.selectedVM?.ref) return;
+
+      this.actionError = null;
+      this.exportBusy = metadataOnly ? 'metadata' : 'full';
+      try {
+        const result = await api.exportVM(this.selectedVM.ref, { metadataOnly });
+        this.downloadBlob(
+          result.blob,
+          result.contentType || 'application/octet-stream',
+          result.filename || (metadataOnly ? 'vm-metadata.xva' : 'vm-export.xva')
+        );
+      } catch (error) {
+        this.actionError = error.message || 'Unable to export virtual machine';
+      } finally {
+        this.exportBusy = '';
+      }
+    },
+    launchConsole(consoleRecord) {
+      const launchUrl = String(consoleRecord?.launchUrl || '').trim();
+      if (!launchUrl) {
+        this.actionError = 'No console launch endpoint was available for this record.';
+        return;
+      }
+
+      const launched = window.open(launchUrl, '_blank', 'noopener');
+      if (!launched) {
+        this.actionError = 'The browser blocked the console window. Allow pop-ups for XenMange and try again.';
+      }
+    },
+    async submitVMMigration(payload) {
+      if (!this.selectedVM) return;
+
+      this.actionError = null;
+      this.migrationSaving = true;
+      let taskSyncError = null;
+      try {
+        const record = await api.migrateVM(this.selectedVM.ref, payload);
+        const vmLabel = this.selectedVM.name_label || this.selectedVM.uuid || this.selectedVM.ref || 'VM';
+        const result = payload.mode === 'cross-pool'
+          ? `VM migration completed for ${vmLabel} onto ${record?.destinationTargetKey || payload.destinationTargetKey || 'the selected target fabric'}.`
+          : `VM migration completed for ${vmLabel} onto ${payload.hostRef || 'the selected host'}.`;
+
+        try {
+          await this.syncMigrationSourceTaskStatus('success', result);
+        } catch (error) {
+          taskSyncError = error;
+        }
+
+        if (payload.mode === 'cross-pool' && record?.destinationTargetKey) {
+          const status = await api.activateLiveTarget({ targetKey: record.destinationTargetKey }).catch(() => null);
+          if (status) {
+            applySessionStatus(status);
+          }
+
+          await this.loadVMs();
+          const migratedVm = this.vms.find((entry) => entry.ref === record.destinationVmRef)
+            || this.vms.find((entry) => record.destinationVmUuid && entry.uuid === record.destinationVmUuid)
+            || this.vms.find((entry) => entry.name_label && entry.name_label === record.name_label)
+            || null;
+
+          if (migratedVm) {
+            await this.openProperties(migratedVm);
+            this.activeTab = 'migration';
+            if (taskSyncError) {
+              this.actionError = 'The VM migration completed, but the source remediation task could not be updated automatically.';
+            }
+            return;
+          }
+        }
+
+        await this.refreshVmDetail(record?.destinationVmRef || this.selectedVM.ref);
+        this.activeTab = 'migration';
+
+        if (taskSyncError) {
+          this.actionError = 'The VM migration completed, but the source remediation task could not be updated automatically.';
+        }
+      } catch (error) {
+        this.actionError = error.message || 'Unable to migrate the VM';
+      } finally {
+        this.migrationSaving = false;
+      }
+    },
+    async submitVMImport(payload) {
+      this.importError = null;
+      this.importStatusMessage = '';
+      this.importSaving = true;
+      try {
+        const result = await api.importVM(payload);
+        await this.loadVMs();
+        const importedVm = result?.importedVm?.ref
+          ? this.vms.find((entry) => entry.ref === result.importedVm.ref) || result.importedVm
+          : null;
+        this.importStatusMessage = result?.metadataOnly
+          ? `${result.fileName || payload.fileName || 'Archive'} metadata imported successfully.`
+          : `${result.fileName || payload.fileName || 'Archive'} imported successfully.`;
+
+        if (importedVm?.ref) {
+          this.showImportWindow = false;
+          await this.openProperties(importedVm);
+          this.activeTab = 'portability';
+        }
+      } catch (error) {
+        this.importError = error.message || 'Unable to import virtual machine';
+      } finally {
+        this.importSaving = false;
+      }
+    },
+    async submitVMSnapshot(payload) {
+      if (!this.selectedVM) return;
+
+      this.actionError = null;
+      this.snapshotSaving = true;
+      try {
+        await api.createVMSnapshot(this.selectedVM.ref, payload);
+        await this.refreshVmDetail(this.selectedVM.ref);
+        this.activeTab = 'protection';
+      } catch (error) {
+        this.actionError = error.message || 'Unable to create VM snapshot';
+      } finally {
+        this.snapshotSaving = false;
+      }
+    },
+    async snapshotAction(action, snapshot) {
+      if (!this.selectedVM || !snapshot?.ref) return;
+
+      this.actionError = null;
+      this.snapshotBusy = `${action}:${snapshot.ref}`;
+      try {
+        const approvalId = await this.resolveGovernanceApproval(action, this.selectedVM.ref, snapshot);
+        if (action === 'revert') {
+          await api.revertVMSnapshot(
+            this.selectedVM.ref,
+            snapshot.ref,
+            approvalId ? { approvalId } : {}
+          );
+        } else {
+          await api.deleteVMSnapshot(
+            this.selectedVM.ref,
+            snapshot.ref,
+            approvalId ? { approvalId } : {}
+          );
+        }
+        await this.refreshVmDetail(this.selectedVM.ref);
+        this.activeTab = 'protection';
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.actionError = 'Governance approval is required before continuing this snapshot action.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before continuing this snapshot action.'
+          );
+          return;
+        }
+        this.actionError = error.message || 'Unable to complete snapshot action';
+      } finally {
+        this.snapshotBusy = '';
       }
     },
   },

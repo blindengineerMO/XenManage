@@ -8,6 +8,9 @@ function buildRemediationTaskDraft(initialValue = {}) {
   const resilienceRunbookSeed = source.resilienceRunbookSeed && typeof source.resilienceRunbookSeed === 'object'
     ? source.resilienceRunbookSeed
     : null;
+  const vmMigrationSeed = source.vmMigrationSeed && typeof source.vmMigrationSeed === 'object'
+    ? source.vmMigrationSeed
+    : null;
   return {
     nameLabel: source.nameLabel || '',
     nameDescription: source.nameDescription || '',
@@ -31,6 +34,7 @@ function buildRemediationTaskDraft(initialValue = {}) {
     cooldownDays: source.cooldownDays ?? 0,
     lifecyclePlanSeed,
     resilienceRunbookSeed,
+    vmMigrationSeed,
   };
 }
 
@@ -85,7 +89,7 @@ const RemediationTaskForm = {
         </div>
       </div>
 
-      <div class="detail-section" style="margin-top:0" v-if="draft.lifecyclePlanSeed || draft.resilienceRunbookSeed">
+      <div class="detail-section" style="margin-top:0" v-if="draft.lifecyclePlanSeed || draft.resilienceRunbookSeed || draft.vmMigrationSeed">
         <div class="detail-section-title">Downstream Draft Seeds</div>
         <div class="stack-list">
           <div class="stack-item" v-if="draft.lifecyclePlanSeed">
@@ -101,6 +105,13 @@ const RemediationTaskForm = {
               <div class="text-muted mono" style="font-size:11px">{{ formatRunbookSeed(draft.resilienceRunbookSeed) }}</div>
             </div>
             <span class="badge badge-success">resilience</span>
+          </div>
+          <div class="stack-item" v-if="draft.vmMigrationSeed">
+            <div>
+              <strong>VM Migration</strong>
+              <div class="text-muted mono" style="font-size:11px">{{ formatVmMigrationSeed(draft.vmMigrationSeed) }}</div>
+            </div>
+            <span class="badge badge-info">vm</span>
           </div>
         </div>
       </div>
@@ -192,6 +203,12 @@ const RemediationTaskForm = {
         cooldownDays: Number(this.draft.cooldownDays || 0),
         lifecyclePlanSeed: this.draft.lifecyclePlanSeed ? { ...this.draft.lifecyclePlanSeed } : null,
         resilienceRunbookSeed: this.draft.resilienceRunbookSeed ? { ...this.draft.resilienceRunbookSeed } : null,
+        vmMigrationSeed: this.draft.vmMigrationSeed ? {
+          ...this.draft.vmMigrationSeed,
+          vifNetworkMap: Array.isArray(this.draft.vmMigrationSeed.vifNetworkMap)
+            ? this.draft.vmMigrationSeed.vifNetworkMap.map((entry) => ({ ...entry }))
+            : [],
+        } : null,
       });
     },
     formatLifecycleSeed(seed) {
@@ -211,6 +228,16 @@ const RemediationTaskForm = {
         seed.haPolicy || 'manual',
         `${seed.rpoMinutes || 60}m RPO`,
         `${stepCount} step${stepCount === 1 ? '' : 's'}`,
+      ].join(' · ');
+    },
+    formatVmMigrationSeed(seed) {
+      if (!seed) return '';
+      const mappingCount = Array.isArray(seed.vifNetworkMap) ? seed.vifNetworkMap.length : 0;
+      return [
+        seed.mode || 'same-pool',
+        seed.hostRef || seed.destinationTargetKey || 'destination pending',
+        seed.live === false ? 'cold move' : 'live eligible',
+        `${mappingCount} network map${mappingCount === 1 ? '' : 's'}`,
       ].join(' · ');
     },
   },

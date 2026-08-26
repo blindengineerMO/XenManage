@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const config = require('./config');
 const securityMiddleware = require('./middleware/security');
 const sessionMiddleware = require('./middleware/session');
-const { router: authRouter, requireAuth, requireXenConnection } = require('./routes/auth');
+const { router: authRouter, requireAuth, requireXenConnection, buildStatusPayload } = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
 const vmRoutes = require('./routes/vms');
 const hostRoutes = require('./routes/hosts');
@@ -30,6 +30,7 @@ const apiRoutes = require('./routes/api');
 const hostTargetRoutes = require('./routes/host-targets');
 const workspaceRoutes = require('./routes/workspaces');
 const governanceService = require('./services/governance');
+const metricsCollector = require('./services/metrics-collector');
 const systemConfigService = require('./services/system-config');
 const retentionService = require('./services/retention');
 
@@ -67,7 +68,9 @@ app.use('/dist', express.static(path.join(__dirname, '..', 'client', 'dist'), {
 }));
 
 // API Routes
-app.use('/api/auth', authLimiter, authRouter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/xen-login', authLimiter);
+app.use('/api/auth', authRouter);
 app.use('/api/dashboard', requireXenConnection, dashboardRoutes);
 app.use('/api/vms', requireXenConnection, vmRoutes);
 app.use('/api/hosts', requireXenConnection, hostRoutes);
@@ -95,23 +98,24 @@ app.get('/{*splat}', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'NOT_FOUND' });
   }
-  const bootstrap = JSON.stringify({
-    authenticated: Boolean(req.session.authenticated),
-    connected: Boolean(req.session.xenHost && req.session.xenSessionRef),
-    host: req.session.xenHost || '',
-    username: req.session.appUsername || req.session.xenUser || '',
-    authMode: req.session.authMode || 'local',
-    user: req.session.userId ? {
-      id: req.session.userId,
-      username: req.session.appUsername || '',
-      displayName: req.session.displayName || '',
-      role: governanceService.getSessionRole(req.session),
-    } : null,
-    governance: {
-      currentRole: governanceService.getSessionRole(req.session),
-      policy: governanceService.getPolicy(),
-    },
-  }).replace(/</g, '\\u003c');
+  const bootstrap = JSON.stringify(
+    req.session?.authenticated
+      ? buildStatusPayload(req)
+      : {
+          authenticated: false,
+          connected: false,
+          authMode: 'local',
+          host: '',
+          username: '',
+          currentTargetKey: '',
+          connectedTargets: [],
+          user: null,
+          governance: {
+            currentRole: governanceService.getSessionRole(req.session),
+            policy: governanceService.getPolicy(),
+          },
+        }
+  ).replace(/</g, '\\u003c');
 
   res.render('app', { bootstrap });
 });
@@ -136,6 +140,7 @@ app.use((req, res) => {
 // Start server only when run directly
 if (require.main === module) {
   retentionService.startScheduler();
+  metricsCollector.start();
   const server = app.listen(config.port, () => {
     console.log(`XenMange server running on port ${config.port} [${config.env}]`);
   });
@@ -143,6 +148,7 @@ if (require.main === module) {
   process.on('SIGTERM', () => {
     console.log('SIGTERM received, shutting down...');
     retentionService.stopScheduler();
+    metricsCollector.stop();
     server.close(() => process.exit(0));
   });
 }

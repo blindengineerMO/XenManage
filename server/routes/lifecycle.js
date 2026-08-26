@@ -42,7 +42,7 @@ router.put('/plans/:ref', validate(schemas.opaqueRefParam, 'params'), validate(s
 
 router.delete('/plans/:ref', validate(schemas.opaqueRefParam, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'lifecycle_plan_delete', entityType: 'host', entityRef: req.params.ref })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'lifecycle_plan_delete', entityType: 'host', entityRef: req.params.ref, destructive: true })) return;
     const previousPlan = lifecyclePlanService.getAll().find((entry) => entry.hostRef === req.params.ref) || null;
     const result = lifecyclePlanService.remove(req.params.ref);
     auditLogService.record({

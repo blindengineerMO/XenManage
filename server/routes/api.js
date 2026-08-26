@@ -127,7 +127,7 @@ router.post('/:id/default', validate(schemas.connectionId, 'params'), (req, res)
 
 router.delete('/:id', validate(schemas.connectionId, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'connection_delete', entityType: 'connection', entityRef: String(req.params.id) })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'connection_delete', entityType: 'connection', entityRef: String(req.params.id), destructive: true })) return;
     const actor = resolveActor(req);
     const previous = findConnectionOrRespond(req.params.id, actor, res);
     if (!previous) return;

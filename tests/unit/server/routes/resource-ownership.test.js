@@ -26,6 +26,7 @@ jest.mock('../../../../server/services/xenapi', () => {
 
 const { getDb } = require('../../../../server/models/connection');
 const { getSecurityDb } = require('../../../../server/models/security-db');
+const governanceService = require('../../../../server/services/governance');
 const app = require('../../../../server/index');
 
 describe('Owned Resource Routes', () => {
@@ -197,7 +198,30 @@ describe('Owned Resource Routes', () => {
     expect(listed.status).toBe(200);
     expect(listed.body.map((entry) => entry.name)).toEqual(['Shared Host']);
 
-    const forbidden = await request('DELETE', `/api/host-targets/${sharedTarget.body.id}`, null, other.cookie);
+    const blocked = await request('DELETE', `/api/host-targets/${sharedTarget.body.id}`, null, other.cookie);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('APPROVAL_REQUIRED');
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'host_target_delete',
+      entityType: 'host-target',
+      entityRef: String(sharedTarget.body.id),
+      entityName: sharedTarget.body.name,
+      justification: 'Validate that approved destructive deletes still honor ownership boundaries.',
+      route: '/hosts',
+    }, other.cookie);
+    expect(approval.status).toBe(201);
+
+    const admin = await appLogin('admin', 'admin123!');
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Approved to validate host-target ownership enforcement.',
+    }, admin.cookie);
+    expect(decision.status).toBe(200);
+
+    const forbidden = await request('DELETE', `/api/host-targets/${sharedTarget.body.id}`, {
+      approvalId: approval.body.id,
+    }, other.cookie);
     expect(forbidden.status).toBe(403);
     expect(forbidden.body.error).toBe('HOST_TARGET_FORBIDDEN');
   });
@@ -230,13 +254,146 @@ describe('Owned Resource Routes', () => {
     expect(listed.status).toBe(200);
     expect(listed.body.data.map((entry) => entry.name)).toEqual(['Shared Search']);
 
-    const forbidden = await request('DELETE', `/api/workspaces/inventory/${encodeURIComponent(sharedWorkspace.body.id)}`, null, other.cookie);
+    const blocked = await request('DELETE', `/api/workspaces/inventory/${encodeURIComponent(sharedWorkspace.body.id)}`, null, other.cookie);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('APPROVAL_REQUIRED');
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'inventory_workspace_delete',
+      entityType: 'workspace',
+      entityRef: String(sharedWorkspace.body.id),
+      entityName: sharedWorkspace.body.name,
+      justification: 'Validate that approved destructive deletes still honor workspace ownership boundaries.',
+      route: '/inventory',
+    }, other.cookie);
+    expect(approval.status).toBe(201);
+
+    const admin = await appLogin('admin', 'admin123!');
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Approved to validate workspace ownership enforcement.',
+    }, admin.cookie);
+    expect(decision.status).toBe(200);
+
+    const forbidden = await request('DELETE', `/api/workspaces/inventory/${encodeURIComponent(sharedWorkspace.body.id)}`, {
+      approvalId: approval.body.id,
+    }, other.cookie);
     expect(forbidden.status).toBe(403);
     expect(forbidden.body.error).toBe('INVENTORY_WORKSPACE_FORBIDDEN');
 
-    const admin = await appLogin('admin', 'admin123!');
     const removed = await request('DELETE', `/api/workspaces/inventory/${encodeURIComponent(privateWorkspace.body.id)}`, null, admin.cookie);
     expect(removed.status).toBe(200);
     expect(removed.body.success).toBe(true);
+  });
+
+  it('should require approved destructive tokens before operators delete owned targets and workspaces', async () => {
+    governanceService.updatePolicy({
+      defaultRole: 'operator',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 180,
+    });
+
+    const owner = await appLogin('operator-a');
+    const admin = await appLogin('admin', 'admin123!');
+
+    const connection = await request('POST', '/api/connections', {
+      name: 'Operator Approved Pool',
+      host: '10.0.0.21',
+      username: 'root',
+      port: 443,
+      visibility: 'private',
+      isDefault: false,
+    }, owner.cookie);
+    expect(connection.status).toBe(201);
+
+    const hostTarget = await request('POST', '/api/host-targets', {
+      name: 'Operator Approved Host',
+      host: '10.0.1.21',
+      username: 'root',
+      port: 443,
+      mode: 'standalone',
+      notes: '',
+      visibility: 'private',
+    }, owner.cookie);
+    expect(hostTarget.status).toBe(201);
+
+    const workspace = await request('POST', '/api/workspaces/inventory', {
+      name: 'Approved Workspace',
+      scope: 'vm',
+      query: 'production',
+      targetConnectionId: null,
+      notes: '',
+      visibility: 'private',
+    }, owner.cookie);
+    expect(workspace.status).toBe(201);
+
+    const blockedConnection = await request('DELETE', `/api/connections/${connection.body.id}`, null, owner.cookie);
+    expect(blockedConnection.status).toBe(403);
+    expect(blockedConnection.body.error).toBe('APPROVAL_REQUIRED');
+
+    const blockedHost = await request('DELETE', `/api/host-targets/${hostTarget.body.id}`, null, owner.cookie);
+    expect(blockedHost.status).toBe(403);
+    expect(blockedHost.body.error).toBe('APPROVAL_REQUIRED');
+
+    const blockedWorkspace = await request('DELETE', `/api/workspaces/inventory/${encodeURIComponent(workspace.body.id)}`, null, owner.cookie);
+    expect(blockedWorkspace.status).toBe(403);
+    expect(blockedWorkspace.body.error).toBe('APPROVAL_REQUIRED');
+
+    const connectionApproval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'connection_delete',
+      entityType: 'connection',
+      entityRef: String(connection.body.id),
+      entityName: connection.body.name,
+      justification: 'Remove an owned pool target during Monday, August 24, 2026 approval testing.',
+      route: '/pools',
+    }, owner.cookie);
+    expect(connectionApproval.status).toBe(201);
+
+    const hostApproval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'host_target_delete',
+      entityType: 'host-target',
+      entityRef: String(hostTarget.body.id),
+      entityName: hostTarget.body.name,
+      justification: 'Remove an owned host target during Monday, August 24, 2026 approval testing.',
+      route: '/hosts',
+    }, owner.cookie);
+    expect(hostApproval.status).toBe(201);
+
+    const workspaceApproval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'inventory_workspace_delete',
+      entityType: 'workspace',
+      entityRef: String(workspace.body.id),
+      entityName: workspace.body.name,
+      justification: 'Remove an owned workspace during Monday, August 24, 2026 approval testing.',
+      route: '/inventory',
+    }, owner.cookie);
+    expect(workspaceApproval.status).toBe(201);
+
+    for (const approvalId of [connectionApproval.body.id, hostApproval.body.id, workspaceApproval.body.id]) {
+      const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approvalId)}/decision`, {
+        decision: 'approved',
+        notes: 'Approved during Monday, August 24, 2026 ownership-route validation.',
+      }, admin.cookie);
+      expect(decision.status).toBe(200);
+      expect(decision.body.status).toBe('approved');
+    }
+
+    const removedConnection = await request('DELETE', `/api/connections/${connection.body.id}`, {
+      approvalId: connectionApproval.body.id,
+    }, owner.cookie);
+    expect(removedConnection.status).toBe(200);
+    expect(removedConnection.body.success).toBe(true);
+
+    const removedHost = await request('DELETE', `/api/host-targets/${hostTarget.body.id}`, {
+      approvalId: hostApproval.body.id,
+    }, owner.cookie);
+    expect(removedHost.status).toBe(200);
+    expect(removedHost.body.success).toBe(true);
+
+    const removedWorkspace = await request('DELETE', `/api/workspaces/inventory/${encodeURIComponent(workspace.body.id)}`, {
+      approvalId: workspaceApproval.body.id,
+    }, owner.cookie);
+    expect(removedWorkspace.status).toBe(200);
+    expect(removedWorkspace.body.success).toBe(true);
   });
 });

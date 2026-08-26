@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { listAlerts } = require('../services/alerts');
+const { enrichAlertRecords, listAlerts } = require('../services/alerts');
+const { listTelemetryAlerts } = require('../services/telemetry-alerts');
 
 router.get('/', async (req, res) => {
   try {
@@ -13,8 +14,15 @@ router.get('/', async (req, res) => {
 
 router.get('/messages', async (req, res) => {
   try {
-    const messages = await req.xenApi.getMessages();
-    const list = listAlerts(messages).slice(0, 50);
+    const [messages, telemetryAlerts] = await Promise.all([
+      req.xenApi.getMessages(),
+      listTelemetryAlerts(req.xenApi),
+    ]);
+    const merged = await enrichAlertRecords({ ...(messages || {}) }, req.xenApi);
+    telemetryAlerts.forEach((entry) => {
+      merged[entry.ref] = entry;
+    });
+    const list = listAlerts(merged).slice(0, 50);
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });

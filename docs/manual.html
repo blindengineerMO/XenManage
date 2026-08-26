@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XenMange — Administrator & User Manual</title>
+<style>
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    color: #1a1a1a;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  h1 { font-size: 24pt; color: #0a0; margin-top: 0; border-bottom: 3px solid #0a0; padding-bottom: 8px; }
+  h2 { font-size: 15pt; color: #080; margin-top: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  h3 { font-size: 12pt; color: #222; margin-top: 16px; }
+  h4 { font-size: 10.5pt; color: #333; margin-top: 10px; }
+  p, li { orphans: 3; widows: 3; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 14px 0; font-size: 9pt; }
+  th, td { border: 1px solid #bbb; padding: 4px 7px; text-align: left; }
+  th { background: #f0f0f0; font-weight: 600; }
+  code, pre { font-family: "Consolas", "Courier New", monospace; font-size: 8.5pt; }
+  code { background: #f4f4f4; padding: 1px 3px; border-radius: 2px; }
+  pre { background: #f8f8f8; border: 1px solid #ddd; padding: 8px; white-space: pre-wrap; word-wrap: break-word; }
+  .cover { text-align: center; padding-top: 100px; margin-bottom: 40px; border-bottom: 1px solid #ccc; padding-bottom: 30px; }
+  .cover h1 { border: none; font-size: 34pt; color: #0a0; }
+  .cover .subtitle { font-size: 15pt; color: #555; margin-top: 8px; }
+  .cover .version { font-size: 11pt; color: #888; margin-top: 30px; }
+  .cover .date { font-size: 10pt; color: #aaa; margin-top: 8px; }
+  .toc { margin-bottom: 20px; }
+  .toc h1 { page-break-before: avoid; }
+  .toc ul { list-style: none; padding-left: 0; }
+  .toc li { padding: 2px 0; border-bottom: 1px dotted #ccc; }
+  .toc li.sub { padding-left: 18px; font-size: 9pt; }
+  .note { background: #fffde7; border-left: 4px solid #f9a825; padding: 6px 10px; margin: 10px 0; font-size: 9pt; }
+  .warning { background: #fce4ec; border-left: 4px solid #e53935; padding: 6px 10px; margin: 10px 0; font-size: 9pt; }
+  .tip { background: #e8f5e9; border-left: 4px solid #43a047; padding: 6px 10px; margin: 10px 0; font-size: 9pt; }
+  ul, ol { padding-left: 20px; }
+  li { margin-bottom: 2px; }
+  .badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 7.5pt; font-weight: 600; color: #fff; margin-right: 3px; }
+  .badge-admin { background: #d32f2f; }
+  .badge-operator { background: #1565c0; }
+  .badge-readonly { background: #616161; }
+  a { color: #0a0; text-decoration: none; }
+  hr { border: none; border-top: 1px solid #ccc; margin: 20px 0; }
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- COVER PAGE -->
+<!-- ============================================================ -->
+<div class="cover">
+  <h1>XenMange</h1>
+  <div class="subtitle">Administrator &amp; User Manual</div>
+  <p style="font-size:11pt; color:#666; margin-top:30px; max-width:500px; margin-left:auto; margin-right:auto;">
+    A modern, futuristic web interface for administering XenServer pools, hosts, VMs, storage, and networking.
+  </p>
+  <div class="version">Version 1.0.0</div>
+  <div class="date">August 2026</div>
+  <p style="margin-top:60px; font-size:9pt; color:#aaa;">MIT License</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- TABLE OF CONTENTS -->
+<!-- ============================================================ -->
+<div class="toc">
+<h1>Table of Contents</h1>
+<ul>
+  <li><strong>Part I &mdash; Introduction</strong></li>
+  <li class="sub">1. Product Overview</li>
+  <li class="sub">2. Design Philosophy &amp; UI Language</li>
+  <li class="sub">3. System Requirements</li>
+
+  <li><strong>Part II &mdash; Architecture</strong></li>
+  <li class="sub">4. High-Level Architecture</li>
+  <li class="sub">5. Technology Stack</li>
+  <li class="sub">6. Database Architecture</li>
+  <li class="sub">7. Security Architecture</li>
+  <li class="sub">8. API Architecture</li>
+
+  <li><strong>Part III &mdash; Installation &amp; Configuration</strong></li>
+  <li class="sub">9. Fresh Installation</li>
+  <li class="sub">10. Environment Configuration Reference</li>
+  <li class="sub">11. Production Hardening</li>
+
+  <li><strong>Part IV &mdash; Getting Started</strong></li>
+  <li class="sub">12. First Login &amp; Bootstrap</li>
+  <li class="sub">13. Connecting to XenServer</li>
+  <li class="sub">14. The Dashboard</li>
+  <li class="sub">15. Navigation Overview</li>
+
+  <li><strong>Part V &mdash; Feature Guides</strong></li>
+  <li class="sub">16. Virtual Machine Management</li>
+  <li class="sub">17. Host Management</li>
+  <li class="sub">18. Storage Management</li>
+  <li class="sub">19. Networking</li>
+  <li class="sub">20. Pool Management</li>
+  <li class="sub">21. Template Management &amp; Governance</li>
+  <li class="sub">22. VM Snapshots &amp; Checkpoints</li>
+  <li class="sub">23. VM Migration</li>
+  <li class="sub">24. VM Import &amp; Export</li>
+  <li class="sub">25. Alerts Center</li>
+  <li class="sub">26. Activity &amp; Log Center</li>
+  <li class="sub">27. Metrics &amp; Telemetry</li>
+  <li class="sub">28. Lifecycle Workspace</li>
+  <li class="sub">29. Capacity Planning</li>
+  <li class="sub">30. Resilience &amp; HA/DR</li>
+  <li class="sub">31. Inventory &amp; Search</li>
+  <li class="sub">32. Remediation Tasks</li>
+
+  <li><strong>Part VI &mdash; Administration</strong></li>
+  <li class="sub">33. User Management</li>
+  <li class="sub">34. Group Management</li>
+  <li class="sub">35. Role-Based Access Control</li>
+  <li class="sub">36. Governance Policy</li>
+  <li class="sub">37. Credential Vault</li>
+  <li class="sub">38. Connection &amp; Host Target Management</li>
+  <li class="sub">39. Settings &amp; System Configuration</li>
+  <li class="sub">40. Retention Policies</li>
+  <li class="sub">41. Audit Trail</li>
+
+  <li><strong>Part VII &mdash; Reference</strong></li>
+  <li class="sub">42. Complete API Reference</li>
+  <li class="sub">43. Environment Variables</li>
+  <li class="sub">44. Default Ports &amp; Paths</li>
+  <li class="sub">45. Telemetry Alert Thresholds</li>
+
+  <li><strong>Part VIII &mdash; Operations</strong></li>
+  <li class="sub">46. Backup &amp; Recovery</li>
+  <li class="sub">47. Upgrading</li>
+  <li class="sub">48. Troubleshooting</li>
+  <li class="sub">49. Frequently Asked Questions</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- PART I — INTRODUCTION -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part I &mdash; Introduction</h1>
+
+<h2 id="overview">1. Product Overview</h2>
+<p>
+  <strong>XenMange</strong> is a modern, web-based management interface for <strong>Citrix XenServer</strong> (and XCP-ng) virtualization infrastructure. It replaces the legacy XenCenter desktop application with a responsive, browser-based experience that supports managing pools, hosts, virtual machines, storage repositories, and virtual networks — all from a single pane of glass.
+</p>
+<p>XenMange communicates with XenServer via the <strong>XenAPI JSON-RPC v2.0</strong> protocol over HTTPS, and persists all configuration, credentials, telemetry, and audit data in local <strong>SQLite</strong> databases.</p>
+
+<h3>Key Capabilities</h3>
+<ul>
+  <li><strong>Full VM Lifecycle:</strong> Create, start, shutdown, reboot, suspend, resume, clone, copy, migrate, snapshot, import, and export virtual machines.</li>
+  <li><strong>Multi-Pool Management:</strong> Attach to and switch between multiple XenServer pools from a single session.</li>
+  <li><strong>Host Operations:</strong> Enter/exit maintenance mode, reboot, shutdown, and monitor host health.</li>
+  <li><strong>Storage &amp; Networking:</strong> View and manage storage repositories and virtual networks across pools.</li>
+  <li><strong>Real-Time Telemetry:</strong> Background metrics collection for hosts, VMs, and storage with hourly rollups and configurable retention.</li>
+  <li><strong>Alert Center:</strong> Persisted alerts with acknowledgement, suppression, severity overrides, and remediation task creation.</li>
+  <li><strong>Governance &amp; RBAC:</strong> Role-based access control (read-only, operator, admin), destructive-action approval workflows, pool quotas, and audit trails.</li>
+  <li><strong>Credential Vault:</strong> AES-256-GCM envelope encryption for stored XenServer passwords with key rotation support.</li>
+  <li><strong>Template Governance:</strong> Version tracking, golden-image baselines, compare-and-promote workflows.</li>
+  <li><strong>Resilience &amp; HA/DR:</strong> Protection coverage tracking, failover readiness, evacuation targets, recovery runbooks and drills.</li>
+  <li><strong>Log Export:</strong> Federated log center with JSON, HTML, and PDF export capabilities.</li>
+</ul>
+
+<h2 id="design">2. Design Philosophy &amp; UI Language</h2>
+<p>XenMange adopts a <strong>"post-modern futuristic dark glassmorphic"</strong> design language — described internally as <em>"Matrix meets Hackers"</em>. The interface features:</p>
+<ul>
+  <li><strong>Dark glassmorphic theme:</strong> Translucent panels with backdrop blur effects over a dark background.</li>
+  <li><strong>Neon green accent palette:</strong> Matrix-green primary color (#0a0) for highlights, borders, and interactive elements.</li>
+  <li><strong>Scanline animations:</strong> Subtle CRT-style scanline overlays on key surfaces.</li>
+  <li><strong>Floating windows:</strong> Dialogs and forms appear as floating glassmorphic panels.</li>
+  <li><strong>Dense tree navigation:</strong> Side navigation with collapsible sections for efficient workspace switching.</li>
+  <li><strong>Material Design Icons:</strong> @mdi/font icon set for consistent iconography throughout.</li>
+  <li><strong>Monospace data displays:</strong> Share Tech Mono and Rajdhani fonts for technical data presentation.</li>
+</ul>
+
+<h2 id="requirements">3. System Requirements</h2>
+
+<h3>Server Requirements</h3>
+<table>
+  <tr><th>Component</th><th>Minimum</th><th>Recommended</th></tr>
+  <tr><td>Operating System</td><td>Linux (any recent distro), macOS, Windows</td><td>Ubuntu 22.04+ / Debian 12+</td></tr>
+  <tr><td>Node.js</td><td>v18.0+</td><td>v20 LTS or v22 LTS</td></tr>
+  <tr><td>RAM</td><td>512 MB</td><td>1 GB+</td></tr>
+  <tr><td>Disk</td><td>200 MB (application + initial databases)</td><td>2 GB+ (telemetry storage depends on retention)</td></tr>
+  <tr><td>CPU</td><td>1 core</td><td>2+ cores</td></tr>
+  <tr><td>Network</td><td>HTTPS access to XenServer hosts (port 443)</td><td>Low-latency LAN connection to XenServer management interface</td></tr>
+</table>
+
+<h3>Build Requirements</h3>
+<ul>
+  <li><strong>C++ build tools</strong> (gcc/g++/make) — required to compile the <code>better-sqlite3</code> native addon.</li>
+  <li><strong>npm</strong> — for installing dependencies and running scripts.</li>
+</ul>
+
+<h3>Client Requirements</h3>
+<ul>
+  <li>Any modern browser: Chrome 90+, Firefox 90+, Edge 90+, Safari 15+.</li>
+  <li>JavaScript must be enabled.</li>
+</ul>
+
+<h3>XenServer Requirements</h3>
+<ul>
+  <li>XenServer 7.x+ or XCP-ng 8.x+ with JSON-RPC API enabled.</li>
+  <li>HTTPS access on port 443.</li>
+  <li>A user account with sufficient privileges (typically <code>root</code>).</li>
+</ul>
+
+<!-- ============================================================ -->
+<!-- PART II — ARCHITECTURE -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part II &mdash; Architecture</h1>
+
+<h2 id="highlevel">4. High-Level Architecture</h2>
+<p>XenMange follows a three-tier architecture:</p>
+<pre>
+┌──────────────────────────────────────────────────────────────┐
+│                        Browser (Client)                      │
+│               Vue.js 3 SPA + Vue Router 4                   │
+│          Pre-compiled templates (CSP-safe)                  │
+│          Material Design Icons (local)                       │
+└──────────────────────┬───────────────────────────────────────┘
+                       │ HTTP (session cookie)
+┌──────────────────────▼───────────────────────────────────────┐
+│                     Express 5 Server                         │
+│   ┌─────────────────────────────────────────────────────┐    │
+│   │  Middleware: Helmet (CSP) → CORS → Rate Limit →     │    │
+│   │  Session → Validation (Joi) → Governance (RBAC)     │    │
+│   └─────────────────────────────────────────────────────┘    │
+│   ┌───────────┐  ┌──────────────┐  ┌───────────────────┐    │
+│   │   Routes   │  │   Services   │  │   Models (DB)     │    │
+│   │  (22 files)│  │  (20 files)  │  │   (4 SQLite DBs)  │    │
+│   └───────────┘  └──────┬───────┘  └───────────────────┘    │
+└──────────────────────────┼───────────────────────────────────┘
+                           │ HTTPS (JSON-RPC v2.0)
+              ┌────────────▼────────────┐
+              │    XenServer / XCP-ng   │
+              │   (Pool of Hosts)       │
+              └─────────────────────────┘
+</pre>
+
+<h3>Request Flow</h3>
+<ol>
+  <li>Browser sends HTTP request with session cookie.</li>
+  <li>Express middleware pipeline processes the request: security headers → CORS → rate limiting → session restoration → input validation.</li>
+  <li>Route handler executes, potentially invoking service-layer logic.</li>
+  <li>If a XenServer connection is required, the service calls <code>xenapi.js</code> which sends JSON-RPC to XenServer over HTTPS.</li>
+  <li>Response is returned to the browser as JSON.</li>
+</ol>
+
+<h2 id="techstack">5. Technology Stack</h2>
+<table>
+  <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+  <tr><td>Runtime</td><td>Node.js (CommonJS)</td><td>Server-side JavaScript execution</td></tr>
+  <tr><td>Web Framework</td><td>Express 5.2</td><td>HTTP routing, middleware, static serving</td></tr>
+  <tr><td>Frontend Framework</td><td>Vue.js 3.5 (SPA)</td><td>Reactive UI components</td></tr>
+  <tr><td>Client Router</td><td>Vue Router 4.5</td><td>Client-side URL routing</td></tr>
+  <tr><td>Templating</td><td>EJS 6</td><td>Server-rendered app shell + error pages</td></tr>
+  <tr><td>Database</td><td>SQLite via better-sqlite3 13</td><td>Local persistence (4 separate DB files)</td></tr>
+  <tr><td>Authentication</td><td>bcryptjs + express-session</td><td>Password hashing + session management</td></tr>
+  <tr><td>Validation</td><td>Joi 18</td><td>Request body/query parameter validation</td></tr>
+  <tr><td>Security Headers</td><td>Helmet 8</td><td>CSP, X-Frame-Options, nosniff, etc.</td></tr>
+  <tr><td>Encryption</td><td>Node.js crypto (AES-256-GCM)</td><td>Credential vault envelope encryption</td></tr>
+  <tr><td>PDF Generation</td><td>pdfkit 0.20</td><td>Log export to PDF</td></tr>
+  <tr><td>HTTP Client</td><td>axios 1.19</td><td>XenServer JSON-RPC communication</td></tr>
+  <tr><td>Icons</td><td>@mdi/font 7.4</td><td>Material Design Icons (local bundle)</td></tr>
+  <tr><td>Unit Testing</td><td>Jest 30</td><td>Server-side unit tests</td></tr>
+  <tr><td>E2E Testing</td><td>Playwright 1.62</td><td>Browser-based end-to-end tests</td></tr>
+</table>
+
+<div class="note">
+  <strong>Note:</strong> All frontend libraries (Vue, Vue Router, Material Design Icons) are bundled locally — no CDN dependencies. This ensures full CSP compliance and offline capability.
+</div>
+
+<h2 id="db-arch">6. Database Architecture</h2>
+<p>XenMange uses <strong>four separate SQLite database files</strong>, each serving a distinct domain. This isolation prevents lock contention, simplifies backups, and allows independent retention policies.</p>
+
+<table>
+  <tr><th>Database File</th><th>Purpose</th><th>Key Tables</th></tr>
+  <tr>
+    <td><code>xenmange.db</code></td>
+    <td>Main application data</td>
+    <td><code>connections</code>, <code>host_targets</code>, <code>settings</code>, <code>retention_policies</code>, <code>deployment_runs</code>, <code>deployment_run_steps</code></td>
+  </tr>
+  <tr>
+    <td><code>security.db</code></td>
+    <td>Users, groups, sessions, auth events, vault key material</td>
+    <td><code>users</code>, <code>groups</code>, <code>group_members</code>, <code>sessions</code>, <code>auth_events</code>, <code>vault_key_material</code></td>
+  </tr>
+  <tr>
+    <td><code>vault.db</code></td>
+    <td>Encrypted credential blobs (ciphertext only)</td>
+    <td><code>credentials</code></td>
+  </tr>
+  <tr>
+    <td><code>perf.db</code></td>
+    <td>Time-series telemetry data</td>
+    <td><code>metric_samples</code>, <code>metric_hourly_rollups</code></td>
+  </tr>
+</table>
+
+<h3>Session Persistence</h3>
+<p>Express sessions are stored in the <code>sessions</code> table within <code>security.db</code>. Sessions survive server restarts — when the server restarts, it rehydrates XenServer API connections from persisted session references.</p>
+
+<h3>Schema Migrations</h3>
+<p>All database modules use <code>CREATE TABLE IF NOT EXISTS</code> for initial setup and perform runtime migration by checking <code>PRAGMA table_info()</code> for missing columns, adding them via <code>ALTER TABLE</code> as needed. No separate migration tool is required.</p>
+
+<h2 id="security-arch">7. Security Architecture</h2>
+
+<h3>Authentication Layers</h3>
+<p>XenMange has <strong>two independent authentication systems</strong>:</p>
+<ol>
+  <li><strong>Control-Plane Login:</strong> Authenticates against the local <code>users</code> table in <code>security.db</code> using bcrypt-hashed passwords. This grants access to the XenMange application itself.</li>
+  <li><strong>XenServer Login:</strong> Authenticates against XenServer using JSON-RPC session creation. This is separate from the control-plane and can target multiple XenServer instances simultaneously.</li>
+</ol>
+
+<h3>Session Management</h3>
+<ul>
+  <li>Cookie name: <code>xenmange.sid</code></li>
+  <li>HttpOnly, SameSite=Lax</li>
+  <li>Secure flag enabled in production</li>
+  <li>Default max age: 24 hours (configurable)</li>
+  <li>SQLite-backed persistence (survives restarts)</li>
+</ul>
+
+<h3>Credential Vault</h3>
+<p>Stored XenServer passwords are encrypted using <strong>AES-256-GCM</strong> with envelope encryption:</p>
+<ul>
+  <li>A <strong>master key</strong> (from <code>VAULT_ENCRYPTION_KEY</code> env var) wraps per-credential Data Encryption Keys (DEKs).</li>
+  <li>DEKs encrypt the actual passwords.</li>
+  <li>Wrapped DEKs are stored in <code>security.db</code>; encrypted passwords are in <code>vault.db</code>.</li>
+  <li>Plaintext passwords are <strong>never</strong> returned to the browser.</li>
+  <li>Key rotation is supported via a previous-key fallback mechanism.</li>
+</ul>
+
+<h3>Security Headers (Helmet)</h3>
+<table>
+  <tr><th>Header</th><th>Value</th></tr>
+  <tr><td>Content-Security-Policy</td><td>default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-src 'none'; object-src 'none'</td></tr>
+  <tr><td>X-Content-Type-Options</td><td>nosniff</td></tr>
+  <tr><td>X-Frame-Options</td><td>DENY</td></tr>
+  <tr><td>Referrer-Policy</td><td>strict-origin-when-cross-origin</td></tr>
+</table>
+
+<h3>Rate Limiting</h3>
+<p>Login endpoints (<code>/api/auth/login</code> and <code>/api/auth/xen-login</code>) are rate-limited to <strong>20 attempts per 15 minutes per IP address</strong>.</p>
+
+<h3>Input Validation</h3>
+<p>Over 60 Joi schemas validate every API endpoint. All inputs are validated with <code>stripUnknown: true</code> to prevent field injection, and <code>abortEarly: false</code> to report all errors at once.</p>
+
+<h2 id="api-arch">8. API Architecture</h2>
+
+<h3>Route Groups</h3>
+<p>Routes are organized into two authentication tiers:</p>
+<table>
+  <tr><th>Auth Tier</th><th>Description</th><th>Routes</th></tr>
+  <tr>
+    <td><strong>Public</strong></td>
+    <td>No authentication required</td>
+    <td><code>/api/auth/login</code>, <code>/api/auth/xen-login</code>, static assets</td>
+  </tr>
+  <tr>
+    <td><strong>requireAuth</strong></td>
+    <td>Authenticated control-plane user (no Xen connection required)</td>
+    <td><code>/api/audit</code>, <code>/api/governance</code>, <code>/api/settings</code>, <code>/api/logs</code>, <code>/api/credentials</code>, <code>/api/users</code>, <code>/api/groups</code>, <code>/api/connections</code>, <code>/api/host-targets</code>, <code>/api/workspaces</code></td>
+  </tr>
+  <tr>
+    <td><strong>requireXenConnection</strong></td>
+    <td>Authenticated + active XenServer connection</td>
+    <td><code>/api/dashboard</code>, <code>/api/vms</code>, <code>/api/hosts</code>, <code>/api/storage</code>, <code>/api/networks</code>, <code>/api/pools</code>, <code>/api/tasks</code>, <code>/api/resilience</code>, <code>/api/lifecycle</code>, <code>/api/alerts</code>, <code>/api/metrics</code></td>
+  </tr>
+</table>
+
+<h3>Multi-Target Session Architecture</h3>
+<p>XenMange supports multiple simultaneous XenServer connections. Each connection is identified by a <code>targetKey</code> (e.g., <code>connection:1</code> or <code>host:10.0.0.1|user:root|port:443</code>). The session persists target descriptors, and the connection registry holds live XenAPI instances in memory.</p>
+<p>Target selection priority:</p>
+<ol>
+  <li>Explicit <code>targetKey</code> in request body/query/header (<code>X-XenMange-Target-Key</code>)</li>
+  <li>Explicit <code>targetConnectionId</code> in request</li>
+  <li>Active target from session (<code>activeXenTargetKey</code>)</li>
+  <li>First available target</li>
+</ol>
+
+<!-- ============================================================ -->
+<!-- PART III — INSTALLATION & CONFIGURATION -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part III &mdash; Installation &amp; Configuration</h1>
+
+<h2 id="install">9. Fresh Installation</h2>
+
+<h3>Step 1: Clone the Repository</h3>
+<pre>git clone &lt;repository-url&gt; XenMange
+cd XenMange</pre>
+
+<h3>Step 2: Install Dependencies</h3>
+<pre>npm install</pre>
+<div class="note"><strong>Note:</strong> The <code>better-sqlite3</code> package requires C++ build tools. On Ubuntu/Debian: <code>sudo apt-get install build-essential python3</code>. On RHEL/CentOS: <code>sudo yum groupinstall "Development Tools"</code>.</div>
+
+<h3>Step 3: Configure Environment</h3>
+<pre>cp .env.example .env</pre>
+<p>Edit <code>.env</code> with your production values (see <a href="#env-ref">Section 10</a> for the full reference).</p>
+
+<h3>Step 4: Build the Client</h3>
+<pre>npm run build:client</pre>
+<p>This compiles Vue templates, bundles all JavaScript, and copies vendor assets into <code>client/dist/</code>.</p>
+
+<h3>Step 5: Start the Server</h3>
+<pre>npm start</pre>
+<p>The server starts on port 3000 (default). Open <code>http://localhost:3000</code> in your browser.</p>
+
+<h3>Development Mode</h3>
+<pre>npm run dev</pre>
+<p>Uses <code>nodemon</code> for auto-reload on file changes. Automatically rebuilds the client and restarts the server when source files are modified.</p>
+
+<h2 id="env-ref">10. Environment Configuration Reference</h2>
+
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>NODE_ENV</code></td><td><code>development</code></td><td>Environment mode. Set to <code>production</code> for production deployments.</td></tr>
+  <tr><td><code>PORT</code></td><td><code>3000</code></td><td>HTTP port the Express server listens on.</td></tr>
+  <tr><td><code>SESSION_SECRET</code></td><td><code>xenmange-dev-secret-change-me</code></td><td>Secret used to sign session cookies. <strong>Must</strong> be changed in production.</td></tr>
+  <tr><td><code>SESSION_MAX_AGE</code></td><td><code>86400000</code> (24h)</td><td>Session cookie lifetime in milliseconds.</td></tr>
+  <tr><td><code>XENMANGE_BOOTSTRAP_USERNAME</code></td><td><code>admin</code></td><td>Username for the initial admin account created on first boot.</td></tr>
+  <tr><td><code>XENMANGE_BOOTSTRAP_PASSWORD</code></td><td><code>admin123!</code></td><td>Password for the initial admin account. <strong>Must</strong> be changed in production.</td></tr>
+  <tr><td><code>XENMANGE_BOOTSTRAP_DISPLAY_NAME</code></td><td><code>Platform Administrator</code></td><td>Display name for the initial admin.</td></tr>
+  <tr><td><code>DB_PATH</code></td><td><code>./data/xenmange.db</code></td><td>Path to the main application database.</td></tr>
+  <tr><td><code>SECURITY_DB_PATH</code></td><td><code>./data/security.db</code></td><td>Path to the security database (users, sessions, auth events).</td></tr>
+  <tr><td><code>VAULT_DB_PATH</code></td><td><code>./data/vault.db</code></td><td>Path to the encrypted credential vault database.</td></tr>
+  <tr><td><code>PERF_DB_PATH</code></td><td><code>./data/perf.db</code></td><td>Path to the performance/telemetry database.</td></tr>
+  <tr><td><code>VAULT_ENCRYPTION_KEY</code></td><td>(empty)</td><td>32-byte base64-encoded master key for credential vault encryption. Required in production. In development, a key is derived from <code>SESSION_SECRET</code>.</td></tr>
+  <tr><td><code>VAULT_ENCRYPTION_KEY_PREVIOUS</code></td><td>(empty)</td><td>Previous master key for rotation window. When set, decryption tries the current key first, then falls back to this key.</td></tr>
+</table>
+
+<div class="warning"><strong>Security Warning:</strong> Never commit <code>.env</code> to version control. It is listed in <code>.gitignore</code> by default.</div>
+
+<h2 id="hardening">11. Production Hardening</h2>
+
+<h3>Reverse Proxy (Recommended)</h3>
+<p>XenMange listens on plain HTTP. For production, place a reverse proxy (nginx, Caddy, HAProxy) in front to handle:</p>
+<ul>
+  <li>TLS termination (HTTPS)</li>
+  <li>Rate limiting at the edge</li>
+  <li>Request buffering</li>
+  <li>Logging</li>
+</ul>
+
+<h3>Generate a Vault Encryption Key</h3>
+<pre>node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"</pre>
+<p>Set the output as <code>VAULT_ENCRYPTION_KEY</code> in your <code>.env</code> file.</p>
+
+<h3>Change Default Credentials</h3>
+<p>Immediately change the bootstrap admin password after first login. Use the Settings workspace or the <code>/api/users/:id/password</code> endpoint.</p>
+
+<h3>Generate a Strong Session Secret</h3>
+<pre>node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"</pre>
+
+<h3>File Permissions</h3>
+<pre>chmod 600 .env
+chmod 700 data/</pre>
+
+<h3>CORS Restriction</h3>
+<p>The default CORS configuration allows all origins. In production, configure your reverse proxy to restrict CORS to your actual domain.</p>
+
+<div class="warning"><strong>Important:</strong> XenMange is a single-process, single-server application. Running multiple instances against the same SQLite databases will cause data corruption.</div>
+
+<!-- ============================================================ -->
+<!-- PART IV — GETTING STARTED -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part IV &mdash; Getting Started</h1>
+
+<h2 id="first-login">12. First Login &amp; Bootstrap</h2>
+<ol>
+  <li>Open your browser and navigate to <code>http://&lt;server&gt;:3000</code>.</li>
+  <li>You will see the XenMange login screen with a dark glassmorphic interface.</li>
+  <li>Enter the bootstrap credentials:
+    <ul>
+      <li><strong>Username:</strong> <code>admin</code> (or the value of <code>XENMANGE_BOOTSTRAP_USERNAME</code>)</li>
+      <li><strong>Password:</strong> <code>admin123!</code> (or the value of <code>XENMANGE_BOOTSTRAP_PASSWORD</code>)</li>
+    </ul>
+  </li>
+  <li>Click <strong>Sign In</strong>. You will be redirected to the Dashboard.</li>
+</ol>
+<div class="warning"><strong>Critical:</strong> Change the default bootstrap password immediately after first login. Use the Governance workspace → User Management section.</div>
+
+<h2 id="connect-xen">13. Connecting to XenServer</h2>
+<p>After logging in, you need to connect to a XenServer pool or individual host:</p>
+<ol>
+  <li>Navigate to <strong>Settings</strong> → <strong>Connections</strong> (or use the connection prompt on first login).</li>
+  <li>Click <strong>Add Connection</strong>.</li>
+  <li>Enter the XenServer details:
+    <ul>
+      <li><strong>Host:</strong> IP address or hostname of the XenServer (e.g., <code>10.0.0.10</code>)</li>
+      <li><strong>Port:</strong> <code>443</code> (default)</li>
+      <li><strong>Username:</strong> <code>root</code> (or a user with sufficient privileges)</li>
+      <li><strong>Password:</strong> The XenServer root password (encrypted and stored in the vault)</li>
+    </ul>
+  </li>
+  <li>Optionally enable <strong>Save Credentials</strong> to persist the password in the encrypted vault.</li>
+  <li>Click <strong>Connect</strong>.</li>
+</ol>
+<p>Once connected, the Dashboard will populate with pool, host, VM, and storage data from your XenServer environment.</p>
+
+<h3>Multi-Target Connections</h3>
+<p>XenMange supports attaching to multiple XenServer pools simultaneously. After connecting to a first target, use the target selector in the navigation bar to switch between active connections, or add additional connections in Settings.</p>
+
+<h3>Credential-Based Login</h3>
+<p>Alternatively, you can use stored credentials from the Credential Vault:</p>
+<ol>
+  <li>Navigate to <strong>Settings</strong> → <strong>Credential Vault</strong>.</li>
+  <li>Save a credential with the XenServer host/username/password.</li>
+  <li>When connecting, select the stored credential instead of typing the password.</li>
+</ol>
+
+<h2 id="dashboard">14. The Dashboard</h2>
+<p>The Dashboard is your landing page after login. It provides an at-a-glance summary of your XenServer environment:</p>
+<ul>
+  <li><strong>Pool Summary:</strong> Number of pools, total hosts, overall health status.</li>
+  <li><strong>Host Summary:</strong> Hosts online/offline/maintenance, aggregate CPU and memory utilization.</li>
+  <li><strong>VM Summary:</strong> Total VMs, running/stopped/paused counts, resource consumption.</li>
+  <li><strong>Storage Summary:</strong> Storage repositories, total/allocation/usage.</li>
+  <li><strong>Network Summary:</strong> Virtual networks count and status.</li>
+  <li><strong>Recent Messages:</strong> Latest XenServer event messages.</li>
+</ul>
+<p>Summary cards are <strong>draggable</strong> — you can rearrange them to suit your preferred layout.</p>
+
+<h2 id="navigation">15. Navigation Overview</h2>
+<p>XenMange uses a three-part navigation system:</p>
+<h3>Top Navigation Bar</h3>
+<ul>
+  <li><strong>Logo/App Name:</strong> Click to return to the Dashboard.</li>
+  <li><strong>Target Selector:</strong> Dropdown showing the active XenServer connection. Switch between multiple connected targets.</li>
+  <li><strong>Role Indicator:</strong> Shows your current session role (read-only, operator, admin).</li>
+  <li><strong>User Menu:</strong> Profile, settings, logout.</li>
+</ul>
+
+<h3>Side Navigation Panel</h3>
+<p>Organized into collapsible sections:</p>
+<ul>
+  <li><strong>Infrastructure:</strong> Dashboard, Pools, Hosts, VMs, Storage, Networking, Templates</li>
+  <li><strong>Operations:</strong> Alerts, Activity, Lifecycle, Capacity, Resilience</li>
+  <li><strong>Administration:</strong> Governance, Inventory, Settings</li>
+</ul>
+
+<h3>Status Bar</h3>
+<p>Bottom bar showing connection status, current time, active session info, and telemetry collector status.</p>
+
+<!-- ============================================================ -->
+<!-- PART V — FEATURE GUIDES -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part V &mdash; Feature Guides</h1>
+
+<h2 id="vm-mgmt">16. Virtual Machine Management</h2>
+<p>The VMs workspace provides a comprehensive view of all virtual machines across your connected XenServer pools.</p>
+
+<h3>Viewing VMs</h3>
+<p>The VMs list displays each VM with its name, status (Running/Stopped/Paused/Suspended), power state, CPU count, memory allocation, and host assignment. Use the search bar to filter VMs by name.</p>
+
+<h3>Power Operations</h3>
+<table>
+  <tr><th>Operation</th><th>Description</th><th>Approval Required</th></tr>
+  <tr><td><strong>Start</strong></td><td>Powers on the VM</td><td>Yes (if governance requires)</td></tr>
+  <tr><td><strong>Shutdown (Clean)</strong></td><td>Graceful shutdown via guest OS</td><td>Yes</td></tr>
+  <tr><td><strong>Shutdown (Hard)</strong></td><td>Immediate power-off (equivalent to pulling the power cord)</td><td>Yes</td></tr>
+  <tr><td><strong>Reboot (Clean)</strong></td><td>Graceful reboot via guest OS</td><td>Yes</td></tr>
+  <tr><td><strong>Reboot (Hard)</strong></td><td>Immediate reset</td><td>Yes</td></tr>
+  <tr><td><strong>Suspend</strong></td><td>Pauses VM and saves state to disk</td><td>Yes</td></tr>
+  <tr><td><strong>Resume</strong></td><td>Restores a suspended VM</td><td>No</td></tr>
+</table>
+
+<div class="note"><strong>Note:</strong> Destructive power operations (start, shutdown, reboot, suspend) require governance approval tokens when the governance policy has destructive-action approval enabled.</div>
+
+<h3>VM Configuration</h3>
+<p>Click a VM to view its detailed configuration including:</p>
+<ul>
+  <li>General info (name, description, UUID, OS type)</li>
+  <li>Virtual CPUs (count, topology)</li>
+  <li>Memory (static max, dynamic max/min)</li>
+  <li>Virtual disks (VDI references, sizes, SR placement)</li>
+  <li>Virtual NICs (network, MAC address, device position)</li>
+  <li>Console endpoints</li>
+  <li>Snapshot history</li>
+</ul>
+
+<h3>VM Duplication</h3>
+<p>XenMange supports two VM duplication modes:</p>
+<ul>
+  <li><strong>Fast Clone (VM.clone):</strong> Creates a linked clone that shares the base disk. Fast but requires the original disk to remain available.</li>
+  <li><strong>Full Copy (VM.copy):</strong> Creates an independent copy with its own disks. Slower but fully self-contained.</li>
+</ul>
+
+<h3>VM Console</h3>
+<p>Click the <strong>Console</strong> button on any running VM to open a console session. XenMange enumerates XAPI console records and launches session-authenticated console endpoints.</p>
+
+<h2 id="host-mgmt">17. Host Management</h2>
+<p>The Hosts workspace lists all XenServer hosts across connected pools.</p>
+
+<h3>Host Information</h3>
+<p>For each host, XenMange displays:</p>
+<ul>
+  <li>Name, address, and UUID</li>
+  <li>Software version (XenServer/XCP-ng release)</li>
+  <li>CPU model, count, and utilization</li>
+  <li>Total, used, and free memory</li>
+  <li>Resident VMs count</li>
+  <li>Live metrics (memory, CPU trends)</li>
+</ul>
+
+<h3>Maintenance Mode</h3>
+<p>Entering maintenance mode on a host safely evacuates running VMs before allowing host-level operations (reboot, shutdown, patching).</p>
+<ol>
+  <li>Select a host and click <strong>Enter Maintenance Mode</strong>.</li>
+  <li>Configure the maintenance form:
+    <ul>
+      <li><strong>Evacuation Network:</strong> Network to use for live migration of VMs off this host.</li>
+      <li><strong>Batch Size:</strong> Number of VMs to migrate concurrently.</li>
+    </ul>
+  </li>
+  <li>Confirm the operation. XenMange will:
+    <ul>
+      <li>Live-migrate VMs off the host in batches.</li>
+      <li>Mark the host as in maintenance mode once all VMs are evacuated.</li>
+    </ul>
+  </li>
+</ol>
+<p>To exit maintenance mode, click <strong>Exit Maintenance Mode</strong>. VMs can then be migrated back.</p>
+
+<h3>Host Power Operations</h3>
+<table>
+  <tr><th>Operation</th><th>Description</th></tr>
+  <tr><td><strong>Reboot</strong></td><td>Reboots the host. All running VMs should be migrated off first.</td></tr>
+  <tr><td><strong>Shutdown</strong></td><td>Powers off the host. All running VMs should be migrated off first.</td></tr>
+</table>
+
+<h2 id="storage-mgmt">18. Storage Management</h2>
+<p>The Storage workspace displays all Storage Repositories (SRs) across connected pools.</p>
+<p>For each SR, XenMange shows:</p>
+<ul>
+  <li>Name, type (NFS, iSCSI, local, etc.), and UUID</li>
+  <li>Total capacity, allocated, and used space</li>
+  <li>Utilization percentage</li>
+  <li>Parent pool</li>
+  <li>Virtual Disks (VDIs) contained in the SR</li>
+</ul>
+
+<h2 id="networking">19. Networking</h2>
+<p>The Networking workspace displays all virtual networks across connected pools.</p>
+<p>For each network, XenMange shows:</p>
+<ul>
+  <li>Name, description, and UUID</li>
+  <li>VLAN tag (if applicable)</li>
+  <li>Bridge name</li>
+  <li>Parent pool</li>
+  <li>Connected VIFs (Virtual Interfaces)</li>
+</ul>
+
+<h2 id="pools">20. Pool Management</h2>
+<p>The Pools workspace lists all XenServer pools across your connected targets.</p>
+<p>For each pool, XenMange shows:</p>
+<ul>
+  <li>Pool name and UUID</li>
+  <li>Master host</li>
+  <li>Number of hosts</li>
+  <li>Default SR and guest metrics host</li>
+  <li>HA configuration status</li>
+</ul>
+
+<h2 id="templates">21. Template Management &amp; Governance</h2>
+<p>XenMange provides a governed template management system for maintaining golden images.</p>
+
+<h3>Template Governance</h3>
+<p>The governance system allows you to:</p>
+<ul>
+  <li><strong>Version Templates:</strong> Assign version labels to templates for tracking.</li>
+  <li><strong>Mark Golden Images:</strong> Set a template as the baseline/golden image for its family.</li>
+  <li><strong>Compare Versions:</strong> Compare configuration differences between template versions.</li>
+  <li><strong>Promote Templates:</strong> Promote a newer template to the golden image baseline, deprecating the previous version.</li>
+  <li><strong>Retire Old Baselines:</strong> Mark previous golden images as retired.</li>
+</ul>
+
+<h3>Template Deployment</h3>
+<p>Deploy VMs from governed templates with validation:</p>
+<ol>
+  <li>Select a template and click <strong>Deploy</strong>.</li>
+  <li>Configure deployment parameters (name, host, storage, network).</li>
+  <li>Run deployment validation to check resource availability.</li>
+  <li>Execute the deployment. Each step is tracked in the deployment run history.</li>
+</ol>
+
+<h2 id="snapshots">22. VM Snapshots &amp; Checkpoints</h2>
+<p>XenMange provides full snapshot and checkpoint management.</p>
+
+<h3>Creating Snapshots</h3>
+<ol>
+  <li>Select a VM and navigate to the <strong>Snapshots</strong> section.</li>
+  <li>Click <strong>Create Snapshot</strong>.</li>
+  <li>Provide a name and optional description.</li>
+  <li>Choose snapshot type:
+    <ul>
+      <li><strong>Snapshot:</strong> Captures disk state only (VM must be halted).</li>
+      <li><strong>Checkpoint:</strong> Captures both disk and memory state (VM must be running).</li>
+    </ul>
+  </li>
+</ol>
+
+<h3>Reverting to a Snapshot</h3>
+<p>Click <strong>Revert</strong> on any snapshot to restore the VM to that point. This is a <strong>destructive action</strong> that overwrites the current VM state and requires governance approval.</p>
+
+<h3>Deleting Snapshots</h3>
+<p>Click <strong>Delete</strong> on any snapshot to permanently remove it. This requires governance approval.</p>
+
+<h2 id="migration">23. VM Migration</h2>
+<p>XenMange supports two migration modes:</p>
+
+<h3>Same-Pool Live Migration</h3>
+<p>Migrates a VM from one host to another within the same pool:</p>
+<ol>
+  <li>Select a VM and click <strong>Migrate</strong>.</li>
+  <li>Select the destination host from the pool.</li>
+  <li>Confirm the migration. The VM will be live-migrated with minimal downtime.</li>
+</ol>
+
+<h3>Cross-Pool Migration</h3>
+<p>Migrates a VM from one pool to an entirely different pool:</p>
+<ol>
+  <li>Select a VM and click <strong>Migrate</strong>.</li>
+  <li>Choose <strong>Cross-Pool Migration</strong>.</li>
+  <li>Configure:
+    <ul>
+      <li><strong>Destination Pool:</strong> The target pool.</li>
+      <li><strong>Transfer Network:</strong> Network for data transfer between pools.</li>
+      <li><strong>Target SR:</strong> Storage repository on the destination for VM disks.</li>
+      <li><strong>Network Remapping:</strong> Map each source VIF to a destination network.</li>
+    </ul>
+  </li>
+  <li>Confirm the migration.</li>
+</ol>
+
+<h3>VM Compatibility</h3>
+<p>Before migration, XenMange checks host compatibility using <code>VM.get_possible_hosts</code> and <code>VM.assert_can_boot_here</code>. A compatibility matrix shows which hosts can run the VM, with CPU family alignment hints.</p>
+
+<h2 id="import-export">24. VM Import &amp; Export</h2>
+
+<h3>Exporting VMs</h3>
+<ol>
+  <li>Select a VM and click <strong>Export</strong>.</li>
+  <li>Choose export format:
+    <ul>
+      <li><strong>XVA:</strong> Full VM export including configuration and disks. XenServer-native format.</li>
+      <li><strong>Metadata Only:</strong> Exports VM configuration without disk data.</li>
+    </ul>
+  </li>
+  <li>The export file will be downloaded to your browser.</li>
+</ol>
+
+<h3>Importing VMs</h3>
+<ol>
+  <li>Navigate to VMs → <strong>Import</strong>.</li>
+  <li>Select the import file (XVA or metadata archive).</li>
+  <li>Configure:
+    <ul>
+      <li><strong>Target Host:</strong> Destination host for the import.</li>
+      <li><strong>Target SR:</strong> Storage repository for the VM disks.</li>
+    </ul>
+  </li>
+  <li>Start the import. Progress is tracked in the UI.</li>
+</ol>
+
+<h2 id="alerts">25. Alerts Center</h2>
+<p>The Alerts Center aggregates all alerts from XenServer and internal telemetry thresholds.</p>
+
+<h3>Alert Sources</h3>
+<ul>
+  <li><strong>XenServer Alerts:</strong> Native XenServer alert messages (host down, SR full, etc.).</li>
+  <li><strong>Telemetry Alerts:</strong> Generated by XenMange's metrics collector when thresholds are exceeded (e.g., host memory &gt; 85%).</li>
+</ul>
+
+<h3>Alert Management</h3>
+<table>
+  <tr><th>Action</th><th>Description</th></tr>
+  <tr><td><strong>Acknowledge</strong></td><td>Mark an alert as reviewed. Removes it from the active alert count.</td></tr>
+  <tr><td><strong>Suppress</strong></td><td>Hide an alert from the active view without acknowledging it.</td></tr>
+  <tr><td><strong>Override Severity</strong></td><td>Manually change the severity level of an alert.</td></tr>
+  <tr><td><strong>Bulk Triage</strong></td><td>Select multiple alerts and acknowledge/suppress them at once.</td></tr>
+  <tr><td><strong>Deep Link</strong></td><td>Navigate directly to the affected object (host, VM, SR).</td></tr>
+  <tr><td><strong>Create Remediation Task</strong></td><td>Generate a remediation task from an alert for tracking resolution.</td></tr>
+</table>
+
+<h3>Alert Policies</h3>
+<p>Configure alert policies to control which alerts are generated and at what thresholds. Policies can be created, updated, and deleted (with governance approval for deletion).</p>
+
+<h2 id="activity">26. Activity &amp; Log Center</h2>
+<p>The Activity workspace provides a federated view of all operational events across the system.</p>
+
+<h3>Log Sources</h3>
+<ul>
+  <li><strong>Audit Log:</strong> Operator actions and configuration changes.</li>
+  <li><strong>Auth Events:</strong> Login/logout events for all users.</li>
+  <li><strong>Alert Records:</strong> Alert state changes (created, acknowledged, suppressed).</li>
+  <li><strong>Remediation Tasks:</strong> Task creation and status updates.</li>
+  <li><strong>Xen Background Tasks:</strong> Background operations from XenServer.</li>
+  <li><strong>Telemetry Events:</strong> Metrics collection and threshold violations.</li>
+</ul>
+
+<h3>Export Options</h3>
+<table>
+  <tr><th>Format</th><th>Description</th></tr>
+  <tr><td><strong>JSON</strong></td><td>Machine-readable export of all log entries.</td></tr>
+  <tr><td><strong>HTML</strong></td><td>Formatted HTML report with print-friendly styling.</td></tr>
+  <tr><td><strong>PDF</strong></td><td>Professional PDF document generated via pdfkit.</td></tr>
+</table>
+
+<h2 id="metrics">27. Metrics &amp; Telemetry</h2>
+<p>XenMange includes a built-in background metrics collector that polls connected XenServer targets on a configurable schedule.</p>
+
+<h3>Metrics Collected</h3>
+<table>
+  <tr><th>Entity</th><th>Metrics</th></tr>
+  <tr><td><strong>Host</strong></td><td><code>memory_total_bytes</code>, <code>memory_free_bytes</code>, <code>memory_used_bytes</code>, <code>memory_used_percent</code></td></tr>
+  <tr><td><strong>VM</strong></td><td><code>memory_actual_bytes</code>, <code>memory_static_max_bytes</code>, <code>memory_usage_percent</code>, <code>vcpu_count</code></td></tr>
+  <tr><td><strong>Storage (SR)</strong></td><td><code>allocation_bytes</code>, <code>physical_bytes</code>, <code>utilization_percent</code></td></tr>
+</table>
+
+<h3>Time Ranges</h3>
+<p>Metrics are available in five time ranges: <code>1h</code>, <code>6h</code>, <code>24h</code>, <code>7d</code>, and <code>30d</code>. For the 7d and 30d ranges, XenMange automatically uses hourly rollups instead of raw samples for efficient querying.</p>
+
+<h3>Collection Schedule</h3>
+<ul>
+  <li><strong>Default interval:</strong> 60 seconds</li>
+  <li><strong>Configurable range:</strong> 30 seconds to 3600 seconds</li>
+  <li><strong>Staleness guard:</strong> Skips collection if the most recent sample is less than 10 minutes old</li>
+  <li><strong>Concurrency guard:</strong> Prevents overlapping collection runs</li>
+</ul>
+
+<h3>Manual Collection</h3>
+<p>Force an immediate telemetry snapshot via the API: <code>POST /api/metrics/collect</code></p>
+
+<h2 id="lifecycle">28. Lifecycle Workspace</h2>
+<p>The Lifecycle workspace tracks the operational lifecycle of hosts and VMs.</p>
+<ul>
+  <li><strong>Host Maintenance Posture:</strong> Overview of which hosts are in maintenance mode, scheduled for maintenance, or operational.</li>
+  <li><strong>Lifecycle-Oriented Task Tracking:</strong> Tasks related to lifecycle operations (patching, upgrades, decommissioning).</li>
+  <li><strong>Compliance &amp; Drift Signals:</strong> Indicators showing whether infrastructure state matches expected lifecycle plans.</li>
+  <li><strong>Lifecycle Plans:</strong> Persisted plans that define the desired lifecycle state for hosts and VMs.</li>
+  <li><strong>Remediation Guidance:</strong> Actionable steps to bring drift back into compliance.</li>
+</ul>
+
+<h2 id="capacity">29. Capacity Planning</h2>
+<p>The Capacity workspace provides resource utilization analysis and planning tools.</p>
+<ul>
+  <li><strong>Host Memory Pressure:</strong> Visual indication of memory pressure across hosts.</li>
+  <li><strong>Storage Commitment:</strong> Ratio of allocated to physical storage.</li>
+  <li><strong>Top VM Consumers:</strong> Ranking of VMs by resource consumption (CPU, memory, storage).</li>
+  <li><strong>Noisy-Neighbor Detection:</strong> Identifies VMs disproportionately consuming shared resources.</li>
+  <li><strong>Persisted Telemetry Trends:</strong> Historical trends for capacity forecasting.</li>
+  <li><strong>Background Tasks:</strong> Ongoing operations that affect capacity (migrations, deployments).</li>
+  <li><strong>Operator Guidance:</strong> Recommendations for capacity optimization.</li>
+</ul>
+
+<h2 id="resilience">30. Resilience &amp; HA/DR</h2>
+<p>The Resilience workspace manages High Availability and Disaster Recovery configuration.</p>
+
+<h3>Protection Coverage</h3>
+<p>Overview of which VMs and hosts have HA protection enabled, and which do not.</p>
+
+<h3>Failover Readiness</h3>
+<p>Assessment of the pool's ability to recover from host failures, including available failover capacity.</p>
+
+<h3>Evacuation Targets</h3>
+<p>For each host, identifies which other hosts can receive its VMs in case of failure.</p>
+
+<h3>Recovery Runbooks</h3>
+<p>Create and manage runbooks that define step-by-step recovery procedures:</p>
+<ul>
+  <li><strong>Create Runbook:</strong> Define recovery steps, target objects, and expected outcomes.</li>
+  <li><strong>Execute Drill:</strong> Run a recovery drill (simulation) to validate the runbook.</li>
+  <li><strong>Audit Coverage:</strong> All drill executions are recorded in the audit trail.</li>
+</ul>
+
+<h2 id="inventory">31. Inventory &amp; Search</h2>
+<p>The Inventory workspace provides a universal search across all infrastructure objects.</p>
+
+<h3>Universal Search</h3>
+<p>Search across pools, hosts, VMs, storage repositories, networks, templates, and more using a single search bar. Results are categorized by object type.</p>
+
+<h3>Workspace Presets</h3>
+<p>Save custom inventory views with specific filter criteria and target bindings:</p>
+<ul>
+  <li>Create a preset that filters for specific VMs, hosts, or other objects.</li>
+  <li>Bind the preset to a specific connection target.</li>
+  <li>Quickly switch between saved views.</li>
+</ul>
+
+<h3>Saved Connections</h3>
+<p>Manage all saved XenServer connection targets from the Inventory workspace.</p>
+
+<h2 id="remediation">32. Remediation Tasks</h2>
+<p>Remediation tasks track the resolution of operational issues identified through alerts, lifecycle drift, or manual creation.</p>
+
+<h3>Task Lifecycle</h3>
+<ol>
+  <li><strong>Created:</strong> Task is created from an alert, manually, or from a template.</li>
+  <li><strong>In Progress:</strong> Work is being done to resolve the issue.</li>
+  <li><strong>Resolved:</strong> The issue has been addressed.</li>
+  <li><strong>Closed:</strong> The task is archived and subject to retention policies.</li>
+</ol>
+
+<h3>Remediation Templates</h3>
+<p>Create reusable templates for common remediation workflows:</p>
+<ul>
+  <li>Define standard steps for recurring issues (e.g., "Host Memory High" → steps to rebalance VMs).</li>
+  <li>Templates include recurrence guards to prevent duplicate task creation.</li>
+  <li>Templates can be updated and versioned.</li>
+  <li>Template deletion requires governance approval.</li>
+</ul>
+
+<!-- ============================================================ -->
+<!-- PART VI — ADMINISTRATION -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part VI &mdash; Administration</h1>
+
+<h2 id="user-mgmt">33. User Management</h2>
+<p>XenMange manages its own local user accounts independently from XenServer. Users are stored in the <code>security.db</code> database.</p>
+
+<h3>Creating Users</h3>
+<ol>
+  <li>Navigate to <strong>Governance</strong> → <strong>User Management</strong>.</li>
+  <li>Click <strong>Add User</strong>.</li>
+  <li>Enter:
+    <ul>
+      <li><strong>Username:</strong> Unique login name.</li>
+      <li><strong>Display Name:</strong> Human-readable name.</li>
+      <li><strong>Email:</strong> Optional contact email.</li>
+      <li><strong>Password:</strong> Initial password (stored as bcrypt hash).</li>
+      <li><strong>Role:</strong> <code>read-only</code>, <code>operator</code>, or <code>admin</code>.</li>
+    </ul>
+  </li>
+  <li>Click <strong>Create</strong>.</li>
+</ol>
+
+<h3>Updating Users</h3>
+<p>Click <strong>Edit</strong> on any user to modify their display name, email, role, or active status.</p>
+
+<h3>Password Rotation</h3>
+<p>Click <strong>Change Password</strong> on any user to set a new password. Users can also change their own password.</p>
+
+<div class="warning"><strong>Last Admin Protection:</strong> XenMange prevents you from disabling, de-roleing, or deleting the last active admin account. This ensures you cannot lock yourself out of the system.</div>
+
+<h2 id="group-mgmt">34. Group Management</h2>
+<p>Groups allow organizing users for bulk role assignment and resource sharing.</p>
+
+<h3>Creating Groups</h3>
+<ol>
+  <li>Navigate to <strong>Governance</strong> → <strong>Group Management</strong>.</li>
+  <li>Click <strong>Add Group</strong>.</li>
+  <li>Enter a group name and click <strong>Create</strong>.</li>
+</ol>
+
+<h3>Managing Membership</h3>
+<p>Click <strong>Edit</strong> on a group to add or remove users from the group.</p>
+
+<h3>Deleting Groups</h3>
+<p>Click <strong>Delete</strong> on a group to remove it. Group membership records are also removed.</p>
+
+<div class="note"><strong>Note:</strong> Group management is restricted to admin-role users only.</div>
+
+<h2 id="rbac">35. Role-Based Access Control</h2>
+<p>XenMange implements three roles with strict permission ordering:</p>
+
+<table>
+  <tr><th>Role</th><th>Level</th><th>Permissions</th></tr>
+  <tr>
+    <td><span class="badge badge-readonly">read-only</span></td>
+    <td>0</td>
+    <td>View all resources. Cannot perform any write operations, power operations, or administrative actions.</td>
+  </tr>
+  <tr>
+    <td><span class="badge badge-operator">operator</span></td>
+    <td>1</td>
+    <td>All read-only permissions plus: VM power operations, migration, snapshot management, alert triage, remediation tasks. Cannot manage users, groups, or governance policy.</td>
+  </tr>
+  <tr>
+    <td><span class="badge badge-admin">admin</span></td>
+    <td>2</td>
+    <td>Full access to all features: user/group management, governance policy configuration, system settings, credential vault, destructive action approval, and all operator-level actions.</td>
+  </tr>
+</table>
+
+<h3>Session Role Switching</h3>
+<p>Admins can temporarily switch their session role to a lower level (e.g., switch to "operator" to test operator experience). The session role is capped by the user's persisted account role — you cannot elevate beyond your actual permissions.</p>
+
+<h2 id="governance">36. Governance Policy</h2>
+<p>The governance policy controls how XenMange enforces operational safety.</p>
+
+<h3>Configurable Policy Settings</h3>
+<table>
+  <tr><th>Setting</th><th>Description</th></tr>
+  <tr><td><strong>Default Role</strong></td><td>The role assigned to new users by default.</td></tr>
+  <tr><td><strong>Destructive Action Approval</strong></td><td>When enabled, destructive operations (power operations, deletions, retention sweeps) require an approval token from an admin.</td></tr>
+  <tr><td><strong>Approval TTL</strong></td><td>Time-to-live for approval tokens before they expire.</td></tr>
+</table>
+
+<h3>Approval Workflow</h3>
+<ol>
+  <li>Operator requests a destructive action (e.g., shutdown a VM).</li>
+  <li>System generates an approval request with a unique token.</li>
+  <li>Admin reviews the request and approves or denies it.</li>
+  <li>If approved, the operator consumes the token to execute the action.</li>
+  <li>The token is invalidated after use or expiration.</li>
+</ol>
+<p>All approval decisions are recorded in the audit trail.</p>
+
+<h3>Pool Quotas</h3>
+<p>Configure resource quotas per pool to limit resource consumption:</p>
+<ul>
+  <li><strong>VM Count:</strong> Maximum number of VMs in the pool.</li>
+  <li><strong>Running VM Count:</strong> Maximum simultaneously running VMs.</li>
+  <li><strong>Total Memory:</strong> Maximum aggregate memory allocation.</li>
+</ul>
+
+<h2 id="vault">37. Credential Vault</h2>
+<p>The Credential Vault securely stores XenServer passwords using AES-256-GCM envelope encryption.</p>
+
+<h3>Adding Credentials</h3>
+<ol>
+  <li>Navigate to <strong>Settings</strong> → <strong>Credential Vault</strong>.</li>
+  <li>Click <strong>Add Credential</strong>.</li>
+  <li>Enter:
+    <ul>
+      <li><strong>Name:</strong> Descriptive label (e.g., "Production XenServer Root").</li>
+      <li><strong>Username:</strong> The XenServer username.</li>
+      <li><strong>Password:</strong> The XenServer password (encrypted before storage).</li>
+      <li><strong>Target Type:</strong> <code>pool</code> or <code>host</code>.</li>
+      <li><strong>Scope:</strong> <code>private</code> (visible only to you) or <code>shared</code> (visible to other admins).</li>
+    </ul>
+  </li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>Using Stored Credentials</h3>
+<p>When connecting to a XenServer, select a stored credential instead of entering a password. The password is decrypted server-side only at the moment of XenServer login and is <strong>never</strong> sent to the browser.</p>
+
+<h3>Key Rotation</h3>
+<p>To rotate the vault encryption key:</p>
+<ol>
+  <li>Generate a new 32-byte base64 key.</li>
+  <li>Set <code>VAULT_ENCRYPTION_KEY_PREVIOUS</code> to the current key value.</li>
+  <li>Set <code>VAULT_ENCRYPTION_KEY</code> to the new key value.</li>
+  <li>Restart XenMange. Existing credentials will be re-wrapped under the new key on next access.</li>
+  <li>Once all credentials have been accessed (and re-wrapped), remove <code>VAULT_ENCRYPTION_KEY_PREVIOUS</code>.</li>
+</ol>
+
+<div class="warning"><strong>Important:</strong> In production mode (<code>NODE_ENV=production</code>), <code>VAULT_ENCRYPTION_KEY</code> is required. If not set, XenMange will refuse to start.</div>
+
+<h2 id="connections">38. Connection &amp; Host Target Management</h2>
+
+<h3>Connections</h3>
+<p>Connections are saved XenServer pool connection targets. Manage them via <strong>Settings</strong> → <strong>Connections</strong> or the API.</p>
+<ul>
+  <li><strong>Add:</strong> Provide host, port, username, and optional stored credential.</li>
+  <li><strong>Set Default:</strong> Mark a connection as the default target.</li>
+  <li><strong>Delete:</strong> Remove a saved connection (requires governance approval if owned).</li>
+</ul>
+
+<h3>Host Targets</h3>
+<p>Individual host targets for standalone hosts not part of a pool connection:</p>
+<ul>
+  <li><strong>Standalone Mode:</strong> Direct host connection without pool context.</li>
+  <li><strong>Pool-Member Mode:</strong> Host target associated with an existing pool connection.</li>
+</ul>
+
+<h3>Resource Ownership</h3>
+<p>All saved connections, host targets, and inventory workspaces carry ownership metadata:</p>
+<ul>
+  <li><strong>Private:</strong> Visible only to the creating user.</li>
+  <li><strong>Shared:</strong> Visible to all admin users.</li>
+  <li>Admins can see all resources regardless of ownership.</li>
+  <li>Deleting owned resources requires governance approval.</li>
+</ul>
+
+<h2 id="settings">39. Settings &amp; System Configuration</h2>
+<p>The Settings workspace provides system-wide configuration options:</p>
+<ul>
+  <li><strong>App Identity:</strong> Application name and branding.</li>
+  <li><strong>Timezone:</strong> Server-side timezone for log timestamps and scheduling.</li>
+  <li><strong>Proxy Behavior:</strong> HTTP proxy settings for outbound connections.</li>
+  <li><strong>Session Timeout:</strong> Configure session cookie max age.</li>
+  <li><strong>Telemetry Collection:</strong> Enable/disable the background metrics collector and configure collection interval.</li>
+  <li><strong>Credential Vault:</strong> Manage stored credentials (see Section 37).</li>
+  <li><strong>Retention Policies:</strong> Configure data retention periods (see Section 40).</li>
+  <li><strong>Connections:</strong> Manage XenServer connections (see Section 38).</li>
+</ul>
+
+<h2 id="retention">40. Retention Policies</h2>
+<p>XenMange automatically purges old data based on configurable retention policies.</p>
+
+<h3>Default Policies</h3>
+<table>
+  <tr><th>Domain</th><th>Default Retention</th><th>Description</th></tr>
+  <tr><td><code>audit-log</code></td><td>180 days</td><td>Operator and configuration change entries</td></tr>
+  <tr><td><code>remediation-tasks</code></td><td>90 days</td><td>Closed remediation queue items</td></tr>
+  <tr><td><code>auth-events</code></td><td>60 days</td><td>Login/logout activity</td></tr>
+  <tr><td><code>template-deployment-runs</code></td><td>90 days</td><td>Completed deployment tracking</td></tr>
+  <tr><td><code>metric-samples</code></td><td>7 days</td><td>Raw telemetry snapshots</td></tr>
+  <tr><td><code>metric-hourly-rollups</code></td><td>90 days</td><td>Aggregated telemetry rollups</td></tr>
+</table>
+
+<h3>Managing Policies</h3>
+<ol>
+  <li>Navigate to <strong>Settings</strong> → <strong>Retention</strong>.</li>
+  <li>Adjust the retention period (in days) for each domain.</li>
+  <li>Enable or disable individual policies.</li>
+  <li>Click <strong>Preview</strong> to see how many records would be purged.</li>
+  <li>Click <strong>Run Sweep</strong> to execute an immediate purge (requires governance approval).</li>
+</ol>
+
+<h3>Automatic Scheduler</h3>
+<p>A background scheduler runs retention sweeps on a configurable interval (default: every 24 hours). After each sweep, an optional <code>VACUUM</code> is run on the affected databases to reclaim disk space.</p>
+
+<h2 id="audit">41. Audit Trail</h2>
+<p>The audit trail records all significant operator actions across the system.</p>
+
+<h3>What Gets Audited</h3>
+<ul>
+  <li>User login/logout events</li>
+  <li>VM power operations (start, shutdown, reboot, suspend)</li>
+  <li>VM migration and duplication</li>
+  <li>Snapshot creation, revert, and deletion</li>
+  <li>Host maintenance mode changes</li>
+  <li>Connection and credential changes</li>
+  <li>User and group management actions</li>
+  <li>Governance policy changes and approval decisions</li>
+  <li>Template governance actions (promote, deprecate)</li>
+  <li>Alert state changes</li>
+  <li>Remediation task lifecycle events</li>
+  <li>Retention sweep executions</li>
+</ul>
+
+<h3>Viewing Audit Logs</h3>
+<p>Navigate to <strong>Activity</strong> and filter by "Audit" source. Entries are displayed in reverse chronological order with diff tracking showing what fields changed.</p>
+
+<!-- ============================================================ -->
+<!-- PART VII — REFERENCE -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part VII &mdash; Reference</h1>
+
+<h2 id="api-ref">42. Complete API Reference</h2>
+
+<h3>Authentication</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/api/auth/login</code></td><td>Control-plane login (username/password)</td></tr>
+  <tr><td>POST</td><td><code>/api/auth/xen-login</code></td><td>XenServer connection login</td></tr>
+  <tr><td>POST</td><td><code>/api/auth/logout</code></td><td>Terminate session</td></tr>
+  <tr><td>GET</td><td><code>/api/auth/status</code></td><td>Current auth and connection status</td></tr>
+</table>
+
+<h3>Dashboard</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/dashboard</code></td><td>Aggregate pool/host/VM/storage/network summary</td></tr>
+  <tr><td>GET</td><td><code>/api/dashboard/messages</code></td><td>Recent XenServer messages</td></tr>
+</table>
+
+<h3>Virtual Machines</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/vms</code></td><td>List all VMs</td></tr>
+  <tr><td>GET</td><td><code>/api/vms/templates</code></td><td>List templates</td></tr>
+  <tr><td>GET</td><td><code>/api/vms/:ref/snapshots</code></td><td>List VM snapshots</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/start</code></td><td>Start VM</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/shutdown</code></td><td>Shutdown VM (clean/hard)</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/reboot</code></td><td>Reboot VM (clean/hard)</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/suspend</code></td><td>Suspend VM</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/resume</code></td><td>Resume VM</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/:ref/duplicate</code></td><td>Clone or copy VM</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/:ref/migrate</code></td><td>Migrate VM (same-pool or cross-pool)</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/:ref/snapshots</code></td><td>Create snapshot/checkpoint</td></tr>
+  <tr><td>POST</td><td><code>/api/vms/:ref/snapshots/:snap/revert</code></td><td>Revert to snapshot</td></tr>
+  <tr><td>DELETE</td><td><code>/api/vms/:ref/snapshots/:snap</code></td><td>Delete snapshot</td></tr>
+  <tr><td>GET</td><td><code>/api/vms/:ref/export</code></td><td>Export VM (XVA/metadata)</td></tr>
+  <tr><td>PUT</td><td><code>/api/vms/import</code></td><td>Import VM (XVA/metadata)</td></tr>
+</table>
+
+<h3>Hosts</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/hosts</code></td><td>List all hosts</td></tr>
+  <tr><td>GET</td><td><code>/api/hosts/:ref/metrics</code></td><td>Live host metrics</td></tr>
+  <tr><td>POST</td><td><code>/api/hosts/:ref/maintenance/enter</code></td><td>Enter maintenance mode</td></tr>
+  <tr><td>POST</td><td><code>/api/hosts/:ref/maintenance/exit</code></td><td>Exit maintenance mode</td></tr>
+  <tr><td>POST</td><td><code>/api/hosts/:ref/reboot</code></td><td>Reboot host</td></tr>
+  <tr><td>POST</td><td><code>/api/hosts/:ref/shutdown</code></td><td>Shutdown host</td></tr>
+</table>
+
+<h3>Storage &amp; Networking</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/storage</code></td><td>List all storage repositories</td></tr>
+  <tr><td>GET</td><td><code>/api/networks</code></td><td>List all virtual networks</td></tr>
+  <tr><td>GET</td><td><code>/api/pools</code></td><td>List all pools</td></tr>
+</table>
+
+<h3>Alerts</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/alerts</code></td><td>List all alerts</td></tr>
+  <tr><td>POST</td><td><code>/api/alerts</code></td><td>Create alert</td></tr>
+  <tr><td>PUT</td><td><code>/api/alerts/:id</code></td><td>Update alert state</td></tr>
+  <tr><td>DELETE</td><td><code>/api/alerts/:id</code></td><td>Delete alert</td></tr>
+  <tr><td>POST</td><td><code>/api/alerts/bulk-state</code></td><td>Bulk update alert states</td></tr>
+  <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/alerts/policies/*</code></td><td>Alert policy CRUD</td></tr>
+</table>
+
+<h3>Metrics</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/metrics/cluster</code></td><td>Cluster-wide telemetry history</td></tr>
+  <tr><td>GET</td><td><code>/api/metrics/hosts/:ref</code></td><td>Host telemetry history</td></tr>
+  <tr><td>GET</td><td><code>/api/metrics/vms/:ref</code></td><td>VM telemetry history</td></tr>
+  <tr><td>GET</td><td><code>/api/metrics/storage/:ref</code></td><td>Storage telemetry history</td></tr>
+  <tr><td>POST</td><td><code>/api/metrics/collect</code></td><td>Force telemetry snapshot</td></tr>
+</table>
+
+<h3>Logs &amp; Audit</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/logs</code></td><td>Federated centralized logs</td></tr>
+  <tr><td>POST</td><td><code>/api/logs/export</code></td><td>Export logs (JSON/HTML/PDF)</td></tr>
+  <tr><td>GET</td><td><code>/api/audit</code></td><td>Audit trail entries</td></tr>
+</table>
+
+<h3>Governance &amp; Administration</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET/PUT</td><td><code>/api/governance</code></td><td>Governance policy</td></tr>
+  <tr><td>GET/POST/PUT</td><td><code>/api/users</code></td><td>User management</td></tr>
+  <tr><td>POST</td><td><code>/api/users/:id/password</code></td><td>Rotate user password</td></tr>
+  <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/groups</code></td><td>Group management</td></tr>
+  <tr><td>GET/POST/DELETE</td><td><code>/api/connections</code></td><td>Connection management</td></tr>
+  <tr><td>POST</td><td><code>/api/connections/:id/default</code></td><td>Set default connection</td></tr>
+  <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/host-targets</code></td><td>Host target management</td></tr>
+  <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/workspaces</code></td><td>Inventory workspace presets</td></tr>
+</table>
+
+<h3>Settings &amp; Credentials</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/settings</code></td><td>Runtime configuration</td></tr>
+  <tr><td>GET</td><td><code>/api/settings/retention/preview</code></td><td>Retention sweep preview</td></tr>
+  <tr><td>POST</td><td><code>/api/settings/retention/run</code></td><td>Manual retention sweep</td></tr>
+  <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/credentials</code></td><td>Credential vault CRUD</td></tr>
+</table>
+
+<h3>Tasks &amp; Resilience</h3>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/tasks</code></td><td>Recent task history</td></tr>
+  <tr><td>GET</td><td><code>/api/resilience</code></td><td>HA/DR overview</td></tr>
+  <tr><td>GET/POST/PUT/DELETE</td><td><code>/api/lifecycle/*</code></td><td>Lifecycle plan management</td></tr>
+</table>
+
+<h2 id="env-vars">43. Environment Variables</h2>
+<p>See <a href="#env-ref">Section 10</a> for the complete environment variable reference.</p>
+
+<h2 id="ports-paths">44. Default Ports &amp; Paths</h2>
+<table>
+  <tr><th>Resource</th><th>Default</th><th>Configurable Via</th></tr>
+  <tr><td>HTTP Server</td><td>Port 3000</td><td><code>PORT</code> env var</td></tr>
+  <tr><td>XenServer API</td><td>Port 443 (HTTPS)</td><td>Per-connection configuration</td></tr>
+  <tr><td>Main Database</td><td><code>./data/xenmange.db</code></td><td><code>DB_PATH</code> env var</td></tr>
+  <tr><td>Security Database</td><td><code>./data/security.db</code></td><td><code>SECURITY_DB_PATH</code> env var</td></tr>
+  <tr><td>Vault Database</td><td><code>./data/vault.db</code></td><td><code>VAULT_DB_PATH</code> env var</td></tr>
+  <tr><td>Performance Database</td><td><code>./data/perf.db</code></td><td><code>PERF_DB_PATH</code> env var</td></tr>
+  <tr><td>Client Assets</td><td><code>/assets/*</code></td><td>Hardcoded in server</td></tr>
+  <tr><td>Compiled Client</td><td><code>/dist/*</code></td><td>Hardcoded in server</td></tr>
+</table>
+
+<h2 id="thresholds">45. Telemetry Alert Thresholds</h2>
+<table>
+  <tr><th>Entity</th><th>Metric</th><th>Warning</th><th>Critical</th></tr>
+  <tr><td>Host</td><td><code>memory_used_percent</code></td><td>85%</td><td>95%</td></tr>
+  <tr><td>Storage (SR)</td><td><code>utilization_percent</code></td><td>80%</td><td>92%</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<!-- PART VIII — OPERATIONS -->
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h1>Part VIII &mdash; Operations</h1>
+
+<h2 id="backup">46. Backup &amp; Recovery</h2>
+
+<h3>What to Back Up</h3>
+<p>XenMange stores all data in four SQLite files under the <code>data/</code> directory:</p>
+<ul>
+  <li><code>xenmange.db</code> — Connections, settings, deployment runs</li>
+  <li><code>security.db</code> — Users, groups, sessions, auth events, vault key material</li>
+  <li><code>vault.db</code> — Encrypted credentials</li>
+  <li><code>perf.db</code> — Telemetry data (can be regenerated if lost)</li>
+</ul>
+
+<h3>Backup Procedure</h3>
+<ol>
+  <li>Stop the XenMange server.</li>
+  <li>Copy all four database files and the <code>.env</code> file.</li>
+  <li>Restart the server.</li>
+</ol>
+<pre># Example backup script
+systemctl stop xenmange
+cp data/*.db /backup/xenmange/$(date +%Y%m%d)/
+cp .env /backup/xenmange/$(date +%Y%m%d)/
+systemctl start xenmange</pre>
+
+<div class="note"><strong>Note:</strong> The <code>perf.db</code> database contains telemetry data that will be regenerated by the metrics collector. If backup size is a concern, you can exclude it.</div>
+
+<h3>Recovery</h3>
+<ol>
+  <li>Stop the XenMange server.</li>
+  <li>Restore the database files to the <code>data/</code> directory.</li>
+  <li>Restore the <code>.env</code> file.</li>
+  <li>Start the server.</li>
+</ol>
+<div class="warning"><strong>Important:</strong> The <code>VAULT_ENCRYPTION_KEY</code> in <code>.env</code> must match the key used when the credentials were encrypted. If you lose this key, encrypted credentials in the vault cannot be decrypted.</div>
+
+<h2 id="upgrading">47. Upgrading</h2>
+<ol>
+  <li>Back up all databases (see Section 46).</li>
+  <li>Stop the server.</li>
+  <li>Pull the latest code: <code>git pull</code></li>
+  <li>Install any new dependencies: <code>npm install</code></li>
+  <li>Rebuild the client: <code>npm run build:client</code></li>
+  <li>Start the server: <code>npm start</code></li>
+</ol>
+<p>Database schema migrations are handled automatically at startup. No manual migration steps are required.</p>
+
+<h2 id="troubleshooting">48. Troubleshooting</h2>
+
+<h3>Common Issues</h3>
+
+<table>
+  <tr><th>Symptom</th><th>Likely Cause</th><th>Solution</th></tr>
+  <tr>
+    <td>Cannot connect to XenServer</td>
+    <td>Network connectivity, TLS certificate, or credential issue</td>
+    <td>Verify network access to port 443. Check that the XenServer hostname/IP is correct. Note: XenMange accepts self-signed certificates by default.</td>
+  </tr>
+  <tr>
+    <td>"No active XenServer connection" error</td>
+    <td>No XenServer session attached</td>
+    <td>Use the target selector to connect to a XenServer, or go to Settings → Connections to add one.</td>
+  </tr>
+  <tr>
+    <td>Dashboard shows empty data</td>
+    <td>XenServer connection not active or permissions issue</td>
+    <td>Ensure the connected user has sufficient XenServer privileges (typically root).</td>
+  </tr>
+  <tr>
+    <td>Login fails immediately after install</td>
+    <td>Bootstrap credentials mismatch</td>
+    <td>Verify <code>XENMANGE_BOOTSTRAP_USERNAME</code> and <code>XENMANGE_BOOTSTRAP_PASSWORD</code> in your <code>.env</code> file.</td>
+  </tr>
+  <tr>
+    <td>"Too many login attempts" error</td>
+    <td>Rate limit triggered</td>
+    <td>Wait 15 minutes and try again. The rate limit is 20 attempts per 15 minutes per IP.</td>
+  </tr>
+  <tr>
+    <td>Server fails to start in production mode</td>
+    <td><code>VAULT_ENCRYPTION_KEY</code> not set</td>
+    <td>Generate a 32-byte base64 key and set it as <code>VAULT_ENCRYPTION_KEY</code> in your <code>.env</code> file.</td>
+  </tr>
+  <tr>
+    <td><code>better-sqlite3</code> installation fails</td>
+    <td>Missing C++ build tools</td>
+    <td>Install build tools: <code>sudo apt-get install build-essential python3</code> (Debian/Ubuntu) or <code>sudo yum groupinstall "Development Tools"</code> (RHEL/CentOS).</td>
+  </tr>
+  <tr>
+    <td>Metrics not collecting</td>
+    <td>Telemetry collector disabled or no active connections</td>
+    <td>Check Settings → Telemetry to ensure collection is enabled. Ensure at least one XenServer connection is active.</td>
+  </tr>
+  <tr>
+    <td>Session expires too quickly</td>
+    <td>Short session max age or clock skew</td>
+    <td>Adjust <code>SESSION_MAX_AGE</code> in the environment configuration. Default is 24 hours.</td>
+  </tr>
+  <tr>
+    <td>PDF export fails</td>
+    <td>Memory or disk space issue</td>
+    <td>Check available disk space. For very large log exports, the PDF generation may require significant memory.</td>
+  </tr>
+</table>
+
+<h3>Log Files</h3>
+<p>XenMange logs to stdout/stderr. When running under systemd, view logs with:</p>
+<pre>journalctl -u xenmange -f</pre>
+<p>When running directly, logs are printed to the terminal where the server is running.</p>
+
+<h3>Database Inspection</h3>
+<p>To inspect SQLite databases directly, use the <code>sqlite3</code> CLI tool:</p>
+<pre>sqlite3 data/xenmange.db ".tables"          # List tables
+sqlite3 data/xenmange.db "SELECT * FROM settings LIMIT 10;"  # Query data</pre>
+
+<h2 id="faq">49. Frequently Asked Questions</h2>
+
+<h3>Q: Can I run XenMange on multiple servers simultaneously?</h3>
+<p>A: No. XenMange is designed as a single-process, single-server application. Running multiple instances against the same SQLite databases will cause data corruption. If you need high availability, place XenMange behind a reverse proxy and use process supervision (e.g., systemd, PM2) to auto-restart on failure.</p>
+
+<h3>Q: Does XenMange support XenServer 6.x?</h3>
+<p>A: XenMange targets XenServer 7.x+ and XCP-ng 8.x+. Older versions may work but are not officially supported.</p>
+
+<h3>Q: Can I use XenMange with XCP-ng?</h3>
+<p>A: Yes. XCP-ng is API-compatible with XenServer, and XenMange communicates via the standard XenAPI JSON-RPC protocol.</p>
+
+<h3>Q: How do I change the server port?</h3>
+<p>A: Set the <code>PORT</code> environment variable in your <code>.env</code> file to the desired port number, then restart the server.</p>
+
+<h3>Q: Is TLS required for the XenMange web interface?</h3>
+<p>A: XenMange serves HTTP by default. For production use, place a reverse proxy (nginx, Caddy) in front to handle TLS termination. The XenMange server itself does not support TLS natively.</p>
+
+<h3>Q: How much disk space do the databases require?</h3>
+<p>A: This depends on the number of VMs, hosts, and the telemetry retention configuration. The main databases are typically small (a few MB). The <code>perf.db</code> database grows based on the number of entities and retention period — with default settings (7 days raw, 90 days hourly), expect roughly 10-50 MB for a medium-sized environment (50-200 VMs).</p>
+
+<h3>Q: Can I back up just the credential vault?</h3>
+<p>A: Yes, back up both <code>vault.db</code> (encrypted passwords) and the <code>vault_key_material</code> table in <code>security.db</code> (wrapped DEKs). You also need the <code>VAULT_ENCRYPTION_KEY</code> from your <code>.env</code> file to decrypt.</p>
+
+<h3>Q: How do I completely reset XenMange?</h3>
+<p>A: Stop the server, delete all files in the <code>data/</code> directory, and restart. XenMange will recreate the databases and bootstrap user on next start. Note: this will lose all saved connections, users, credentials, and telemetry data.</p>
+
+<h3>Q: What happens if the vault encryption key is lost?</h3>
+<p>A: Any credentials encrypted with that key cannot be decrypted. You will need to re-enter all XenServer passwords. The application itself remains functional — only stored credentials are affected.</p>
+
+<h3>Q: Does XenMange work offline?</h3>
+<p>A: The web interface loads entirely from local assets (no CDN). However, all infrastructure management features require network connectivity to XenServer hosts.</p>
+
+<hr style="margin-top: 40px;">
+<p style="text-align: center; color: #888; font-size: 9pt; margin-top: 30px;">
+  XenMange v1.0.0 — Administrator &amp; User Manual<br>
+  Generated August 2026<br>
+  MIT License
+</p>
+
+</body>
+</html>

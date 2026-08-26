@@ -122,15 +122,7 @@ const LoginView = {
 
       try {
         const result = await api.login(this.appUsername, this.appPassword);
-
-        store.authenticated = true;
-        store.connected = Boolean(result.connected);
-        store.demoMode = false;
-        store.host = result.host || '';
-        store.username = result.username || this.appUsername;
-        store.authMode = result.authMode || 'local';
-        store.user = result.user || null;
-        store.governance = result.governance || store.governance;
+        applySessionStatus(result);
         this.$router.push('/pools');
       } catch (error) {
         this.error = error.message || 'Unable to sign in';
@@ -144,16 +136,12 @@ const LoginView = {
 
       try {
         const pendingTarget = this.getPendingLoginTarget();
-        const result = await api.xenLogin(this.host, this.username, this.password);
-
-        store.authenticated = true;
-        store.connected = Boolean(result.connected);
-        store.demoMode = false;
-        store.host = result.host || this.host;
-        store.username = result.username || this.username;
-        store.authMode = result.authMode || 'legacy-xen';
-        store.user = result.user || store.user;
-        store.governance = result.governance || store.governance;
+        const result = await api.xenLogin(this.host, this.username, this.password, {
+          connectionId: pendingTarget?.connectionId || this.$route.query.connectionId || null,
+          connectionName: pendingTarget?.connectionName || this.connectionName || '',
+          port: pendingTarget?.port || 443,
+        });
+        applySessionStatus(result);
         this.clearPendingLoginTarget();
         this.$router.push(pendingTarget?.returnTo || this.$route.query.returnTo || '/');
       } catch (error) {
@@ -168,26 +156,47 @@ const LoginView = {
       this.host = 'demo.fabric.local';
       this.username = 'demo';
       this.connectionName = 'Demo Fabric';
-      store.authenticated = true;
-      store.connected = true;
-      store.demoMode = true;
-      store.host = 'Demo Fabric';
-      store.username = 'demo';
-      store.authMode = 'demo';
-      store.user = {
-        id: 'demo',
+      applySessionStatus({
+        authenticated: true,
+        connected: true,
+        demoMode: true,
+        host: 'Demo Fabric',
         username: 'demo',
-        displayName: 'Demo Operator',
-        role: 'admin',
-      };
-      store.governance = {
-        currentRole: 'admin',
-        policy: {
-          defaultRole: 'admin',
-          requireDestructiveApproval: true,
-          approvalTtlMinutes: 240,
+        authMode: 'demo',
+        currentTargetKey: 'demo-fabric',
+        connectedTargets: [
+          {
+            targetKey: 'demo-fabric',
+            connectionId: 1,
+            connectionName: 'Demo Fabric',
+            host: 'demo.fabric.local',
+            username: 'demo',
+            active: true,
+          },
+          {
+            targetKey: 'demo-edge',
+            connectionId: 2,
+            connectionName: 'Demo Edge Fabric',
+            host: 'demo-edge.fabric.local',
+            username: 'demo',
+            active: false,
+          },
+        ],
+        user: {
+          id: 'demo',
+          username: 'demo',
+          displayName: 'Demo Operator',
+          role: 'admin',
         },
-      };
+        governance: {
+          currentRole: 'admin',
+          policy: {
+            defaultRole: 'admin',
+            requireDestructiveApproval: true,
+            approvalTtlMinutes: 240,
+          },
+        },
+      });
       this.clearPendingLoginTarget();
       this.$router.push('/');
     },

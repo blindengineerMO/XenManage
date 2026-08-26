@@ -20,6 +20,10 @@ const SECTION_KEYS = {
     level: 'logging.level',
     structuredJson: 'logging.structuredJson',
   },
+  performance: {
+    collectionEnabled: 'performance.collectionEnabled',
+    collectionIntervalSeconds: 'performance.collectionIntervalSeconds',
+  },
   retention: {
     sweepIntervalHours: 'retention.sweepIntervalHours',
     vacuumAfterSweep: 'retention.vacuumAfterSweep',
@@ -43,6 +47,10 @@ const DEFAULTS = {
   logging: {
     level: config.env === 'production' ? 'info' : 'debug',
     structuredJson: false,
+  },
+  performance: {
+    collectionEnabled: true,
+    collectionIntervalSeconds: 60,
   },
   retention: {
     sweepIntervalHours: 24,
@@ -88,6 +96,26 @@ function getSection(section) {
   );
 }
 
+function getMetricsCollectorStatus() {
+  try {
+    return require('./metrics-collector').getStatus();
+  } catch (error) {
+    return {
+      enabled: false,
+      intervalSeconds: 60,
+      active: false,
+      inFlight: false,
+      targetCount: 0,
+      runCount: 0,
+      lastRunAt: '',
+      lastDurationMs: 0,
+      nextRunAt: '',
+      lastError: '',
+      lastResult: null,
+    };
+  }
+}
+
 const systemConfigService = {
   getAll() {
     return {
@@ -95,6 +123,7 @@ const systemConfigService = {
       network: getSection('network'),
       security: getSection('security'),
       logging: getSection('logging'),
+      performance: getSection('performance'),
       retention: getSection('retention'),
       vault: credentialVaultService.getRuntimeStatus(),
       runtime: {
@@ -110,9 +139,12 @@ const systemConfigService = {
           'security.sessionMaxAgeMs',
           'logging.level',
           'logging.structuredJson',
+          'performance.collectionEnabled',
+          'performance.collectionIntervalSeconds',
           'retention.sweepIntervalHours',
           'retention.vacuumAfterSweep',
         ],
+        metricsCollector: getMetricsCollectorStatus(),
       },
     };
   },

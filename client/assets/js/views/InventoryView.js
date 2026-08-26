@@ -155,7 +155,7 @@ const InventoryView = {
                   </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
-                  <status-badge :status="connection.is_default ? 'success' : (store.host === connection.host ? 'connected' : 'notice')"></status-badge>
+                  <status-badge :status="isConnectionActive(connection) ? 'connected' : (connection.is_default ? 'success' : 'notice')"></status-badge>
                   <button class="btn btn-sm"
                           @click="setDefaultConnection(connection)"
                           :disabled="connectionDefaultPendingId === connection.id || connection.is_default || connection.can_manage === false">
@@ -648,6 +648,19 @@ const InventoryView = {
       const connection = this.safeConnections.find((entry) => Number(entry.id) === targetId);
       return connection ? `Target ${connection.name || connection.host}` : `Target #${targetId}`;
     },
+    findAttachedTarget(connection) {
+      const connectionId = Number(connection?.id || 0);
+      return (store.connectedTargets || []).find((target) =>
+        (connectionId && Number(target.connectionId || 0) === connectionId)
+        || (
+          String(target.host || '').toLowerCase() === String(connection?.host || '').toLowerCase()
+          && String(target.username || '').toLowerCase() === String(connection?.username || '').toLowerCase()
+        )
+      ) || null;
+    },
+    isConnectionActive(connection) {
+      return Boolean(this.findAttachedTarget(connection)?.active);
+    },
     async loadSavedWorkspaces() {
       try {
         const result = await api.getInventoryWorkspaces();
@@ -702,13 +715,33 @@ const InventoryView = {
       this.openConnectionTarget(connection);
     },
     async removeWorkspace(id) {
+      const workspace = this.savedWorkspaces.find((entry) => Number(entry.id) === Number(id));
+      this.workspaceSaving = true;
       this.workspaceError = '';
       try {
-        await api.deleteInventoryWorkspace(id);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'inventory_workspace_delete',
+          entityType: 'workspace',
+          entityRef: String(id),
+          entityName: workspace?.name || `Workspace ${id}`,
+          route: '/inventory',
+        });
+        await api.deleteInventoryWorkspace(id, approvalId ? { approvalId } : null);
         this.savedWorkspaces = this.savedWorkspaces.filter((workspace) => workspace.id !== id);
         this.persistWorkspaces();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.workspaceError = 'Governance approval is required before deleting this workspace preset.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this saved inventory workspace.'
+          );
+          return;
+        }
         this.workspaceError = error.message || 'Unable to remove the inventory workspace';
+      } finally {
+        this.workspaceSaving = false;
       }
     },
     async setDefaultConnection(connection) {
@@ -731,28 +764,23 @@ const InventoryView = {
       if (!connection?.id) return;
       this.connectionActionError = '';
       try {
-        window.sessionStorage.setItem('xenmange.pendingLoginTarget', JSON.stringify({
-          connectionId: Number(connection.id),
-          connectionName: connection.name || '',
-          host: connection.host || '',
-          username: connection.username || '',
-          returnTo: '/inventory',
-        }));
-        if (store.authenticated) {
-          await api.logout().catch(() => ({ success: true }));
-          store.authenticated = false;
-          store.connected = false;
-          store.demoMode = false;
-          store.host = '';
-          store.username = '';
-          store.authMode = 'local';
-          store.user = null;
+        const attachedTarget = this.findAttachedTarget(connection);
+        if (attachedTarget) {
+          const result = await api.activateLiveTarget(
+            attachedTarget.targetKey
+              ? { targetKey: attachedTarget.targetKey }
+              : { connectionId: Number(connection.id) }
+          );
+          applySessionStatus(result);
+          await this.loadInventory();
+          return;
         }
+
         await this.$router.push({
-          path: '/login',
+          path: '/pools',
           query: {
             connectionId: String(connection.id),
-            returnTo: '/inventory',
+            returnTo: '/inventory'
           },
         });
       } catch (error) {

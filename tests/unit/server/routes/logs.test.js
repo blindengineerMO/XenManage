@@ -4,9 +4,11 @@ const fs = require('fs');
 
 const TEST_DB = path.join(__dirname, '..', '..', '..', 'data', 'logs-routes.db');
 const TEST_SECURITY_DB = path.join(__dirname, '..', '..', '..', 'data', 'logs-security.db');
+const TEST_PERF_DB = path.join(__dirname, '..', '..', '..', 'data', 'logs-perf.db');
 
 process.env.DB_PATH = TEST_DB;
 process.env.SECURITY_DB_PATH = TEST_SECURITY_DB;
+process.env.PERF_DB_PATH = TEST_PERF_DB;
 
 jest.mock('../../../../server/services/xenapi', () => {
   const actual = jest.requireActual('../../../../server/services/xenapi');
@@ -46,6 +48,28 @@ jest.mock('../../../../server/services/xenapi', () => {
     };
   });
 
+  actual.XenAPI.prototype.getHosts = jest.fn(async function () {
+    return {
+      records: {
+        'OpaqueRef:host1': {
+          name_label: 'alpha-xen',
+          uuid: 'host-uuid-1',
+        },
+      },
+    };
+  });
+
+  actual.XenAPI.prototype.getSRs = jest.fn(async function () {
+    return {
+      records: {
+        'OpaqueRef:sr1': {
+          name_label: 'Primary SR',
+          uuid: 'sr-uuid-1',
+        },
+      },
+    };
+  });
+
   actual.XenAPI.prototype.rpc = jest.fn(async function () {
     return {};
   });
@@ -56,6 +80,7 @@ jest.mock('../../../../server/services/xenapi', () => {
 const auditLogService = require('../../../../server/services/audit-log');
 const remediationTaskService = require('../../../../server/services/remediation-tasks');
 const { authEventModel } = require('../../../../server/models/security-db');
+const { getPerfDb, metricSampleModel } = require('../../../../server/models/perf-db');
 const app = require('../../../../server/index');
 
 describe('Log Center Routes', () => {
@@ -65,16 +90,32 @@ describe('Log Center Routes', () => {
   beforeAll((done) => {
     if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
     if (fs.existsSync(TEST_SECURITY_DB)) fs.unlinkSync(TEST_SECURITY_DB);
+    if (fs.existsSync(TEST_PERF_DB)) fs.unlinkSync(TEST_PERF_DB);
     server = app.listen(0, () => {
       port = server.address().port;
       done();
     });
   });
 
+  beforeEach(() => {
+    getPerfDb().prepare('DELETE FROM metric_samples').run();
+    getPerfDb().prepare('DELETE FROM metric_hourly_rollups').run();
+    metricSampleModel.insertMany([
+      {
+        entityType: 'host',
+        entityRef: 'OpaqueRef:host1',
+        metricName: 'memory_used_percent',
+        ts: Date.now() - 5 * 60 * 1000,
+        value: 90.1,
+      },
+    ]);
+  });
+
   afterAll((done) => {
     server.close(() => {
       if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
       if (fs.existsSync(TEST_SECURITY_DB)) fs.unlinkSync(TEST_SECURITY_DB);
+      if (fs.existsSync(TEST_PERF_DB)) fs.unlinkSync(TEST_PERF_DB);
       done();
     });
   });
@@ -183,12 +224,13 @@ describe('Log Center Routes', () => {
 
     const res = await request('GET', '/api/logs', null, auth.cookie);
     expect(res.status).toBe(200);
-    expect(res.body.total).toBeGreaterThanOrEqual(4);
+    expect(res.body.total).toBeGreaterThanOrEqual(5);
     expect(res.body.data.some((entry) => entry.source === 'audit')).toBe(true);
     expect(res.body.data.some((entry) => entry.source === 'auth')).toBe(true);
     expect(res.body.data.some((entry) => entry.source === 'alert')).toBe(true);
     expect(res.body.data.some((entry) => entry.source === 'remediation-task')).toBe(true);
     expect(res.body.data.some((entry) => entry.source === 'xen-task')).toBe(true);
+    expect(res.body.data.some((entry) => String(entry.entityRef || '').includes('OpaqueRef:telemetry:host:memory_used_percent'))).toBe(true);
   });
 
   it('should export centralized logs as json, html, and pdf', async () => {

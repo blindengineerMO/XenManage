@@ -345,6 +345,7 @@ const GovernanceView = {
             </div>
           </div>
           <governance-approval-form
+            :initial-value="approvalDraft"
             :saving="approvalSaving"
             submit-label="Request Approval"
             @submit="saveApprovalRequest">
@@ -540,6 +541,7 @@ const GovernanceView = {
       quotaRows: [],
       users: [],
       groups: [],
+      approvalDraft: null,
       showQuotaEditor: false,
       showApprovalComposer: false,
       showUserComposer: false,
@@ -683,6 +685,7 @@ const GovernanceView = {
       return;
     }
     await this.loadGovernance();
+    this.consumePendingApprovalDraft();
   },
   methods: {
     formatDateTime,
@@ -830,13 +833,34 @@ const GovernanceView = {
         this.quotaSaving = false;
       }
     },
-    openApprovalComposer() {
-      this.approvalError = '';
+    consumePendingApprovalDraft() {
+      const pendingDraft = readPendingGovernanceApprovalDraft();
+      const shouldCompose = String(this.$route.query.composeApproval || '') === '1';
+      const handoffMessage = String(this.$route.query.message || '').trim();
+
+      if (!pendingDraft && !shouldCompose) return;
+
+      const approvalMessage = handoffMessage
+        || (pendingDraft?.actionKey
+          ? 'Governance approval is required before the requested destructive action can continue.'
+          : '');
+
+      this.openApprovalComposer(pendingDraft, approvalMessage);
+      clearPendingGovernanceApprovalDraft();
+
+      if (shouldCompose || handoffMessage) {
+        this.$router.replace('/governance');
+      }
+    },
+    openApprovalComposer(draft = null, message = '') {
+      this.approvalError = message || '';
+      this.approvalDraft = normalizeGovernanceApprovalDraft(draft || {});
       this.showApprovalComposer = true;
     },
     closeApprovalComposer() {
       this.showApprovalComposer = false;
       this.approvalError = '';
+      this.approvalDraft = null;
     },
     openUserComposer() {
       this.userError = '';

@@ -248,14 +248,29 @@ const TemplatesView = {
                     {{ entry.detail || entry.snapshot.notes || 'No additional governance detail recorded.' }}
                   </div>
                 </div>
-                <span class="badge" :class="templateStageBadgeClass(entry.snapshot.lifecycleStage)">
-                  {{ entry.snapshot.lifecycleStage }}
-                </span>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="btn btn-ghost"
+                          :disabled="historyRestoreLoadingId === entry.id"
+                          @click="restoreGovernanceHistory(selectedTemplate.ref, entry)">
+                    {{ historyRestoreLoadingId === entry.id ? 'Restoring...' : 'Restore Snapshot' }}
+                  </button>
+                  <span class="badge" :class="templateStageBadgeClass(entry.snapshot.lifecycleStage)">
+                    {{ entry.snapshot.lifecycleStage }}
+                  </span>
+                </div>
               </div>
             </div>
             <div v-else class="empty-state" style="padding:18px 12px">
               Governance saves and promotions will build a template-specific history trail here.
             </div>
+            <div class="stack-item" v-if="historyRestoreMessage" style="margin-top:12px">
+              <div>
+                <strong>History Restored</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ historyRestoreMessage }}</div>
+              </div>
+              <span class="badge badge-running">restored</span>
+            </div>
+            <div class="form-error" v-if="historyRestoreError" style="text-align:left;margin-top:12px">{{ historyRestoreError }}</div>
           </div>
         </div>
       </floating-window>
@@ -471,7 +486,14 @@ const TemplatesView = {
                   </div>
                   <div class="text-muted mono" style="font-size:11px">{{ entry.detail || entry.snapshot.notes || 'No extra notes recorded.' }}</div>
                 </div>
-                <span class="badge" :class="templateStageBadgeClass(entry.snapshot.lifecycleStage)">{{ entry.snapshot.lifecycleStage }}</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="btn btn-ghost"
+                          :disabled="historyRestoreLoadingId === entry.id"
+                          @click="restoreGovernanceHistory(promotionTemplateRecord.ref, entry)">
+                    {{ historyRestoreLoadingId === entry.id ? 'Restoring...' : 'Restore Snapshot' }}
+                  </button>
+                  <span class="badge" :class="templateStageBadgeClass(entry.snapshot.lifecycleStage)">{{ entry.snapshot.lifecycleStage }}</span>
+                </div>
               </div>
             </div>
             <div v-else-if="promotionHistoryLoading" class="empty-state" style="padding:18px 12px">
@@ -482,7 +504,15 @@ const TemplatesView = {
             </div>
           </div>
 
+          <div class="stack-item" v-if="historyRestoreMessage" style="margin-top:12px">
+            <div>
+              <strong>History Restored</strong>
+              <div class="text-muted mono" style="font-size:11px">{{ historyRestoreMessage }}</div>
+            </div>
+            <span class="badge badge-running">restored</span>
+          </div>
           <div class="form-error" v-if="promotionError" style="text-align:left">{{ promotionError }}</div>
+          <div class="form-error" v-if="historyRestoreError" style="text-align:left;margin-top:12px">{{ historyRestoreError }}</div>
         </div>
       </floating-window>
     </div>
@@ -515,6 +545,9 @@ const TemplatesView = {
       promotionSaving: false,
       promotionError: null,
       promotionHistoryLoading: false,
+      historyRestoreLoadingId: '',
+      historyRestoreError: null,
+      historyRestoreMessage: '',
       deploymentMessage: '',
       governanceHistoryByTemplate: {},
       promotionDraft: {
@@ -706,6 +739,8 @@ const TemplatesView = {
     openGovernance(template) {
       this.governanceTemplateRecord = template;
       this.governanceError = null;
+      this.historyRestoreError = null;
+      this.historyRestoreMessage = '';
       this.showGovernance = true;
     },
     openDeploy(template) {
@@ -717,6 +752,8 @@ const TemplatesView = {
     async openPromotionReview(template) {
       this.promotionTemplateRecord = template;
       this.promotionError = null;
+      this.historyRestoreError = null;
+      this.historyRestoreMessage = '';
       const baseline = this.resolvePromotionBaseline(template);
       this.promotionDraft = {
         baselineTemplateRef: baseline?.ref || '',
@@ -759,6 +796,7 @@ const TemplatesView = {
     formatHistoryEvent(eventType) {
       if (eventType === 'promoted') return 'Promoted to Stable';
       if (eventType === 'retired') return 'Retired Stable Baseline';
+      if (eventType === 'restored') return 'Governance Restored';
       return 'Governance Saved';
     },
     async loadTemplateHistory(templateRef, force = false) {
@@ -836,6 +874,8 @@ const TemplatesView = {
           this.selectedTemplate = { ...this.selectedTemplate };
         }
         await this.loadTemplateHistory(record.templateRef, true);
+        this.historyRestoreError = null;
+        this.historyRestoreMessage = '';
         this.showGovernance = false;
       } catch (error) {
         this.governanceError = error.message || 'Unable to save template governance';
@@ -902,11 +942,42 @@ const TemplatesView = {
           [this.promotionTemplateRecord.ref]: result.history || [],
         };
         await this.loadAll();
+        this.historyRestoreError = null;
+        this.historyRestoreMessage = '';
         this.showPromotionReview = false;
       } catch (error) {
         this.promotionError = error.message || 'Unable to promote template';
       } finally {
         this.promotionSaving = false;
+      }
+    },
+    async restoreGovernanceHistory(templateRef, entry) {
+      if (!templateRef || !entry?.id) return;
+
+      this.historyRestoreLoadingId = entry.id;
+      this.historyRestoreError = null;
+      this.historyRestoreMessage = '';
+      try {
+        const result = await api.restoreTemplateGovernanceHistory(templateRef, entry.id);
+        const record = result.record;
+        this.governanceRecords = this.governanceRecords
+          .filter((item) => item.templateRef !== record.templateRef)
+          .concat(record);
+        this.governanceHistoryByTemplate = {
+          ...this.governanceHistoryByTemplate,
+          [templateRef]: result.history || [],
+        };
+        if (this.selectedTemplate?.ref === templateRef) {
+          this.selectedTemplate = { ...this.selectedTemplate };
+        }
+        if (this.promotionTemplateRecord?.ref === templateRef) {
+          this.promotionTemplateRecord = { ...this.promotionTemplateRecord };
+        }
+        this.historyRestoreMessage = `${record.versionLabel || templateRef} reverted to the ${this.formatHistoryEvent(entry.eventType).toLowerCase()} snapshot from ${formatDateTime(entry.happenedAt)}.`;
+      } catch (error) {
+        this.historyRestoreError = error.message || 'Unable to restore template governance history';
+      } finally {
+        this.historyRestoreLoadingId = '';
       }
     },
   },

@@ -83,7 +83,7 @@ router.put('/:id', validate(schemas.connectionId, 'params'), validate(schemas.cr
 
 router.delete('/:id', validate(schemas.connectionId, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'credential_delete', entityType: 'credential', entityRef: String(req.params.id) })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'credential_delete', entityType: 'credential', entityRef: String(req.params.id), destructive: true })) return;
     const before = credentialVaultService.listVisible(req.session.userId)
       .find((entry) => Number(entry.id) === Number(req.params.id)) || null;
     const result = credentialVaultService.delete(

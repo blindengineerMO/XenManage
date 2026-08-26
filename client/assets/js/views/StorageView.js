@@ -1,5 +1,5 @@
 const StorageView = {
-  components: { DataTable, FloatingWindow, StatusBadge },
+  components: { DataTable, FloatingWindow, StatusBadge, StorageSrCreateForm, StorageVdiForm, StorageVdiResizeForm },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -16,7 +16,55 @@ const StorageView = {
         </button>
       </div>
 
-      <data-table :columns="columns" :data="srs" :loading="loading" :searchable="true" @row-click="openProperties">
+      <div class="dash-card" style="margin-bottom:16px">
+        <div class="dash-card-label">Create Storage Repository</div>
+        <p class="text-muted" style="margin-bottom:12px">Provision a new SR against NFS, iSCSI, local EXT, or local LVM without leaving the Storage workspace.</p>
+        <storage-sr-create-form
+          :hosts="availableHosts"
+          :saving="createSrBusy"
+          :submit-label="'Create Storage Repository'"
+          @submit="submitStorageRepository">
+        </storage-sr-create-form>
+        <div class="form-error" v-if="createSrError" style="text-align:left;margin-top:12px">{{ createSrError }}</div>
+      </div>
+
+      <div class="stack-item" v-if="workspaceMessage" style="margin-bottom:16px">
+        <div>
+          <strong>Workspace updated</strong>
+          <div class="text-muted mono" style="font-size:11px">{{ workspaceMessage }}</div>
+        </div>
+        <span class="badge badge-running">ready</span>
+      </div>
+
+      <div class="dash-card" v-if="selectedSrRows.length" style="margin-bottom:16px">
+        <div class="dash-card-label">Batch Storage Actions</div>
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div>
+            <strong>{{ selectedSrRows.length }} repositories selected</strong>
+            <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ selectedSrSelectionSummary }}</div>
+          </div>
+          <div class="dashboard-hero-rail" style="gap:8px">
+            <button class="btn btn-sm btn-primary"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkStorageAction('rescan')">
+              <span class="mdi mdi-refresh-circle"></span>
+              {{ bulkActionBusy === 'rescan' ? 'Rescanning...' : `Rescan Selected (${selectedSrRows.length})` }}
+            </button>
+            <button class="btn btn-sm" :disabled="Boolean(bulkActionBusy)" @click="clearSrSelection">Clear Selection</button>
+          </div>
+        </div>
+        <div class="form-error" v-if="bulkError" style="text-align:left;margin-top:12px">{{ bulkError }}</div>
+      </div>
+
+      <data-table :columns="columns"
+                  :data="srs"
+                  :loading="loading"
+                  :searchable="true"
+                  :selectable="true"
+                  :selected-keys="selectedSrRefs"
+                  row-key="ref"
+                  @selection-change="handleSrSelectionChange"
+                  @row-click="openProperties">
         <template #cell-name_label="{ row }">
           <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed' }}</span>
         </template>
@@ -39,9 +87,121 @@ const StorageView = {
             <span class="text-muted">Physical Size</span><span class="mono">{{ formatBytes(selectedSR.physical_size) }}</span>
             <span class="text-muted">Virtual Allocation</span><span class="mono">{{ formatBytes(selectedSR.virtual_allocation) }}</span>
             <span class="text-muted">Mapped VDIs</span><span>{{ summarizeCount('disks', vdis.length) }}</span>
+            <span class="text-muted">Attachment Paths</span><span>{{ summarizeCount('attachment paths', selectedSrAttachmentPathCount) }}</span>
             <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('workloads', selectedSrWorkloadCount) }}</span>
+            <span class="text-muted">Topology</span><span>{{ selectedSrTopologyLabel }}</span>
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedSR.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedSR.tags) }}</span>
+          </div>
+
+          <div class="detail-section" v-if="focusedStorageContext">
+            <div class="detail-section-title">{{ focusedStorageContext.title }}</div>
+            <div class="capacity-callout">
+              <strong>{{ focusedStorageContext.summary }}</strong>
+              <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ focusedStorageContext.detail }}</div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-section-title">Storage Operations</div>
+            <div class="dashboard-panels">
+              <div class="dash-card">
+                <div class="dash-card-label">Repository Actions</div>
+                <p class="text-muted" style="margin-bottom:12px">Refresh the selected SR so new LUNs, scan results, or detached disk records are visible immediately inside this workspace.</p>
+                <div class="stack-list" style="margin-bottom:12px">
+                  <div class="stack-item">
+                    <div>
+                      <strong>{{ selectedSR.name_label || 'Selected repository' }}</strong>
+                      <div class="text-muted mono" style="font-size:11px">
+                        {{ selectedSR.uuid || selectedSR.ref || 'SR ref unavailable' }} · {{ formatBytes(selectedSR.virtual_allocation) }} allocated
+                      </div>
+                    </div>
+                    <span class="badge badge-info">{{ selectedSR.type || 'sr' }}</span>
+                  </div>
+                  <div class="stack-item" v-if="selectedSR.other_config?.last_rescan_at">
+                    <div>
+                      <strong>Last Rescan</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedSR.other_config.last_rescan_at }}</div>
+                    </div>
+                    <span class="badge badge-running">tracked</span>
+                  </div>
+                  <div class="stack-item" v-if="selectedSR.other_config?.last_repair_at">
+                    <div>
+                      <strong>Last Repair</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedSR.other_config.last_repair_at }}</div>
+                    </div>
+                    <span class="badge badge-info">tracked</span>
+                  </div>
+                </div>
+                <button class="form-btn"
+                        type="button"
+                        :disabled="Boolean(detailActionBusy)"
+                        @click="applyDetailStorageAction('rescan')">
+                  <span class="mdi mdi-refresh-circle"></span>
+                  {{ detailActionBusy === 'rescan' ? 'Rescanning...' : 'Rescan Repository' }}
+                </button>
+                <button class="btn btn-sm"
+                        type="button"
+                        style="margin-top:10px"
+                        :disabled="Boolean(detailActionBusy)"
+                        @click="applyDetailStorageAction('repair')">
+                  <span class="mdi mdi-wrench-outline"></span>
+                  {{ detailActionBusy === 'repair' ? 'Repairing...' : 'Repair Repository' }}
+                </button>
+                <button class="btn btn-sm"
+                        type="button"
+                        style="margin-top:10px"
+                        :disabled="Boolean(detailActionBusy)"
+                        @click="forgetSelectedSr">
+                  <span class="mdi mdi-database-remove-outline"></span>
+                  {{ detailActionBusy === 'forget-sr' ? 'Forgetting...' : 'Forget Repository' }}
+                </button>
+                <button class="btn btn-sm"
+                        type="button"
+                        style="margin-top:10px"
+                        :disabled="Boolean(detailActionBusy) || Boolean(selectedSrDestroyBlockedReason)"
+                        @click="destroySelectedSr">
+                  <span class="mdi mdi-delete-forever-outline"></span>
+                  {{ detailActionBusy === 'destroy-sr' ? 'Destroying...' : 'Destroy Repository' }}
+                </button>
+                <div class="text-muted mono" v-if="selectedSrDestroyBlockedReason" style="font-size:11px;margin-top:10px">
+                  {{ selectedSrDestroyBlockedReason }}
+                </div>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Create Detached VDI</div>
+                <p class="text-muted" style="margin-bottom:12px">Provision a standalone VDI on this repository so it is ready for a later attachment or workflow handoff.</p>
+                <storage-vdi-form
+                  :sr="selectedSR"
+                  :saving="detailActionBusy === 'create-vdi'"
+                  :submit-label="'Create Detached VDI'"
+                  @submit="submitDetachedVdi">
+                </storage-vdi-form>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Resize Existing VDI</div>
+                <p class="text-muted" style="margin-bottom:12px">Adjust the capacity of a VDI already tracked by this repository without leaving the Storage detail workspace.</p>
+                <storage-vdi-resize-form
+                  :vdi-options="vdis"
+                  :focused-vdi-ref="focusedVdiRef"
+                  :attachment-counts="storageVdiAttachmentCounts"
+                  :saving="detailActionBusy === 'resize-vdi'"
+                  :submit-label="'Resize VDI'"
+                  @submit="submitResizeVdi">
+                </storage-vdi-resize-form>
+              </div>
+            </div>
+
+            <div class="form-error" v-if="detailActionError" style="text-align:left;margin-top:12px">{{ detailActionError }}</div>
+            <div class="stack-item" v-else-if="detailActionMessage" style="margin-top:12px">
+              <div>
+                <strong>Storage operation completed</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ detailActionMessage }}</div>
+              </div>
+              <span class="badge badge-running">ready</span>
+            </div>
           </div>
 
           <div class="detail-section">
@@ -61,10 +221,20 @@ const StorageView = {
                   <div class="text-muted mono" style="font-size:11px">
                     {{ formatBytes(vdi.virtual_size) }} · {{ vdi.type || 'disk' }} · {{ summarizeCount('attachments', getVdiAttachmentCount(vdi)) }}
                   </div>
+                  <div class="text-muted mono" v-if="getVdiDeleteBlockedReason(vdi)" style="font-size:11px">
+                    {{ getVdiDeleteBlockedReason(vdi) }}
+                  </div>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                   <span class="badge badge-running" v-if="isFocusedVdi(vdi)">focused</span>
+                  <span class="badge badge-warning" v-if="getVdiAttachmentCount(vdi)">attached</span>
                   <span class="badge badge-info">{{ vdi.managed ? 'managed' : 'unmanaged' }}</span>
+                  <button class="btn btn-sm"
+                          :disabled="Boolean(detailActionBusy) || Boolean(getVdiDeleteBlockedReason(vdi))"
+                          @click="deleteSelectedVdi(vdi)">
+                    <span class="mdi mdi-delete-outline"></span>
+                    {{ detailActionBusy === `delete-vdi:${vdi.ref}` ? 'Deleting...' : 'Delete' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -124,9 +294,20 @@ const StorageView = {
       vdis: [],
       relatedVMs: [],
       relatedHosts: [],
+      availableHosts: [],
       focusedVdiRef: '',
       focusedVdiUuid: '',
       focusedVbdRef: '',
+      focusedStorageClass: '',
+      selectedSrRefs: [],
+      bulkActionBusy: '',
+      bulkError: null,
+      detailActionBusy: '',
+      detailActionError: '',
+      detailActionMessage: '',
+      createSrBusy: false,
+      createSrError: '',
+      workspaceMessage: '',
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name' },
@@ -138,6 +319,16 @@ const StorageView = {
     };
   },
   computed: {
+    selectedSrRows() {
+      const selected = new Set(Array.isArray(this.selectedSrRefs) ? this.selectedSrRefs : []);
+      return this.srs.filter((sr) => selected.has(sr.ref));
+    },
+    selectedSrSelectionSummary() {
+      if (!this.selectedSrRows.length) return 'No storage repositories selected.';
+      const totalCapacity = this.selectedSrRows.reduce((sum, sr) => sum + Number(sr.physical_size || 0), 0);
+      const totalAllocation = this.selectedSrRows.reduce((sum, sr) => sum + Number(sr.virtual_allocation || 0), 0);
+      return `${this.formatBytes(totalAllocation)} allocated of ${this.formatBytes(totalCapacity)} across ${this.selectedSrRows.length} ${this.selectedSrRows.length === 1 ? 'repository' : 'repositories'}`;
+    },
     selectedSrAttachmentRows() {
       if (!this.vdis.length) return [];
 
@@ -187,8 +378,71 @@ const StorageView = {
         });
       });
     },
+    storageVdiAttachmentCounts() {
+      return Object.fromEntries(this.vdis.map((vdi) => [vdi.ref, this.getVdiAttachmentCount(vdi)]));
+    },
     selectedSrWorkloadCount() {
       return new Set(this.selectedSrAttachmentRows.filter((row) => row.vmRef).map((row) => row.vmRef)).size;
+    },
+    selectedSrAttachmentPathCount() {
+      return new Set(
+        this.selectedSrAttachmentRows
+          .map((row) => row.vbdRef)
+          .filter((ref) => Boolean(ref))
+      ).size;
+    },
+    selectedSrTopologyLabel() {
+      if (!this.selectedSR) return '-';
+
+      const diskCount = this.vdis.length;
+      const attachmentCount = this.selectedSrAttachmentPathCount;
+      const workloadCount = this.selectedSrWorkloadCount;
+      const hostCount = new Set(
+        this.selectedSrAttachmentRows
+          .map((row) => row.hostRef || row.hostUuid || (row.hostName !== 'Host not mapped' ? row.hostName : ''))
+          .filter((value) => Boolean(value))
+      ).size;
+
+      const parts = [
+        `${diskCount} disk${diskCount === 1 ? '' : 's'}`,
+        `${attachmentCount} attachment path${attachmentCount === 1 ? '' : 's'}`,
+        `${workloadCount} workload${workloadCount === 1 ? '' : 's'}`,
+      ];
+
+      if (hostCount) {
+        parts.push(`${hostCount} host${hostCount === 1 ? '' : 's'}`);
+      }
+
+      return parts.join(' · ');
+    },
+    focusedStorageContext() {
+      if (!this.focusedStorageClass) return null;
+
+      if (this.focusedStorageClass === 'vdi') {
+        return {
+          title: 'Focused VDI Handoff',
+          summary: 'This repository was opened from a specific virtual disk path.',
+          detail: `${this.focusedVdiRef || this.focusedVdiUuid || 'Virtual disk ref unavailable'} · ${this.selectedSrTopologyLabel}`,
+        };
+      }
+
+      if (this.focusedStorageClass === 'vbd') {
+        return {
+          title: 'Focused VBD Handoff',
+          summary: 'This repository was opened from a specific attachment path.',
+          detail: `${this.focusedVbdRef || 'Attachment ref unavailable'} · ${this.selectedSrTopologyLabel}`,
+        };
+      }
+
+      return null;
+    },
+    selectedSrDestroyBlockedReason() {
+      if (!this.selectedSR) return 'No storage repository is selected.';
+      if (this.detailLoading) return 'Storage relationships are still loading before destroy safety checks can finish.';
+      if (this.vdis.length) {
+        return `Destroy requires an empty repository. ${this.vdis.length} ${this.vdis.length === 1 ? 'disk' : 'disks'} still map to this storage repository.`;
+      }
+      return '';
     },
   },
   async mounted() {
@@ -196,8 +450,7 @@ const StorageView = {
       this.$router.push('/login');
       return;
     }
-    await this.loadSRs();
-    await this.syncRouteFocus();
+    await Promise.all([this.loadSRs(), this.loadCreateHosts()]);
   },
   watch: {
     '$route.query': {
@@ -206,11 +459,23 @@ const StorageView = {
         await this.syncRouteFocus();
       },
     },
+    srs() {
+      const validRefs = new Set(this.srs.map((sr) => sr.ref));
+      this.selectedSrRefs = this.selectedSrRefs.filter((ref) => validRefs.has(ref));
+    },
   },
   methods: {
     formatBytes,
     summarizeCount,
     truncateList,
+    async loadCreateHosts() {
+      try {
+        const result = await api.getHosts();
+        this.availableHosts = result.data || [];
+      } catch (_error) {
+        this.availableHosts = [];
+      }
+    },
     async loadSRs() {
       this.loading = true;
       try {
@@ -223,6 +488,63 @@ const StorageView = {
       }
       await this.syncRouteFocus();
     },
+    handleSrSelectionChange(keys) {
+      this.selectedSrRefs = Array.isArray(keys) ? keys : [];
+      this.bulkError = null;
+    },
+    clearSrSelection() {
+      this.selectedSrRefs = [];
+      this.bulkError = null;
+    },
+    async submitStorageRepository(payload) {
+      this.workspaceMessage = '';
+      this.createSrError = '';
+      this.createSrBusy = true;
+
+      try {
+        const record = await api.createSR(payload);
+        const targetHost = this.availableHosts.find((host) => host.ref === payload.hostRef);
+        await this.loadSRs();
+        this.workspaceMessage = `${record.name_label || payload.nameLabel} was created on ${targetHost?.name_label || payload.hostRef}.`;
+        const created = this.srs.find((entry) => entry.ref === record.ref) || record;
+        if (created?.ref) {
+          await this.openProperties(created, { hosts: this.availableHosts });
+        }
+      } catch (error) {
+        this.createSrError = error.message || 'Unable to create the requested storage repository.';
+      } finally {
+        this.createSrBusy = false;
+      }
+    },
+    clearSelectedStorageDetail() {
+      this.showProps = false;
+      this.selectedSR = null;
+      this.vdis = [];
+      this.relatedVMs = [];
+      this.relatedHosts = [];
+      this.focusedVdiRef = '';
+      this.focusedVdiUuid = '';
+      this.focusedVbdRef = '';
+      this.focusedStorageClass = '';
+      this.lastAppliedFocusKey = '';
+    },
+    buildCurrentDetailFocusOptions() {
+      return {
+        focusedVdiRef: this.focusedVdiRef,
+        focusedVdiUuid: this.focusedVdiUuid,
+        focusedVbdRef: this.focusedVbdRef,
+        focusedStorageClass: this.focusedStorageClass,
+      };
+    },
+    async refreshSelectedSrDetail() {
+      if (!this.selectedSR?.ref) return;
+
+      const selectedRef = this.selectedSR.ref;
+      const focusOptions = this.buildCurrentDetailFocusOptions();
+      await this.loadSRs();
+      const updated = this.srs.find((sr) => sr.ref === selectedRef) || this.selectedSR;
+      await this.openProperties(updated, focusOptions);
+    },
     async openProperties(row, options = {}) {
       this.selectedSR = row;
       this.showProps = true;
@@ -234,6 +556,9 @@ const StorageView = {
       this.focusedVdiRef = options.focusedVdiRef || '';
       this.focusedVdiUuid = options.focusedVdiUuid || '';
       this.focusedVbdRef = options.focusedVbdRef || '';
+      this.focusedStorageClass = options.focusedStorageClass || '';
+      this.detailActionError = '';
+      this.detailActionMessage = '';
 
       const [vdisResult, vmsResult, hostsResult] = await Promise.allSettled([
         options.vdis ? Promise.resolve({ data: options.vdis }) : api.getSRVDIs(row.ref),
@@ -265,6 +590,267 @@ const StorageView = {
 
       this.detailLoading = false;
     },
+    async applyBulkStorageAction(action) {
+      if (action !== 'rescan') return;
+
+      const targets = this.selectedSrRows;
+      if (!targets.length) {
+        this.bulkError = 'No selected storage repositories are available for rescanning.';
+        return;
+      }
+
+      this.bulkError = null;
+      this.bulkActionBusy = action;
+      let completed = 0;
+
+      try {
+        for (const sr of targets) {
+          try {
+            await api.rescanSR(sr.ref);
+            completed += 1;
+          } catch (error) {
+            this.bulkError = completed
+              ? `Processed ${completed} repository${completed === 1 ? '' : 'ies'} before stopping: ${error.message || 'Unable to continue the storage rescan.'}`
+              : (error.message || 'Unable to continue the storage rescan.');
+            return;
+          }
+        }
+      } finally {
+        this.bulkActionBusy = '';
+      }
+
+      await this.loadSRs();
+
+      if (this.selectedSR?.ref && targets.some((sr) => sr.ref === this.selectedSR.ref)) {
+        const updated = this.srs.find((sr) => sr.ref === this.selectedSR.ref) || this.selectedSR;
+        await this.openProperties(updated);
+      }
+    },
+    async applyDetailStorageAction(action) {
+      if (!['rescan', 'repair'].includes(action)) return;
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = `No selected storage repository is available for ${action === 'repair' ? 'repair' : 'rescanning'}.`;
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = action;
+
+      try {
+        const result = action === 'repair'
+          ? await api.repairSR(this.selectedSR.ref)
+          : await api.rescanSR(this.selectedSR.ref);
+        await this.refreshSelectedSrDetail();
+        if (action === 'repair') {
+          const reattachedCount = Number(result?.reattachedCount || 0);
+          this.detailActionMessage = reattachedCount
+            ? `${this.selectedSR?.name_label || 'The selected repository'} repair refreshed storage metadata and reattached ${reattachedCount} path${reattachedCount === 1 ? '' : 's'}.`
+            : `${this.selectedSR?.name_label || 'The selected repository'} repair refreshed storage metadata. No detached paths required reattachment.`;
+        } else {
+          this.detailActionMessage = `${this.selectedSR?.name_label || 'The selected repository'} was rescanned and its inventory was refreshed.`;
+        }
+      } catch (error) {
+        this.detailActionError = error.message || (action === 'repair'
+          ? 'Unable to continue the storage repair.'
+          : 'Unable to continue the storage rescan.');
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    async forgetSelectedSr() {
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = 'No selected storage repository is available for the forget action.';
+        return;
+      }
+
+      const repository = { ...this.selectedSR };
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(`Forget ${repository.name_label || repository.ref} from XenManage inventory? The backing storage will not be deleted.`);
+
+      if (!confirmed) return;
+
+      this.workspaceMessage = '';
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'forget-sr';
+
+      try {
+        const approvalId = await this.resolveStorageGovernanceApproval('forget-sr', repository);
+        await api.forgetSR(repository.ref, approvalId ? { approvalId } : {});
+        await this.loadSRs();
+        this.clearSelectedStorageDetail();
+        this.workspaceMessage = `${repository.name_label || repository.ref} was forgotten and removed from the current storage inventory view.`;
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.detailActionError = 'Governance approval is required before forgetting this storage repository.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before forgetting this storage repository.'
+          );
+          return;
+        }
+        this.detailActionError = error.message || 'Unable to forget the selected storage repository.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    async destroySelectedSr() {
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = 'No selected storage repository is available for the destroy action.';
+        return;
+      }
+
+      if (this.selectedSrDestroyBlockedReason) {
+        this.detailActionError = this.selectedSrDestroyBlockedReason;
+        return;
+      }
+
+      const repository = { ...this.selectedSR };
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(`Destroy ${repository.name_label || repository.ref}? This permanently deletes the backing storage after XenAPI accepts the request.`);
+
+      if (!confirmed) return;
+
+      this.workspaceMessage = '';
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'destroy-sr';
+
+      try {
+        const approvalId = await this.resolveStorageGovernanceApproval('destroy-sr', repository);
+        await api.destroySR(repository.ref, approvalId ? { approvalId } : {});
+        await this.loadSRs();
+        this.clearSelectedStorageDetail();
+        this.workspaceMessage = `${repository.name_label || repository.ref} was destroyed and removed from the current storage inventory view.`;
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.detailActionError = 'Governance approval is required before destroying this storage repository.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before destroying this storage repository.'
+          );
+          return;
+        }
+        this.detailActionError = error.message || 'Unable to destroy the selected storage repository.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    async submitDetachedVdi(payload) {
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = 'Select a storage repository before creating a detached VDI.';
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'create-vdi';
+
+      try {
+        const record = await api.createStorageVdi(this.selectedSR.ref, payload);
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${record.name_label || payload.nameLabel || 'Detached VDI'} was created on ${this.selectedSR?.name_label || 'the selected repository'}.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to create the detached VDI.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    async submitResizeVdi(payload) {
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = 'Select a storage repository before resizing a VDI.';
+        return;
+      }
+
+      if (!payload?.vdiRef) {
+        this.detailActionError = 'Select a VDI before submitting the resize request.';
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'resize-vdi';
+
+      try {
+        const record = await api.resizeStorageVdi(this.selectedSR.ref, payload.vdiRef, { sizeBytes: payload.sizeBytes });
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${record.name_label || payload.vdiRef} was resized to ${this.formatBytes(payload.sizeBytes)} on ${this.selectedSR?.name_label || 'the selected repository'}.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to resize the selected VDI.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    async resolveStorageGovernanceApproval(action, target) {
+      if (action === 'delete-vdi' && target?.ref) {
+        return resolveGovernanceApproval({
+          actionKey: 'vdi_delete',
+          entityType: 'vdi',
+          entityRef: target.ref,
+          entityName: target.name_label || target.uuid || target.ref || 'Virtual disk',
+          route: '/storage',
+        });
+      }
+
+      if (action === 'forget-sr' && target?.ref) {
+        return resolveGovernanceApproval({
+          actionKey: 'sr_forget',
+          entityType: 'sr',
+          entityRef: target.ref,
+          entityName: target.name_label || target.uuid || target.ref || 'Storage repository',
+          route: '/storage',
+        });
+      }
+
+      if (action === 'destroy-sr' && target?.ref) {
+        return resolveGovernanceApproval({
+          actionKey: 'sr_destroy',
+          entityType: 'sr',
+          entityRef: target.ref,
+          entityName: target.name_label || target.uuid || target.ref || 'Storage repository',
+          route: '/storage',
+        });
+      }
+
+      return '';
+    },
+    async deleteSelectedVdi(vdi) {
+      if (!this.selectedSR?.ref || !vdi?.ref) return;
+      const blockedReason = this.getVdiDeleteBlockedReason(vdi);
+      if (blockedReason) {
+        this.detailActionError = blockedReason;
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = `delete-vdi:${vdi.ref}`;
+
+      try {
+        const approvalId = await this.resolveStorageGovernanceApproval('delete-vdi', vdi);
+        await api.deleteStorageVdi(this.selectedSR.ref, vdi.ref, approvalId ? { approvalId } : null);
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${vdi.name_label || vdi.ref} was deleted from ${this.selectedSR?.name_label || 'the selected repository'}.`;
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.detailActionError = 'Governance approval is required before deleting this VDI.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this VDI.'
+          );
+          return;
+        }
+        this.detailActionError = error.message || 'Unable to delete the selected VDI.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
     getVdiAttachmentCount(vdi) {
       const refs = new Set(Array.isArray(vdi?.VBDs) ? vdi.VBDs : []);
       if (!refs.size) return 0;
@@ -272,6 +858,11 @@ const StorageView = {
       return this.relatedVMs.filter((vm) =>
         Array.isArray(vm.VBDs) && vm.VBDs.some((ref) => refs.has(ref))
       ).length;
+    },
+    getVdiDeleteBlockedReason(vdi) {
+      const attachmentCount = this.getVdiAttachmentCount(vdi);
+      if (!attachmentCount) return '';
+      return `Delete is limited to detached VDIs. ${attachmentCount} workload attachment${attachmentCount === 1 ? '' : 's'} still map to this disk.`;
     },
     isFocusedVdi(vdi) {
       return recordMatchesRouteFocus(vdi, {
@@ -351,6 +942,7 @@ const StorageView = {
         this.focusedVdiRef = '';
         this.focusedVdiUuid = '';
         this.focusedVbdRef = '';
+        this.focusedStorageClass = '';
         return;
       }
 
@@ -367,6 +959,7 @@ const StorageView = {
         focusedVdiRef: target.focusedVdi?.ref || '',
         focusedVdiUuid: target.focusedVdi?.uuid || focus.uuid || '',
         focusedVbdRef: focus.cls === 'vbd' ? (focus.ref || '') : '',
+        focusedStorageClass: ['vdi', 'vbd'].includes(focus.cls) ? focus.cls : '',
       });
       this.lastAppliedFocusKey = key;
     },

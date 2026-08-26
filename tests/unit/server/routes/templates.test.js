@@ -202,6 +202,51 @@ describe('Template Routes', () => {
     expect(promote.body.history.some((entry) => entry.eventType === 'promoted')).toBe(true);
   });
 
+  it('should restore template governance from a saved history snapshot', async () => {
+    const auth = await login();
+
+    await request('PUT', '/api/vms/templates/OpaqueRef%3Atemplate1/governance', {
+      versionLabel: '2026.08-lts',
+      profileLabel: 'Secure Linux',
+      lifecycleStage: 'stable',
+      goldenImage: true,
+      guestCustomization: 'cloud-init baseline',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-19T00:00:00.000Z',
+      owner: 'Platform Ops',
+      notes: 'Approved for production rollout.',
+    }, auth.cookie);
+
+    await request('PUT', '/api/vms/templates/OpaqueRef%3Atemplate1/governance', {
+      versionLabel: '2026.08-lts',
+      profileLabel: 'Secure Linux',
+      lifecycleStage: 'stable',
+      goldenImage: true,
+      guestCustomization: 'cloud-init baseline',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-20T00:00:00.000Z',
+      owner: 'Cloud Platform',
+      notes: 'Candidate owner change.',
+    }, auth.cookie);
+
+    const history = await request('GET', '/api/vms/templates/OpaqueRef%3Atemplate1/history', null, auth.cookie);
+    expect(history.status).toBe(200);
+    const sourceEntry = history.body.data.find((entry) => entry.snapshot?.owner === 'Platform Ops');
+    expect(sourceEntry).toBeTruthy();
+
+    const restore = await request('POST', `/api/vms/templates/OpaqueRef%3Atemplate1/history/${encodeURIComponent(sourceEntry.id)}/restore`, {}, auth.cookie);
+    expect(restore.status).toBe(200);
+    expect(restore.body.record).toEqual(expect.objectContaining({
+      templateRef: 'OpaqueRef:template1',
+      owner: 'Platform Ops',
+      notes: 'Approved for production rollout.',
+    }));
+    expect(Array.isArray(restore.body.history)).toBe(true);
+    expect(restore.body.history[0]).toEqual(expect.objectContaining({
+      eventType: 'restored',
+    }));
+  });
+
   it('should create deployment audit records and allow validation updates', async () => {
     const auth = await login();
 
@@ -236,11 +281,25 @@ describe('Template Routes', () => {
       validationStatus: 'pending',
       policyTagged: true,
     }));
+    expect(deploy.body.deploymentRun).toEqual(expect.objectContaining({
+      task_kind: 'template_deployment',
+      vm_ref: 'OpaqueRef:vm9',
+      template_ref: 'OpaqueRef:template1',
+      status: 'pending',
+    }));
 
     const list = await request('GET', '/api/vms/templates/deployments', null, auth.cookie);
     expect(list.status).toBe(200);
     expect(list.body.total).toBe(1);
     expect(list.body.data[0].templateVersion).toBe('2026.08-lts');
+
+    const tasks = await request('GET', '/api/tasks', null, auth.cookie);
+    expect(tasks.status).toBe(200);
+    expect(tasks.body.data.some((entry) =>
+      entry.task_kind === 'template_deployment'
+      && entry.vm_ref === 'OpaqueRef:vm9'
+      && entry.validation_status === 'pending'
+    )).toBe(true);
 
     const deploymentId = list.body.data[0].id;
     const update = await request('PUT', `/api/vms/templates/deployments/${encodeURIComponent(deploymentId)}/validation`, {
@@ -256,6 +315,12 @@ describe('Template Routes', () => {
     expect(update.status).toBe(200);
     expect(update.body.validationStatus).toBe('validated');
     expect(update.body.bootVerified).toBe(true);
+    expect(update.body.deploymentRun).toEqual(expect.objectContaining({
+      task_kind: 'template_deployment',
+      status: 'success',
+      validation_status: 'validated',
+      boot_verified: true,
+    }));
 
     const audit = await request('GET', '/api/audit', null, auth.cookie);
     expect(audit.status).toBe(200);

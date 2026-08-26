@@ -44,6 +44,33 @@ const PoolsView = {
           <div class="form-error" v-if="liveDataError" style="text-align:left;margin-top:12px">{{ liveDataError }}</div>
         </div>
 
+        <div class="dash-card" v-if="attachedTargets.length">
+          <div class="dash-card-label">Attached Live Targets</div>
+          <div class="stack-list">
+            <div class="stack-item" v-for="target in attachedTargets" :key="target.targetKey">
+              <div>
+                <strong>{{ target.connectionName || target.host }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ target.host }} · {{ target.username }} · :{{ target.port || 443 }}</div>
+                <div class="text-muted" style="font-size:12px;margin-top:6px">
+                  Attached {{ formatDateTime(target.connectedAt) }}
+                  <span v-if="target.lastActivatedAt"> · active since {{ formatDateTime(target.lastActivatedAt) }}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
+                <status-badge :status="target.active ? 'connected' : 'success'"></status-badge>
+                <button class="btn btn-sm" v-if="!target.active" @click="activateLiveTarget(target)">
+                  <span class="mdi mdi-target"></span>
+                  Activate
+                </button>
+                <button class="btn btn-sm" @click="disconnectLiveTarget(target)">
+                  <span class="mdi mdi-link-variant-remove"></span>
+                  Detach
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="dash-card">
           <div class="dash-card-label">Registered Pool Targets</div>
           <div class="stack-list" v-if="connections.length">
@@ -54,6 +81,7 @@ const PoolsView = {
                 <div class="text-muted" style="font-size:12px;margin-top:6px">
                   {{ connection.is_default ? 'Default saved target' : 'Saved pool target' }}
                   <span v-if="isCurrentConnection(connection)"> · connected now</span>
+                  <span v-else-if="isConnectionAttached(connection)"> · attached in session</span>
                   <span v-if="connection.vault_credential_id"> · vault credential linked</span>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
@@ -62,12 +90,18 @@ const PoolsView = {
                 </div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
-                <status-badge :status="isCurrentConnection(connection) ? 'connected' : (connection.is_default ? 'success' : 'notice')"></status-badge>
+                <status-badge :status="isCurrentConnection(connection) ? 'connected' : (isConnectionAttached(connection) ? 'success' : (connection.is_default ? 'success' : 'notice'))"></status-badge>
                 <button class="btn btn-sm"
-                        v-if="!isCurrentConnection(connection)"
+                        v-if="!isConnectionAttached(connection)"
                         @click="openConnectDialog(connection)">
                   <span class="mdi mdi-connection"></span>
                   Connect
+                </button>
+                <button class="btn btn-sm"
+                        v-if="isConnectionAttached(connection) && !isCurrentConnection(connection)"
+                        @click="activateConnection(connection)">
+                  <span class="mdi mdi-target"></span>
+                  Activate
                 </button>
                 <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="openRegistration(connection)">
                   <span class="mdi mdi-pencil-outline"></span>
@@ -242,6 +276,9 @@ const PoolsView = {
     showConnectionGuidance() {
       return store.authenticated && !store.connected && !store.demoMode;
     },
+    attachedTargets() {
+      return Array.isArray(store.connectedTargets) ? store.connectedTargets : [];
+    },
     preferredConnection() {
       return this.connections.find((connection) => connection.is_default) || this.connections[0] || null;
     },
@@ -262,16 +299,19 @@ const PoolsView = {
     }
     await this.loadAll();
     await this.syncRouteFocus();
+    await this.syncPendingConnectionTarget();
   },
   watch: {
     '$route.query': {
       deep: true,
       async handler() {
         await this.syncRouteFocus();
+        await this.syncPendingConnectionTarget();
       },
     },
   },
   methods: {
+    formatDateTime,
     truncateList,
     summarizeCount,
     visibilityLabel(visibility) {
@@ -282,7 +322,20 @@ const PoolsView = {
       return `Owner ${connection.owner_display_name || connection.owner_username}`;
     },
     isCurrentConnection(connection) {
-      return store.host === connection.host || store.host === connection.name;
+      return Boolean(this.findAttachedTarget(connection)?.active);
+    },
+    isConnectionAttached(connection) {
+      return Boolean(this.findAttachedTarget(connection));
+    },
+    findAttachedTarget(connection) {
+      const connectionId = Number(connection?.id || 0);
+      return this.attachedTargets.find((target) =>
+        (connectionId && Number(target.connectionId || 0) === connectionId)
+        || (
+          String(target.host || '').toLowerCase() === String(connection?.host || '').toLowerCase()
+          && String(target.username || '').toLowerCase() === String(connection?.username || '').toLowerCase()
+        )
+      ) || null;
     },
     async loadAll() {
       await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections(), this.loadCredentials()]);
@@ -354,6 +407,27 @@ const PoolsView = {
 
       this.openProperties(match);
       this.lastAppliedFocusKey = key;
+    },
+    async syncPendingConnectionTarget() {
+      const connectionId = Number(this.$route.query.connectionId || 0);
+      if (!connectionId) return;
+      const connection = this.connections.find((entry) => Number(entry.id) === connectionId);
+      if (!connection || this.isCurrentConnection(connection)) return;
+
+      if (this.isConnectionAttached(connection)) {
+        await this.activateConnection(connection);
+        return;
+      }
+
+      if (!this.showConnectDialogWindow || Number(this.connectTarget?.id || 0) !== connectionId) {
+        this.openConnectDialog(connection);
+      }
+    },
+    async navigateToPendingReturn() {
+      const returnTo = String(this.$route.query.returnTo || '').trim();
+      if (returnTo && returnTo !== this.$route.path) {
+        await this.$router.push(returnTo);
+      }
     },
     isPoolMaster(host, pool) {
       return Boolean(host && pool && pool.master && host.ref === pool.master);
@@ -431,10 +505,28 @@ const PoolsView = {
       }
     },
     async removeConnection(id) {
+      const connection = this.connections.find((entry) => Number(entry.id) === Number(id));
+      this.connectionError = null;
       try {
-        await api.deleteConnection(id);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'connection_delete',
+          entityType: 'connection',
+          entityRef: String(id),
+          entityName: connection?.name || connection?.host || `Pool target ${id}`,
+          route: '/pools',
+        });
+        await api.deleteConnection(id, approvalId ? { approvalId } : null);
         await this.loadConnections();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.connectionError = 'Governance approval is required before removing this pool target.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before removing this saved pool target.'
+          );
+          return;
+        }
         this.connectionError = error.message || 'Unable to remove pool target';
       }
     },
@@ -454,6 +546,45 @@ const PoolsView = {
       this.connectError = null;
       this.useSavedCredential = false;
     },
+    async activateLiveTarget(target) {
+      if (!target?.targetKey) return;
+      this.connectionError = null;
+      try {
+        const result = await api.activateLiveTarget({ targetKey: target.targetKey });
+        applySessionStatus(result);
+        await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections()]);
+      } catch (error) {
+        this.connectionError = error.message || 'Unable to activate the selected live target';
+      }
+    },
+    async activateConnection(connection) {
+      if (!connection?.id) return;
+      this.connectionError = null;
+      try {
+        const attachedTarget = this.findAttachedTarget(connection);
+        const result = await api.activateLiveTarget(
+          attachedTarget?.targetKey
+            ? { targetKey: attachedTarget.targetKey }
+            : { connectionId: Number(connection.id) }
+        );
+        applySessionStatus(result);
+        await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections()]);
+        await this.navigateToPendingReturn();
+      } catch (error) {
+        this.connectionError = error.message || 'Unable to activate the selected pool target';
+      }
+    },
+    async disconnectLiveTarget(target) {
+      if (!target?.targetKey) return;
+      this.connectionError = null;
+      try {
+        const result = await api.detachLiveTarget(target.targetKey);
+        applySessionStatus(result);
+        await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections()]);
+      } catch (error) {
+        this.connectionError = error.message || 'Unable to detach the selected live target';
+      }
+    },
     async connectTargetSession() {
       if (!this.connectTarget) return;
 
@@ -465,18 +596,17 @@ const PoolsView = {
           this.connectTarget.host,
           this.connectTarget.username,
           this.useSavedCredential ? '' : this.connectPassword,
-          { vaultCredentialId: this.useSavedCredential ? this.connectTarget.vault_credential_id : null }
+          {
+            vaultCredentialId: this.useSavedCredential ? this.connectTarget.vault_credential_id : null,
+            connectionId: this.connectTarget.id || null,
+            connectionName: this.connectTarget.name || '',
+            port: this.connectTarget.port || 443,
+          }
         );
-        store.authenticated = true;
-        store.connected = Boolean(result.connected);
-        store.demoMode = false;
-        store.host = result.host || this.connectTarget.host;
-        store.username = result.username || this.connectTarget.username;
-        store.authMode = result.authMode || store.authMode || 'local';
-        store.user = result.user || store.user;
-        store.governance = result.governance || store.governance;
+        applySessionStatus(result);
         this.closeConnectDialog();
         await this.loadAll();
+        await this.navigateToPendingReturn();
       } catch (error) {
         this.connectError = error.message || 'Unable to connect to the selected pool target';
       } finally {

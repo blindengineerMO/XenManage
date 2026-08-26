@@ -24,10 +24,17 @@ Browser (Vue 3 SPA) ←→ Express Server (port 3000) ←→ XenServer (JSON-RPC
 - **Frontend**: Vue 3 runtime bundle + Vue Router 4 served locally from `client/dist`
 - **Backend**: Express 5, better-sqlite3, Joi validation, Helmet security
 - **Session durability**: SQLite-backed Express sessions with Xen session rehydration after process restarts
-- **Governance identity**: Local users, local groups, session-role switching, pool quotas, and approval-gated destructive operations
-- **Runtime settings**: Dedicated `/settings` workspace with live trust-proxy/session controls, credential-vault management, and retention operations
+- **Governance identity**: Local users, local groups, session-role switching, pool quotas, and approval-gated destructive operations across VM power, retention, targets, workspaces, vault, alerting, lifecycle, and resilience flows
+- **Runtime settings**: Dedicated `/settings` workspace with live trust-proxy/session controls, background telemetry collection controls, credential-vault management, and retention operations
 - **Central log center**: Federated Activity log view spanning audit, auth, alerts, remediation work, and Xen task history with export support
-- **Performance history**: Persisted host, VM, and storage telemetry in `perf.db` with trend cards across Capacity, Host, and VM detail panes
+- **Performance history**: Persisted host, VM, and storage telemetry in `perf.db` with trend cards across Capacity, Host, and VM detail panes plus a configurable in-process collector
+- **VM migration workflow**: VM details now support same-pool live migration or relocate-style host moves plus cross-pool/storage-remapped migration with destination-target selection, transfer-network mapping, SR placement, and per-VIF destination network remapping
+- **VM compatibility workflow**: VM details now expose a compatibility matrix backed by `VM.get_possible_hosts` plus `VM.assert_can_boot_here`, surfacing host readiness, CPU family alignment, and last-boot CPU flags instead of stale CPU-masking toggles removed from the current XAPI
+- **VM console workflow**: VM details now enumerate XAPI console records and launch the current session-authenticated console endpoint through a guarded browser launch view
+- **VM protection workflow**: Snapshot/checkpoint create, revert, and delete flows are available directly from the VM details workspace with governance-aware destructive actions
+- **VM duplication workflow**: Fast clone (`VM.clone`) and full copy (`VM.copy`) operations are available from the VM details workspace with explicit copy-mode selection and storage placement for full copies
+- **VM portability workflow**: The VMs workspace now supports top-level XVA import plus per-VM full-export and metadata-export actions backed by XenServer's documented HTTP import/export handlers
+- **Host maintenance workflow**: Host details now support enter/exit maintenance mode with evacuation-network selection, batch sizing, live resident-VM drain behavior, and guarded reboot/shutdown controls
 - **Theme**: Post-modern futuristic dark glassmorphic "Matrix meets Hackers" — scanlines, neon green accents, floating windows, dense tree navigation
 - **Visual Assets**: Project-owned AI-generated login and dashboard backgrounds stored in-repo
 - **Bootstrap**: Express renders the SPA shell with initial session state so the client can restore authenticated sessions without an extra fetch
@@ -74,7 +81,7 @@ XenMange/
 │   │   ├── groups.js             # Local control-plane group CRUD
 │   │   ├── resilience.js         # HA/DR/protection synthesis
 │   │   ├── vms.js                # VM CRUD + lifecycle
-│   │   ├── hosts.js              # Host list + metrics
+│   │   ├── hosts.js              # Host list + maintenance/power actions
 │   │   ├── storage.js            # SR + VDI routes
 │   │   ├── networks.js           # Network routes
 │   │   ├── pools.js              # Pool routes
@@ -159,9 +166,14 @@ All `/api/*` routes require a valid session cookie except the sign-in endpoints.
 | GET | `/api/metrics/storage/:ref` | Persisted storage telemetry history |
 | GET | `/api/resilience` | Derived HA/DR, protection, and recovery overview |
 | GET | `/api/vms` | All VMs with records |
+| GET | `/api/vms/:ref/snapshots` | List VM snapshots and checkpoints for a workload |
 | GET | `/api/vms/templates` | Template inventory |
 | GET | `/api/hosts` | All hosts with records |
 | GET | `/api/hosts/:ref/metrics` | Live host metrics record |
+| POST | `/api/hosts/:ref/maintenance/enter` | Disable a host and optionally evacuate running VMs over a selected migration network |
+| POST | `/api/hosts/:ref/maintenance/exit` | Re-enable a host after maintenance |
+| POST | `/api/hosts/:ref/reboot` | Request host reboot (`{approvalId?}`) |
+| POST | `/api/hosts/:ref/shutdown` | Request host shutdown (`{approvalId?}`) |
 | GET | `/api/storage` | All SRs with records |
 | GET | `/api/networks` | All networks with records |
 | GET | `/api/pools` | All pools with records |
@@ -187,6 +199,13 @@ All `/api/*` routes require a valid session cookie except the sign-in endpoints.
 | POST | `/api/vms/reboot` | Reboot VM (`{ref, force?}`) |
 | POST | `/api/vms/suspend` | Suspend VM (`{ref}`) |
 | POST | `/api/vms/resume` | Resume VM (`{ref, paused?}`) |
+| GET | `/api/vms/:ref/export` | Stream a full XVA package or metadata archive for a VM (`?metadataOnly=true`) |
+| PUT | `/api/vms/import` | Stream an XVA or metadata archive into XenServer (`?srRef=&restore=&force=&metadataOnly=`) |
+| POST | `/api/vms/:ref/migrate` | Move a VM within the current pool or migrate/copy it across attached live targets with transfer-network, SR, and VIF remapping controls |
+| POST | `/api/vms/:ref/duplicate` | Create a fast clone or full copy of a halted VM (`{nameLabel, nameDescription?, mode, srRef?, startAfter?}`) |
+| POST | `/api/vms/:ref/snapshots` | Create a VM snapshot or checkpoint (`{nameLabel, nameDescription?, mode}`) |
+| POST | `/api/vms/:ref/snapshots/:snapshotRef/revert` | Revert a VM to a snapshot/checkpoint (`{approvalId?}`) |
+| DELETE | `/api/vms/:ref/snapshots/:snapshotRef` | Delete a VM snapshot/checkpoint (`{approvalId?}`) |
 
 ### Connections (SQLite — local only)
 
@@ -238,13 +257,21 @@ VAULT_ENCRYPTION_KEY_PREVIOUS=
 - As of Monday, August 24, 2026, Express sessions persist in `security.db`, and protected routes can rehydrate a live `XenAPI` client from the saved Xen session ref after a process restart instead of dropping every authenticated Xen session on boot.
 - As of Monday, August 24, 2026, a first server-side credential vault foundation now exists: `vault.db` stores encrypted pool/host secrets, `security.db` stores wrapped DEKs, authenticated local XenMange users can CRUD private or shared credential metadata without those plaintext passwords ever being returned to the browser, and saved pool/host targets can now link those vault credentials for later Xen attachment.
 - As of Monday, August 24, 2026, the Pools workspace can attach a saved Xen target directly from an already-authenticated control-plane session, giving the local-first login path a complete operator workflow without bouncing back through the login route.
+- As of Monday, August 24, 2026, that control-plane session can also retain multiple attached live Xen targets at once, switch the active target in-session, and detach individual targets without tearing down the whole XenMange login.
 - As of Monday, August 24, 2026, a dedicated Settings workspace now manages app identity, timezone, public URL/proxy behavior, session timeout, logging posture, retention scheduler options, and per-domain retention policies with audit coverage and manual preview/run controls.
+- As of Monday, August 24, 2026, that Settings workspace also now exposes background telemetry collection controls and collector runtime status so persisted capacity history can continue polling attached Xen targets without waiting for operators to hit a metrics route.
 - As of Monday, August 24, 2026, that Settings workspace also exposes searchable vault credential inventory, floating-window create/edit/delete flows, master-key posture guidance, previous-key rotation visibility, and last-used tracking for saved Xen credentials.
 - As of Monday, August 24, 2026, the Governance workspace now includes first-party local user and local group administration with create/edit/password-rotation flows, active/disabled account posture, persisted admin/operator/read-only role ceilings, reusable group membership management, last-admin protection, and server-side prevention of session-role escalation beyond the assigned account role.
+- As of Monday, August 24, 2026, destructive operator actions across VM power controls, saved pool and host targets, inventory workspace cleanup, retention sweeps, vault credential deletion, alert policy/template cleanup, lifecycle plan removal, and resilience runbook removal now all reuse Governance approval drafts and route operators directly into the approval composer when an approved token is missing.
 - As of Monday, August 24, 2026, saved pool targets, host targets, and inventory workspaces now carry per-user ownership plus `private`/`shared` visibility, with owner-aware edit/default/delete enforcement, admin override visibility, and clearer ownership cues in the Pools, Hosts, and Inventory workspaces.
 - As of Monday, August 24, 2026, the Templates workspace now includes promotion-aware governance history plus a compare-and-promote workflow for staged validated template generations, including optional retirement of the previous stable baseline.
 - As of Monday, August 24, 2026, the Activity workspace now includes a centralized Log Center that federates audit history, auth events, alert records, remediation tasks, and Xen background tasks into one searchable table with JSON, HTML, and PDF export paths.
 - As of Monday, August 24, 2026, `perf.db` now captures persisted host-memory, VM-memory, and SR-utilization history, and the Capacity, Host, and VM workspaces now surface those trends through local metric cards instead of relying only on one-off live snapshots.
+- As of Monday, August 24, 2026, the VM details workspace now includes a Compatibility tab backed by `VM.get_possible_hosts` plus `VM.assert_can_boot_here`, giving operators a host readiness matrix, CPU-family alignment hints, and last-boot CPU flag review for mixed-hardware placement decisions while acknowledging that the old host CPU feature mutation calls are removed in the current XAPI reference.
+- As of Monday, August 24, 2026, the VM details workspace also includes a Console tab backed by `VM.get_consoles` plus the `console` class record, allowing XenMange to resolve the current session-authenticated console endpoint and hand the operator into a guarded browser launch view from the same floating VM workspace.
+- As of Monday, August 24, 2026, the VM details workspace now includes a dedicated Migration tab backed by `VM.pool_migrate` plus cross-pool `host.migrate_receive` / `VM.migrate_send` orchestration, allowing operators to live-migrate running workloads, relocate halted VMs between hosts in the same pool, or remap a VM across an attached destination fabric with transfer-network, SR, and per-VIF destination network selection.
+- As of Monday, August 24, 2026, the VMs workspace now includes a top-level XVA import flow plus a VM-level Import / Export tab that can stream full XVA packages or metadata-only archives through XenServer's documented HTTP handlers, with matching demo-mode behavior and browser-tested download/upload coverage.
+- As of Monday, August 24, 2026, the Hosts workspace now includes an operator-grade maintenance workflow: enter/exit maintenance mode with evacuation-network control, resident-workload draining, and host reboot/shutdown guardrails that match XenServer prerequisites more closely than the previous read-only host pane.
 - The login and authenticated shell now use project-owned AI-generated background art instead of external visual dependencies.
 - The dashboard supports draggable summary cards with persisted order in `localStorage`, plus alert triage and direct action rails into templates, alerts, activity history, and the new capacity workspace.
 - Pools, hosts, storage, networking, and VM detail views now open in custom floating windows instead of browser alerts.
@@ -257,4 +284,4 @@ VAULT_ENCRYPTION_KEY_PREVIOUS=
 - A dedicated resilience workbench now exposes derived protection coverage, failover readiness, evacuation targets, recovery-plan guidance, and recent resilience events.
 - Host property windows now pull live metric records so operators can inspect memory state without leaving the app.
 - The login surface can reuse locally saved connection targets from the SQLite-backed connection store, the Pools workspace can attach those saved targets in-place after a control-plane sign-in, pool/host registrations can bind to saved vault credentials, and the Settings workspace now gives operators one place to manage those encrypted secrets.
-- Jest coverage now includes 164 passing tests, and Playwright E2E coverage includes 8 passing browser flows spanning control-plane sign-in, local user and local group administration, ownership-aware target/workspace flows, target attachment, dashboard hydration, VM lifecycle actions, template governance/promotion, and the inventory/activity/settings workbenches with mocked API responses.
+- Jest coverage now includes 224 passing tests, and Playwright E2E coverage includes 9 passing browser flows spanning control-plane sign-in, local user and local group administration, ownership-aware target/workspace flows, multi-target attachment/detach handling, dashboard hydration, VM lifecycle actions, VM compatibility and console access, VM import/export, same-pool plus cross-pool VM migration, template governance/promotion, host maintenance operations, and the inventory/activity/settings workbenches with mocked API responses.

@@ -124,6 +124,10 @@ const templateGovernanceService = {
     return history.filter((entry) => entry.templateRef === templateRef);
   },
 
+  getHistoryEntry(templateRef, historyId) {
+    return this.listHistory(templateRef).find((entry) => entry.id === historyId) || null;
+  },
+
   recordGovernanceHistory(templateRef, snapshot, options = {}) {
     const history = readCollection(GOVERNANCE_HISTORY_KEY, []);
     history.unshift(normalizeHistoryRecord({
@@ -248,6 +252,44 @@ const templateGovernanceService = {
     return {
       promoted,
       deprecated,
+      history: this.listHistory(templateRef),
+    };
+  },
+
+  restoreHistoryEntry(templateRef, historyId, options = {}) {
+    const sourceEntry = this.getHistoryEntry(templateRef, historyId);
+    if (!sourceEntry) {
+      const notFound = new Error('TEMPLATE_GOVERNANCE_HISTORY_NOT_FOUND');
+      notFound.code = 'TEMPLATE_GOVERNANCE_HISTORY_NOT_FOUND';
+      throw notFound;
+    }
+
+    const records = readCollection(GOVERNANCE_KEY, []);
+    const index = records.findIndex((entry) => entry.templateRef === templateRef);
+    const now = new Date().toISOString();
+    const restored = normalizeGovernanceRecord(templateRef, {
+      ...sourceEntry.snapshot,
+      updatedAt: now,
+    });
+
+    if (index === -1) {
+      records.push(restored);
+    } else {
+      records[index] = restored;
+    }
+
+    writeCollection(GOVERNANCE_KEY, records);
+    this.recordGovernanceHistory(templateRef, restored, {
+      templateName: options.templateName || '',
+      actor: options.actor || '',
+      eventType: 'restored',
+      detail: `Restored governance snapshot from ${sourceEntry.eventType || 'history'} recorded on ${sourceEntry.happenedAt || 'an earlier revision'}.`,
+      happenedAt: now,
+    });
+
+    return {
+      record: restored,
+      sourceEntry,
       history: this.listHistory(templateRef),
     };
   },

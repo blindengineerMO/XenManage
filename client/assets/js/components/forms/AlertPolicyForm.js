@@ -46,6 +46,8 @@ const AlertPolicyForm = {
             <option value="network">Network</option>
             <option value="vif">VIF</option>
             <option value="pif">PIF</option>
+            <option value="bond">Bond</option>
+            <option value="vlan">VLAN</option>
             <option value="task">Task</option>
           </select>
         </div>

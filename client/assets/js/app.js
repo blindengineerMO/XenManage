@@ -81,43 +81,18 @@ async function bootstrapSession() {
   store.bootMessage = 'Verifying session state';
 
   if (bootstrap && typeof bootstrap === 'object') {
-    store.authenticated = Boolean(bootstrap.authenticated);
-    store.connected = Boolean(bootstrap.connected);
-    store.demoMode = false;
-    store.host = bootstrap.host || '';
-    store.username = bootstrap.username || '';
-    store.authMode = bootstrap.authMode || 'local';
-    store.user = bootstrap.user || null;
-    store.governance = bootstrap.governance || store.governance;
+    applySessionStatus({
+      ...bootstrap,
+      demoMode: false,
+    });
     store.bootMessage = store.authenticated ? 'Restoring control surface' : 'Preparing connection console';
   } else {
     try {
       const status = await api.status();
-      store.authenticated = Boolean(status.authenticated);
-      store.connected = Boolean(status.connected);
-      store.demoMode = Boolean(status.demoMode);
-      store.host = status.host || '';
-      store.username = status.username || '';
-      store.authMode = status.authMode || 'local';
-      store.user = status.user || null;
-      store.governance = status.governance || store.governance;
+      applySessionStatus(status);
       store.bootMessage = status.authenticated ? 'Restoring control surface' : 'Preparing connection console';
     } catch (error) {
-      store.authenticated = false;
-      store.connected = false;
-      store.demoMode = false;
-      store.host = '';
-      store.username = '';
-      store.authMode = 'local';
-      store.user = null;
-      store.governance = {
-        currentRole: 'admin',
-        policy: {
-          defaultRole: 'admin',
-          requireDestructiveApproval: true,
-          approvalTtlMinutes: 240,
-        },
-      };
+      resetSessionState();
       store.bootMessage = 'Preparing connection console';
     }
   }

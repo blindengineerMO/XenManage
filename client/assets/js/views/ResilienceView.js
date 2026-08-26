@@ -382,7 +382,7 @@ const ResilienceView = {
         </floating-window>
 
         <floating-window :show="showRunbookEditor"
-                         title="Recovery Runbook"
+                         :title="runbookWindowTitle"
                          :width="760"
                          :height="680"
                          @close="closeRunbookEditor">
@@ -398,7 +398,7 @@ const ResilienceView = {
               :hosts="hostsForPlan(activePlan)"
               :networks="networks"
               :saving="savingRunbook"
-              submit-label="Save Recovery Runbook"
+              :submit-label="runbookSubmitLabel"
               @submit="saveRunbook"
             ></resilience-runbook-form>
             <div class="capacity-callout" v-if="runbookSourceTask" style="margin-top:12px">
@@ -406,6 +406,26 @@ const ResilienceView = {
               <p>{{ runbookSourceTask.name_label || runbookSourceTask.related_alert_summary || runbookSourceTask.ref }}</p>
               <div class="text-muted mono" style="font-size:11px">
                 {{ runbookSourceTask.template_name || 'manual template' }} · {{ runbookSourceTask.ref || '-' }}
+              </div>
+            </div>
+            <div class="capacity-callout" v-if="runbookLaunchMode === 'drill'" style="margin-top:12px">
+              <strong>Execution-first handoff active</strong>
+              <p>This seeded flow drops directly into drill execution while leaving the recovery runbook editable in the same window.</p>
+            </div>
+            <div class="detail-section" v-if="runbookCanExecuteDrill">
+              <div class="detail-section-title">Execution Handoff</div>
+              <div class="dash-card">
+                <div class="dash-card-label">Recovery Drill</div>
+                <p class="text-muted" style="margin-bottom:12px">
+                  Capture recovery-drill execution evidence without leaving the seeded runbook workflow.
+                </p>
+                <resilience-drill-form
+                  :pool-record="activePlan"
+                  :saving="runbookDrillSaving"
+                  submit-label="Log Recovery Drill"
+                  @submit="executeRunbookDrill">
+                </resilience-drill-form>
+                <div class="form-error" v-if="runbookDrillError" style="text-align:left;margin-top:12px">{{ runbookDrillError }}</div>
               </div>
             </div>
           </div>
@@ -462,7 +482,10 @@ const ResilienceView = {
       showDrillLogger: false,
       activePlan: null,
       activePlanDraft: null,
+      runbookLaunchMode: 'runbook',
       runbookError: '',
+      runbookDrillSaving: false,
+      runbookDrillError: '',
       drillError: '',
       networks: [],
       relatedHosts: [],
@@ -537,6 +560,15 @@ const ResilienceView = {
     prioritizedRecoveryPlans() {
       const priority = { critical: 0, warning: 1, pending: 2, success: 3, info: 4 };
       return [...this.recoveryPlans].sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99));
+    },
+    runbookCanExecuteDrill() {
+      return Boolean(this.activePlan);
+    },
+    runbookWindowTitle() {
+      return this.runbookLaunchMode === 'drill' ? 'Recovery Drill Handoff' : 'Recovery Runbook';
+    },
+    runbookSubmitLabel() {
+      return this.runbookLaunchMode === 'drill' ? 'Save Recovery Runbook Before Drill' : 'Save Recovery Runbook';
     },
     resilienceAutomationTasks() {
       return sortTasks((this.automationTasks || []).filter((task) => this.isResilienceAutomationTask(task)));
@@ -792,10 +824,10 @@ const ResilienceView = {
       const task = this.findTaskByFocus(focus);
       if (!task) return;
 
-      if (seedAction === 'resilience-runbook' && task.resilience_runbook_seed?.enabled) {
+      if (['resilience-runbook', 'resilience-drill'].includes(seedAction) && task.resilience_runbook_seed?.enabled) {
         const plan = this.findRecoveryPlanByTask(task);
         if (!plan) return;
-        this.openRunbookEditor(plan, task.resilience_runbook_seed, task);
+        this.openRunbookEditor(plan, task.resilience_runbook_seed, task, seedAction === 'resilience-drill' ? 'drill' : 'runbook');
         this.lastAppliedFocusKey = key;
       }
     },
@@ -841,22 +873,27 @@ const ResilienceView = {
       this.selectedItem = null;
       this.selectedItemType = '';
     },
-    openRunbookEditor(plan, seed = null, sourceTask = null) {
+    openRunbookEditor(plan, seed = null, sourceTask = null, launchMode = 'runbook') {
       if (!plan) return;
       this.activePlan = plan;
       this.activePlanDraft = seed ? { ...plan, ...seed } : plan;
+      this.runbookLaunchMode = launchMode === 'drill' ? 'drill' : 'runbook';
       this.runbookSeed = seed ? { ...seed } : null;
       this.runbookSourceTask = sourceTask || null;
       this.runbookError = '';
+      this.runbookDrillError = '';
       this.showRunbookEditor = true;
     },
     closeRunbookEditor() {
       this.showRunbookEditor = false;
       this.activePlan = null;
       this.activePlanDraft = null;
+      this.runbookLaunchMode = 'runbook';
       this.runbookSeed = null;
       this.runbookSourceTask = null;
       this.runbookError = '';
+      this.runbookDrillSaving = false;
+      this.runbookDrillError = '';
     },
     openDrillLogger(plan) {
       if (!plan) return;
@@ -926,6 +963,30 @@ const ResilienceView = {
         },
       ];
     },
+    mapDrillStatusToTaskStatus(status) {
+      const normalized = String(status || '').trim().toLowerCase();
+      if (normalized === 'success') return 'success';
+      if (normalized === 'warning') return 'warning';
+      if (normalized === 'critical') return 'failure';
+      return 'in_progress';
+    },
+    async syncRunbookSourceTaskStatus(status, result) {
+      if (!this.runbookSourceTask?.ref || !this.isRemediationTask(this.runbookSourceTask)) return;
+
+      const currentStatus = String(this.runbookSourceTask.status || '').trim().toLowerCase();
+      if (['success', 'warning', 'failure', 'cancelled'].includes(currentStatus)) return;
+
+      const updatedTask = await api.updateRemediationTask(this.runbookSourceTask.ref, {
+        status,
+        assignee: this.runbookSourceTask.assignee || store.username || '',
+        dueDate: this.runbookSourceTask.due_date || this.runbookSourceTask.dueDate || '',
+        result,
+        nameDescription: this.runbookSourceTask.name_description || this.runbookSourceTask.nameDescription || '',
+      });
+
+      this.automationTasks = this.automationTasks.map((task) => task.ref === updatedTask.ref ? updatedTask : task);
+      this.runbookSourceTask = updatedTask;
+    },
     async saveRunbook(payload) {
       if (!this.activePlan) return;
       this.savingRunbook = true;
@@ -946,15 +1007,67 @@ const ResilienceView = {
         this.savingRunbook = false;
       }
     },
+    async executeRunbookDrill(payload) {
+      if (!this.activePlan) return;
+
+      this.runbookDrillSaving = true;
+      this.runbookDrillError = '';
+
+      let taskSyncError = null;
+      try {
+        const drill = await api.logResilienceDrill(this.activePlan.ref, payload);
+        const taskStatus = this.mapDrillStatusToTaskStatus(drill.status || payload.status);
+        const poolLabel = this.activePlan.name_label || this.activePlan.poolName || this.activePlan.ref || 'Recovery plan';
+
+        try {
+          await this.syncRunbookSourceTaskStatus(
+            taskStatus,
+            `${this.formatDrillType(drill.drillType || payload.drillType)} drill logged for ${poolLabel} with ${String(drill.status || payload.status || 'pending').toLowerCase()} outcome. ${drill.summary || payload.summary || ''}`.trim()
+          );
+        } catch (error) {
+          taskSyncError = error;
+        }
+
+        await this.loadResilience();
+
+        if (taskSyncError) {
+          this.runbookDrillError = 'The recovery drill was logged, but the source remediation task could not be updated automatically.';
+        }
+      } catch (error) {
+        console.error(error);
+        this.runbookDrillError = error.message || 'Unable to log the recovery drill from the runbook editor.';
+      } finally {
+        this.runbookDrillSaving = false;
+      }
+    },
     async deleteRunbook(plan) {
       if (!plan?.ref) return;
+      this.savingRunbook = true;
+      this.runbookError = '';
       try {
-        await api.deleteResilienceRunbook(plan.ref);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'resilience_runbook_delete',
+          entityType: 'pool',
+          entityRef: plan.ref,
+          entityName: plan.name_label || plan.poolName || 'Recovery runbook',
+          route: '/resilience',
+        });
+        await api.deleteResilienceRunbook(plan.ref, approvalId ? { approvalId } : null);
         await this.loadResilience();
         this.closeInspector();
       } catch (error) {
-        console.error(error);
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.runbookError = 'Governance approval is required before deleting this recovery runbook.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this recovery runbook.'
+          );
+          return;
+        }
         this.runbookError = error.message || 'Unable to clear recovery runbook';
+      } finally {
+        this.savingRunbook = false;
       }
     },
     async saveDrill(payload) {

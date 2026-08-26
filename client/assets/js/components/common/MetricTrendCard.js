@@ -86,6 +86,7 @@ const MetricTrendCard = {
     formatValue(value) {
       const numeric = Number(value || 0);
       if (this.valueKind === 'bytes') return formatBytes(numeric);
+      if (this.valueKind === 'throughput') return formatThroughput(numeric);
       if (this.valueKind === 'count') return String(Math.round(numeric));
       return `${Math.round(numeric)}%`;
     },

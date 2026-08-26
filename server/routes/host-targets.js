@@ -97,7 +97,7 @@ router.put('/:id', validate(schemas.connectionId, 'params'), validate(schemas.ho
 
 router.delete('/:id', validate(schemas.connectionId, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'host_target_delete', entityType: 'host-target', entityRef: String(req.params.id) })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'host_target_delete', entityType: 'host-target', entityRef: String(req.params.id), destructive: true })) return;
     const actor = resolveActor(req);
     const previous = findTargetOrRespond(req.params.id, actor, res);
     if (!previous) return;

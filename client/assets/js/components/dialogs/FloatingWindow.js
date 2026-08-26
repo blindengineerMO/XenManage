@@ -59,10 +59,16 @@ const FloatingWindow = {
       this.viewportWidth = window.innerWidth;
       this.viewportHeight = window.innerHeight;
     },
+    getWorkspaceLeftInset() {
+      const mainContent = document.querySelector('.main-content');
+      if (!mainContent) return 12;
+      return Math.max(12, Math.round(mainContent.getBoundingClientRect().left) + 12);
+    },
     constrainPosition() {
-      const maxX = Math.max(12, this.viewportWidth - this.resolvedWidth - 12);
+      const minX = this.getWorkspaceLeftInset();
+      const maxX = Math.max(minX, this.viewportWidth - this.resolvedWidth - 12);
       const maxY = Math.max(60, this.viewportHeight - this.resolvedBodyHeight - 40 - 28 - 12);
-      this.posX = Math.min(Math.max(12, this.posX), maxX);
+      this.posX = Math.min(Math.max(minX, this.posX), maxX);
       this.posY = Math.min(Math.max(60, this.posY), maxY);
     },
     startDrag(event) {

@@ -80,7 +80,7 @@ router.put('/plans/:ref', validate(schemas.opaqueRefParam, 'params'), validate(s
 
 router.delete('/plans/:ref', validate(schemas.opaqueRefParam, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'resilience_runbook_delete', entityType: 'pool', entityRef: req.params.ref })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'resilience_runbook_delete', entityType: 'pool', entityRef: req.params.ref, destructive: true })) return;
     const previousRunbook = resilienceRunbookService.getRunbook(req.params.ref);
     const result = resilienceRunbookService.removeRunbook(req.params.ref);
     auditLogService.record({

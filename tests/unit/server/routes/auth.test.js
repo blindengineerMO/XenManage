@@ -153,6 +153,8 @@ describe('Auth Routes', () => {
       expect(status.body.authenticated).toBe(true);
       expect(status.body.connected).toBe(false);
       expect(status.body.host).toBe('');
+      expect(status.body.currentTargetKey).toBe('');
+      expect(status.body.connectedTargets).toEqual([]);
       expect(status.body.username).toBe('admin');
       expect(status.body.governance).toEqual(expect.objectContaining({
         currentRole: expect.any(String),
@@ -186,6 +188,15 @@ describe('Auth Routes', () => {
       expect(res.body.connected).toBe(true);
       expect(res.body.host).toBe('192.168.1.100');
       expect(res.body.username).toBe('root');
+      expect(res.body.currentTargetKey).toBe('host:192.168.1.100|user:root|port:443');
+      expect(res.body.connectedTargets).toEqual([
+        expect.objectContaining({
+          targetKey: 'host:192.168.1.100|user:root|port:443',
+          host: '192.168.1.100',
+          username: 'root',
+          active: true,
+        }),
+      ]);
       expect(res.body.governance).toEqual(expect.objectContaining({
         currentRole: expect.any(String),
         policy: expect.any(Object),
@@ -201,6 +212,7 @@ describe('Auth Routes', () => {
       expect(status.body.connected).toBe(true);
       expect(status.body.host).toBe('192.168.1.100');
       expect(status.body.username).toBe('root');
+      expect(status.body.connectedTargets).toHaveLength(1);
     });
 
     it('should access xen-backed routes after xen login', async () => {
@@ -220,10 +232,44 @@ describe('Auth Routes', () => {
       expect(xen.body.username).toBe('admin');
     });
 
+    it('should activate and detach live xen targets within a control-plane session', async () => {
+      const local = await appLogin();
+      const first = await xenLogin(local.cookie, { connectionId: 1, connectionName: 'Production Pool' });
+      expect(first.status).toBe(200);
+      expect(first.body.connectedTargets).toHaveLength(1);
+
+      const second = await request('POST', '/api/auth/xen-login', {
+        host: '192.168.1.101',
+        username: 'root',
+        password: 'pass',
+        connectionId: 2,
+        connectionName: 'Recovery Pool',
+      }, first.cookie);
+      expect(second.status).toBe(200);
+      expect(second.body.connectedTargets).toHaveLength(2);
+      expect(second.body.currentTargetKey).toBe('connection:2');
+
+      const activated = await request('POST', '/api/auth/targets/activate', {
+        connectionId: 1,
+      }, second.cookie);
+      expect(activated.status).toBe(200);
+      expect(activated.body.currentTargetKey).toBe('connection:1');
+      expect(activated.body.connectedTargets.find((target) => target.targetKey === 'connection:1')?.active).toBe(true);
+
+      const detached = await request('DELETE', '/api/auth/targets/connection%3A1', null, second.cookie);
+      expect(detached.status).toBe(200);
+      expect(detached.body.currentTargetKey).toBe('connection:2');
+      expect(detached.body.connectedTargets).toHaveLength(1);
+    });
+
     it('should rehydrate a Xen connection from session data when in-memory state is lost', async () => {
       const login = await xenLogin();
 
       clearConnections();
+
+      const status = await request('GET', '/api/auth/status', null, login.cookie);
+      expect(status.status).toBe(200);
+      expect(status.body.connected).toBe(true);
 
       const dash = await request('GET', '/api/dashboard', null, login.cookie);
       expect(dash.status).toBe(200);

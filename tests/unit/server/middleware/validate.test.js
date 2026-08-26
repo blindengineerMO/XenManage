@@ -100,6 +100,186 @@ describe('Validation Middleware', () => {
     });
   });
 
+  describe('vm snapshot schemas', () => {
+    it('should validate snapshot creation payloads', () => {
+      req.body = {
+        nameLabel: 'pre-maintenance',
+        nameDescription: 'Created before the Monday, August 24, 2026 maintenance window.',
+        mode: 'checkpoint',
+      };
+      validate(schemas.vmSnapshotCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.mode).toBe('checkpoint');
+    });
+
+    it('should reject snapshot creation without a name', () => {
+      req.body = {
+        nameDescription: 'Missing restore-point label.',
+      };
+      validate(schemas.vmSnapshotCreate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should validate snapshot route params and mutation approval payloads', () => {
+      req.params = { ref: 'OpaqueRef:vm1', snapshotRef: 'OpaqueRef:snap1' };
+      validate(schemas.vmSnapshotParams, 'params')(req, res, next);
+      expect(next).toHaveBeenCalled();
+
+      next.mockClear();
+      req.body = {};
+      validate(schemas.vmSnapshotMutation)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.approvalId).toBe('');
+    });
+  });
+
+  describe('vm duplicate schema', () => {
+    it('should validate fast clone payloads', () => {
+      req.body = {
+        nameLabel: 'app-01-clone',
+        nameDescription: 'Fast clone created on Monday, August 24, 2026.',
+        mode: 'clone',
+        startAfter: false,
+      };
+      validate(schemas.vmDuplicateCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.mode).toBe('clone');
+      expect(req.body.srRef).toBe('');
+    });
+
+    it('should require a target SR for full copy payloads', () => {
+      req.body = {
+        nameLabel: 'app-01-copy',
+        mode: 'copy',
+      };
+      validate(schemas.vmDuplicateCreate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('host maintenance schemas', () => {
+    it('should validate maintenance entry payloads with evacuation enabled', () => {
+      req.body = {
+        networkRef: 'OpaqueRef:net1',
+        evacuateBatchSize: 2,
+        evacuateRunningVms: true,
+      };
+      validate(schemas.hostMaintenanceEnter)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.evacuateBatchSize).toBe(2);
+    });
+
+    it('should require a network when evacuation stays enabled', () => {
+      req.body = {
+        evacuateBatchSize: 1,
+        evacuateRunningVms: true,
+      };
+      validate(schemas.hostMaintenanceEnter)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should allow maintenance entry without a network when evacuation is disabled', () => {
+      req.body = {
+        evacuateRunningVms: false,
+      };
+      validate(schemas.hostMaintenanceEnter)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.networkRef).toBe('');
+    });
+
+    it('should validate host power mutation approvals', () => {
+      req.body = {};
+      validate(schemas.hostPowerMutation)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.approvalId).toBe('');
+    });
+  });
+
+  describe('vm migration schemas', () => {
+    it('should validate a VM migration payload', () => {
+      req.body = {
+        mode: 'same-pool',
+        hostRef: 'OpaqueRef:host2',
+        live: true,
+        force: false,
+        compress: true,
+        setAsHomeServer: true,
+      };
+      validate(schemas.vmMigrationCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.hostRef).toBe('OpaqueRef:host2');
+      expect(req.body.setAsHomeServer).toBe(true);
+    });
+
+    it('should validate a cross-pool migration payload', () => {
+      req.body = {
+        mode: 'cross-pool',
+        destinationTargetKey: 'connection:2',
+        transferNetworkRef: 'OpaqueRef:net2',
+        srRef: 'OpaqueRef:sr2',
+        vifNetworkMap: [
+          { vifRef: 'OpaqueRef:vif1', networkRef: 'OpaqueRef:net2' },
+        ],
+        live: false,
+        copy: true,
+      };
+      validate(schemas.vmMigrationCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.destinationTargetKey).toBe('connection:2');
+      expect(req.body.vifNetworkMap).toHaveLength(1);
+      expect(req.body.copy).toBe(true);
+    });
+
+    it('should reject migration payloads without a host ref', () => {
+      req.body = {
+        mode: 'same-pool',
+        live: true,
+      };
+      validate(schemas.vmMigrationCreate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should reject cross-pool migration payloads missing target placement data', () => {
+      req.body = {
+        mode: 'cross-pool',
+        destinationTargetKey: '',
+        transferNetworkRef: '',
+        srRef: '',
+      };
+      validate(schemas.vmMigrationCreate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('vm portability schemas', () => {
+    it('should validate VM export query defaults', () => {
+      req.query = {};
+      validate(schemas.vmExportQuery, 'query')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.query.metadataOnly).toBe(false);
+    });
+
+    it('should validate VM import query flags and storage refs', () => {
+      req.query = {
+        srRef: 'OpaqueRef:sr1',
+        restore: true,
+        force: true,
+        metadataOnly: false,
+      };
+      validate(schemas.vmImportQuery, 'query')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.query.srRef).toBe('OpaqueRef:sr1');
+      expect(req.query.restore).toBe(true);
+      expect(req.query.force).toBe(true);
+    });
+
+    it('should reject malformed VM import storage refs', () => {
+      req.query = { srRef: 'not-an-opaque-ref' };
+      validate(schemas.vmImportQuery, 'query')(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
   describe('connection schemas', () => {
     it('should pass valid saved connection payloads', () => {
       req.body = { name: 'Production', host: '10.0.0.1', username: 'root', port: 443, isDefault: true };
@@ -189,6 +369,30 @@ describe('Validation Middleware', () => {
       req.query = { range: '48h' };
       validate(schemas.metricRangeQuery, 'query')(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('metricRrdQuery schema', () => {
+    it('should default cf and interval for raw rrd update queries', () => {
+      req.query = {};
+      validate(schemas.metricRrdQuery, 'query')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.query.cf).toBe('AVERAGE');
+      expect(req.query.interval).toBe(60);
+      expect(req.query.host).toBe(false);
+    });
+
+    it('should reject unsupported consolidation functions', () => {
+      req.query = { cf: 'SUM' };
+      validate(schemas.metricRrdQuery, 'query')(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should coerce the host toggle for documented host rrd updates', () => {
+      req.query = { host: 'true' };
+      validate(schemas.metricRrdQuery, 'query')(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.query.host).toBe(true);
     });
   });
 
@@ -443,6 +647,7 @@ describe('Validation Middleware', () => {
         targetRoute: '/capacity',
         relatedObject: 'sr-uuid-1',
         relatedClass: 'sr',
+        templateLaunchMode: 'resilience-drill',
         lifecyclePlanSeed: {
           enabled: true,
           baselineStatus: 'drifted',
@@ -465,8 +670,24 @@ describe('Validation Middleware', () => {
       validate(schemas.remediationTaskCreate)(req, res, next);
       expect(next).toHaveBeenCalled();
       expect(req.body.actionType).toBe('capacity');
+      expect(req.body.templateLaunchMode).toBe('resilience-drill');
       expect(req.body.lifecyclePlanSeed.enabled).toBe(true);
       expect(req.body.resilienceRunbookSeed.recoveryTier).toBe('tier-1');
+    });
+
+    it('should accept lower-level network related classes like vlan', () => {
+      req.body = {
+        nameLabel: 'Network review: Recovery VLAN',
+        actionType: 'review',
+        alertRef: 'OpaqueRef:msg-vlan',
+        alertSummary: 'Recovery VLAN drift detected',
+        relatedObject: 'OpaqueRef:pif9',
+        relatedClass: 'vlan',
+        templateLaunchMode: 'draft',
+      };
+      validate(schemas.remediationTaskCreate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.relatedClass).toBe('vlan');
     });
 
     it('should reject remediation task payloads without opaque alert refs', () => {
@@ -521,7 +742,7 @@ describe('Validation Middleware', () => {
         workspaceSummaryTemplate: 'Validate datastore pressure and capture evidence for {summary}.',
         evidenceChecklist: ['Capture current latency evidence.', 'Review affected workloads.'],
         completionCriteria: ['Owner confirmed.', 'Closure note recorded.'],
-        launchMode: 'queue',
+        launchMode: 'resilience-drill',
         recurrenceMode: 'daily',
         recurrenceScope: 'object',
         cooldownDays: 0,
@@ -556,11 +777,23 @@ describe('Validation Middleware', () => {
       validate(schemas.remediationTaskTemplateUpdate)(req, res, next);
       expect(next).toHaveBeenCalled();
       expect(req.body.defaultDueDays).toBe(2);
-      expect(req.body.launchMode).toBe('queue');
+      expect(req.body.launchMode).toBe('resilience-drill');
       expect(req.body.recurrenceMode).toBe('daily');
       expect(req.body.evidenceChecklist).toHaveLength(2);
       expect(req.body.lifecyclePlanSeed.patchGroup).toBe('Production Ring A');
       expect(req.body.resilienceRunbookSeed.runbookSteps).toHaveLength(2);
+    });
+
+    it('should accept lower-level network match classes like bond', () => {
+      req.body = {
+        enabled: true,
+        name: 'Bond Review',
+        matchClass: 'bond',
+        taskNameTemplate: 'Bond Review: {summary}',
+      };
+      validate(schemas.remediationTaskTemplateUpdate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.matchClass).toBe('bond');
     });
 
     it('should reject remediation templates without a name', () => {

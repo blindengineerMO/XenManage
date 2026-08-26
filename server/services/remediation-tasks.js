@@ -121,6 +121,39 @@ function normalizeResilienceRunbookSeed(value = {}, fallback = null) {
   };
 }
 
+function normalizeVmMigrationSeed(value = {}, fallback = null) {
+  const source = value && typeof value === 'object' ? value : {};
+  const current = fallback && typeof fallback === 'object' ? fallback : null;
+  const enabled = source.enabled !== undefined ? Boolean(source.enabled) : Boolean(current?.enabled);
+
+  if (!enabled && !current && !Object.keys(source).length) return null;
+
+  return {
+    enabled,
+    mode: String(source.mode || current?.mode || 'same-pool').trim().toLowerCase(),
+    hostRef: String(source.hostRef || current?.hostRef || '').trim(),
+    destinationTargetKey: String(source.destinationTargetKey || current?.destinationTargetKey || '').trim(),
+    transferNetworkRef: String(source.transferNetworkRef || current?.transferNetworkRef || '').trim(),
+    srRef: String(source.srRef || current?.srRef || '').trim(),
+    vifNetworkMap: (Array.isArray(source.vifNetworkMap) ? source.vifNetworkMap : Array.isArray(current?.vifNetworkMap) ? current.vifNetworkMap : [])
+      .map((entry) => ({
+        vifRef: String(entry?.vifRef || '').trim(),
+        networkRef: String(entry?.networkRef || '').trim(),
+      }))
+      .filter((entry) => entry.vifRef && entry.networkRef)
+      .slice(0, 16),
+    live: source.live !== undefined ? Boolean(source.live) : Boolean(current?.live),
+    copy: source.copy !== undefined ? Boolean(source.copy) : Boolean(current?.copy),
+    force: source.force !== undefined ? Boolean(source.force) : Boolean(current?.force),
+    compress: source.compress !== undefined ? Boolean(source.compress) : Boolean(current?.compress),
+    setAsHomeServer: source.setAsHomeServer !== undefined ? Boolean(source.setAsHomeServer) : Boolean(current?.setAsHomeServer),
+    notes: String(source.notes || current?.notes || '').trim(),
+    sourceTaskRef: String(source.sourceTaskRef || current?.sourceTaskRef || '').trim(),
+    sourceTemplateId: String(source.sourceTemplateId || current?.sourceTemplateId || '').trim(),
+    sourceTemplateName: String(source.sourceTemplateName || current?.sourceTemplateName || '').trim(),
+  };
+}
+
 function readTasks() {
   try {
     const stored = JSON.parse(settingsModel.get(SETTINGS_KEY) || '[]');
@@ -169,6 +202,7 @@ function normalizeTask(task = {}, current = {}) {
     completion_criteria: normalizeStringList(task.completion_criteria || task.completionCriteria, current.completion_criteria || current.completionCriteria),
     lifecycle_plan_seed: normalizeLifecyclePlanSeed(task.lifecycle_plan_seed || task.lifecyclePlanSeed, current.lifecycle_plan_seed || current.lifecyclePlanSeed),
     resilience_runbook_seed: normalizeResilienceRunbookSeed(task.resilience_runbook_seed || task.resilienceRunbookSeed, current.resilience_runbook_seed || current.resilienceRunbookSeed),
+    vm_migration_seed: normalizeVmMigrationSeed(task.vm_migration_seed || task.vmMigrationSeed, current.vm_migration_seed || current.vmMigrationSeed),
     template_id: String(task.template_id || task.templateId || current.template_id || '').trim(),
     template_name: String(task.template_name || task.templateName || current.template_name || '').trim(),
     template_launch_mode: String(task.template_launch_mode || task.templateLaunchMode || current.template_launch_mode || 'draft').trim().toLowerCase(),

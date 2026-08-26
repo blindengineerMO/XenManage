@@ -6,6 +6,7 @@ const auditLogService = require('./audit-log');
 const remediationTaskService = require('./remediation-tasks');
 const { authEventModel } = require('../models/security-db');
 const { listAlerts } = require('./alerts');
+const { listTelemetryAlerts } = require('./telemetry-alerts');
 
 const SOURCE_ORDER = ['audit', 'auth', 'alert', 'remediation-task', 'xen-task'];
 const VALID_SOURCES = new Set(SOURCE_ORDER);
@@ -184,18 +185,23 @@ function matchesQuery(entry, query = {}) {
 }
 
 async function listEntries({ xenApi, source = 'all', search = '', severity = 'all' } = {}) {
-  const [auditEntries, authEntries, remediationTasks, xenTasksResult, xenMessages] = await Promise.all([
+  const [auditEntries, authEntries, remediationTasks, xenTasksResult, xenMessages, telemetryAlerts] = await Promise.all([
     Promise.resolve(auditLogService.list()),
     Promise.resolve(authEventModel.list()),
     Promise.resolve(remediationTaskService.list()),
     xenApi?.getTasks ? xenApi.getTasks().catch(() => ({})) : Promise.resolve({}),
     xenApi?.getMessages ? xenApi.getMessages().catch(() => ({})) : Promise.resolve({}),
+    listTelemetryAlerts(xenApi),
   ]);
+  const mergedMessages = { ...(xenMessages || {}) };
+  telemetryAlerts.forEach((entry) => {
+    mergedMessages[entry.ref] = entry;
+  });
 
   const entries = [
     ...auditEntries.map(normalizeAuditEntry),
     ...authEntries.map(normalizeAuthEvent),
-    ...listAlerts(xenMessages || {}).map(normalizeAlertEntry),
+    ...listAlerts(mergedMessages).map(normalizeAlertEntry),
     ...remediationTasks.map(normalizeRemediationTaskEntry),
     ...Object.entries(xenTasksResult || {}).map(([ref, record]) => normalizeXenTaskEntry(ref, record)),
   ];

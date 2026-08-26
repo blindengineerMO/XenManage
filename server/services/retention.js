@@ -1,11 +1,13 @@
 const { getDb, settingsModel, retentionPolicyModel } = require('../models/connection');
 const { getSecurityDb } = require('../models/security-db');
+const { getPerfDb } = require('../models/perf-db');
 const auditLogService = require('./audit-log');
 const systemConfigService = require('./system-config');
 
 const AUDIT_SETTINGS_KEY = 'activity.audit';
 const TASK_SETTINGS_KEY = 'activity.remediationTasks';
 const TERMINAL_TASK_STATUSES = new Set(['success', 'warning', 'failure', 'cancelled']);
+const TERMINAL_DEPLOYMENT_RUN_STATUSES = new Set(['success', 'failure', 'cancelled']);
 
 let schedulerTimer = null;
 
@@ -22,12 +24,27 @@ const DOMAIN_DEFINITIONS = {
     label: 'Authentication Events',
     description: 'Login and logout activity persisted in security.db for traceability.',
   },
+  'template-deployment-runs': {
+    label: 'Template Deployment Runs',
+    description: 'Completed template deployment work persisted in xenmange.db for Activity tracking and post-deploy traceability.',
+  },
+  'metric-samples': {
+    label: 'Metric Samples',
+    description: 'Raw persisted telemetry snapshots stored in perf.db for capacity and trend views.',
+  },
+  'metric-hourly-rollups': {
+    label: 'Metric Hourly Rollups',
+    description: 'Hourly telemetry aggregates stored in perf.db for longer-range capacity and trend history.',
+  },
 };
 
 const DEFAULT_POLICIES = {
   'audit-log': { retentionDays: 180, enabled: true },
   'remediation-tasks': { retentionDays: 90, enabled: true },
   'auth-events': { retentionDays: 60, enabled: true },
+  'template-deployment-runs': { retentionDays: 90, enabled: true },
+  'metric-samples': { retentionDays: 7, enabled: true },
+  'metric-hourly-rollups': { retentionDays: 90, enabled: true },
 };
 
 function readJsonArray(key) {
@@ -115,6 +132,17 @@ function filterRetainedTaskEntries(entries, cutoffTs) {
   return { purgedCount, retained };
 }
 
+function listDeploymentRunIdsForRetention(cutoffDate) {
+  return getDb().prepare(`
+    SELECT id
+    FROM deployment_runs
+    WHERE status IN (${Array.from(TERMINAL_DEPLOYMENT_RUN_STATUSES).map(() => '?').join(', ')})
+      AND datetime(COALESCE(finished_at, submitted_at)) < datetime(?)
+  `).all(...Array.from(TERMINAL_DEPLOYMENT_RUN_STATUSES), cutoffDate)
+    .map((row) => String(row.id || '').trim())
+    .filter(Boolean);
+}
+
 function previewDomain(domain, policy) {
   const cutoffTs = new Date(toIsoCutoff(policy.retentionDays)).getTime();
   const cutoffDate = new Date(cutoffTs).toISOString();
@@ -137,6 +165,34 @@ function previewDomain(domain, policy) {
       FROM auth_events
       WHERE datetime(created_at) < datetime(?)
     `).get(cutoffDate);
+
+    return { domain, cutoffDate, candidateCount: Number(row?.count || 0) };
+  }
+
+  if (domain === 'template-deployment-runs') {
+    return {
+      domain,
+      cutoffDate,
+      candidateCount: listDeploymentRunIdsForRetention(cutoffDate).length,
+    };
+  }
+
+  if (domain === 'metric-samples') {
+    const row = getPerfDb().prepare(`
+      SELECT COUNT(*) AS count
+      FROM metric_samples
+      WHERE ts < ?
+    `).get(cutoffTs);
+
+    return { domain, cutoffDate, candidateCount: Number(row?.count || 0) };
+  }
+
+  if (domain === 'metric-hourly-rollups') {
+    const row = getPerfDb().prepare(`
+      SELECT COUNT(*) AS count
+      FROM metric_hourly_rollups
+      WHERE bucket_ts < ?
+    `).get(cutoffTs);
 
     return { domain, cutoffDate, candidateCount: Number(row?.count || 0) };
   }
@@ -164,6 +220,31 @@ function purgeDomain(domain, policy, actor = 'system') {
       DELETE FROM auth_events
       WHERE datetime(created_at) < datetime(?)
     `).run(cutoffDate).changes;
+  } else if (domain === 'template-deployment-runs') {
+    const runIds = listDeploymentRunIdsForRetention(cutoffDate);
+    if (runIds.length) {
+      const db = getDb();
+      const deleteRunSteps = db.prepare('DELETE FROM deployment_run_steps WHERE run_id = ?');
+      const deleteRun = db.prepare('DELETE FROM deployment_runs WHERE id = ?');
+      const purgeRuns = db.transaction((ids) => {
+        ids.forEach((id) => {
+          deleteRunSteps.run(id);
+          deleteRun.run(id);
+        });
+      });
+      purgeRuns(runIds);
+    }
+    purgedCount = runIds.length;
+  } else if (domain === 'metric-samples') {
+    purgedCount = getPerfDb().prepare(`
+      DELETE FROM metric_samples
+      WHERE ts < ?
+    `).run(cutoffTs).changes;
+  } else if (domain === 'metric-hourly-rollups') {
+    purgedCount = getPerfDb().prepare(`
+      DELETE FROM metric_hourly_rollups
+      WHERE bucket_ts < ?
+    `).run(cutoffTs).changes;
   } else {
     throw new Error(`UNKNOWN_RETENTION_DOMAIN:${domain}`);
   }
@@ -199,6 +280,7 @@ function maybeVacuum() {
   if (!retentionSettings.vacuumAfterSweep) return;
   getDb().exec('VACUUM');
   getSecurityDb().exec('VACUUM');
+  getPerfDb().exec('VACUUM');
 }
 
 const retentionService = {

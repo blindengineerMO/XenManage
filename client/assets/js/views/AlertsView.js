@@ -289,9 +289,11 @@ const AlertsView = {
                   <div class="text-muted" style="font-size:12px;margin-top:6px">{{ template.defaultNotes || 'This template uses the standard alert guidance defaults.' }}</div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                  <button class="btn btn-sm" :class="template.launchMode === 'queue' ? 'btn-primary' : ''" @click="queueRemediationTemplate(template, selectedMessage)">
-                    <span class="mdi mdi-rocket-launch-outline"></span>
-                    Queue Now
+                  <button class="btn btn-sm"
+                          :class="template.launchMode !== 'draft' ? 'btn-primary' : ''"
+                          @click="queueRemediationTemplate(template, selectedMessage)">
+                    <span class="mdi" :class="remediationTemplatePrimaryActionIcon(template)"></span>
+                    {{ remediationTemplatePrimaryActionLabel(template) }}
                   </button>
                   <button class="btn btn-sm" :class="template.launchMode === 'draft' ? 'btn-primary' : ''" @click="applyRemediationTemplate(template, selectedMessage)">
                     <span class="mdi mdi-creation-outline"></span>
@@ -569,6 +571,8 @@ const AlertsView = {
         network: 'Network',
         vif: 'VIF',
         pif: 'PIF',
+        bond: 'Bond',
+        vlan: 'VLAN',
         task: 'Task',
       };
       return map[value] || 'Any Class';
@@ -601,7 +605,15 @@ const AlertsView = {
       return parts.join(' · ');
     },
     describeTemplateAutomation(template) {
-      const launchMode = template?.launchMode === 'queue' ? 'queue immediately' : 'open draft first';
+      const launchModeMap = {
+        queue: 'queue immediately',
+        'lifecycle-plan': 'launch lifecycle draft',
+        'lifecycle-maintenance': 'launch maintenance handoff',
+        'resilience-runbook': 'launch recovery runbook draft',
+        'resilience-drill': 'launch recovery drill handoff',
+        'vm-migration': 'launch VM migration handoff',
+      };
+      const launchMode = launchModeMap[String(template?.launchMode || 'draft').toLowerCase()] || 'open draft first';
       return `Launch: ${launchMode} · Guard: ${this.formatTemplateRecurrence(template)}`;
     },
     describeRemediationTemplate(template) {
@@ -710,6 +722,8 @@ const AlertsView = {
     },
     buildAlertFocusLocation(message) {
       const cls = String(message.cls || '').toLowerCase();
+      const objectRef = String(message.object_ref || '').trim();
+      const objectUuid = String(message.obj_uuid || '').trim();
       const kindMap = {
         host: 'host',
         sr: 'storage',
@@ -720,13 +734,16 @@ const AlertsView = {
         network: 'network',
         vif: 'network',
         pif: 'network',
+        bond: 'network',
+        vlan: 'network',
         task: 'task',
         alert: 'alert',
       };
 
       return buildFocusedRoute(message.targetRoute || '/inventory', {
         kind: kindMap[cls] || '',
-        uuid: message.obj_uuid || '',
+        ref: objectRef || (objectUuid.startsWith('OpaqueRef:') ? objectUuid : ''),
+        uuid: objectUuid && !objectUuid.startsWith('OpaqueRef:') ? objectUuid : '',
         name: message.summary || message.name || '',
         cls,
         source: 'alert',
@@ -778,6 +795,8 @@ const AlertsView = {
       } else if (cls === 'vm') {
         addLink('/vms', 'VM View', 'Open the VM detail workspace to inspect config, devices, and lifecycle state.');
         addLink('/resilience', 'Resilience Review', 'Check protection coverage and recovery posture for the affected workload.');
+      } else if (cls === 'network' || cls === 'pif' || cls === 'vif' || cls === 'bond' || cls === 'vlan') {
+        addLink('/networking', 'Network View', 'Inspect the affected bridge, uplink, or workload interface path in the relationship pane.');
       } else if (cls === 'pool') {
         addLink('/pools', 'Pool View', 'Inspect pool membership and control-plane settings for the affected cluster.');
         addLink('/governance', 'Governance Review', 'Review quota and approval posture if the alert signals policy pressure.');
@@ -819,7 +838,7 @@ const AlertsView = {
         alertUuid: message?.uuid || '',
         alertSummary: summary,
         targetRoute,
-        relatedObject: message?.obj_uuid || message?.ref || '',
+        relatedObject: message?.object_ref || message?.obj_uuid || message?.ref || '',
         relatedClass: cls,
       });
     },
@@ -842,6 +861,58 @@ const AlertsView = {
         .map((entry) => this.applyTemplateTokens(entry, message))
         .map((entry) => String(entry || '').trim())
         .filter(Boolean);
+    },
+    buildRemediationTaskFocus(task, fallbackName = '') {
+      return {
+        kind: 'task',
+        ref: task?.ref || '',
+        uuid: task?.uuid || '',
+        name: task?.name_label || fallbackName || '',
+        cls: 'task',
+        source: 'alert',
+      };
+    },
+    resolveRemediationLaunchLocation(task, payload = {}) {
+      const focus = this.buildRemediationTaskFocus(task, payload.nameLabel || payload.templateName || '');
+      const launchMode = String(task?.template_launch_mode || payload.templateLaunchMode || 'draft').trim().toLowerCase();
+
+      if (launchMode === 'lifecycle-plan' && task?.lifecycle_plan_seed?.enabled) {
+        return buildFocusedRoute('/lifecycle', focus, { seedAction: 'lifecycle-plan' });
+      }
+      if (launchMode === 'lifecycle-maintenance' && task?.lifecycle_plan_seed?.enabled) {
+        return buildFocusedRoute('/lifecycle', focus, { seedAction: 'lifecycle-maintenance' });
+      }
+      if (launchMode === 'resilience-runbook' && task?.resilience_runbook_seed?.enabled) {
+        return buildFocusedRoute('/resilience', focus, { seedAction: 'resilience-runbook' });
+      }
+      if (launchMode === 'resilience-drill' && task?.resilience_runbook_seed?.enabled) {
+        return buildFocusedRoute('/resilience', focus, { seedAction: 'resilience-drill' });
+      }
+      if (launchMode === 'vm-migration' && task?.vm_migration_seed?.enabled) {
+        return buildFocusedRoute('/vms', focus, { seedAction: 'vm-migration' });
+      }
+
+      return buildFocusedRoute('/activity', focus);
+    },
+    remediationTemplatePrimaryActionLabel(template) {
+      const launchMode = String(template?.launchMode || 'draft').trim().toLowerCase();
+      if (launchMode === 'queue') return 'Queue Now';
+      if (launchMode === 'lifecycle-plan') return 'Launch Lifecycle Draft';
+      if (launchMode === 'lifecycle-maintenance') return 'Launch Maintenance Handoff';
+      if (launchMode === 'resilience-runbook') return 'Launch Runbook Draft';
+      if (launchMode === 'resilience-drill') return 'Launch Recovery Drill';
+      if (launchMode === 'vm-migration') return 'Launch VM Migration';
+      return 'Use Template';
+    },
+    remediationTemplatePrimaryActionIcon(template) {
+      const launchMode = String(template?.launchMode || 'draft').trim().toLowerCase();
+      if (launchMode === 'queue') return 'mdi-rocket-launch-outline';
+      if (launchMode === 'lifecycle-plan') return 'mdi-calendar-edit-outline';
+      if (launchMode === 'lifecycle-maintenance') return 'mdi-wrench-clock';
+      if (launchMode === 'resilience-runbook') return 'mdi-book-edit-outline';
+      if (launchMode === 'resilience-drill') return 'mdi-clipboard-pulse-outline';
+      if (launchMode === 'vm-migration') return 'mdi-swap-horizontal-bold';
+      return 'mdi-creation-outline';
     },
     applyLifecyclePlanSeed(seed, message) {
       if (!seed || seed.enabled === false) return null;
@@ -871,17 +942,30 @@ const AlertsView = {
         runbookSteps: this.applyTemplateTokenList(seed.runbookSteps || [], message),
       };
     },
+    applyVmMigrationSeed(seed, message) {
+      if (!seed || seed.enabled === false) return null;
+      return {
+        ...seed,
+        enabled: true,
+        notes: this.applyTemplateTokens(seed.notes || '', message),
+        vifNetworkMap: Array.isArray(seed.vifNetworkMap)
+          ? seed.vifNetworkMap.map((entry) => ({ ...entry }))
+          : [],
+      };
+    },
     formatDueDateFromDays(days) {
       const count = Number(days || 0);
       if (!count) return '';
       const next = new Date();
       next.setDate(next.getDate() + count);
-      return next.toISOString().slice(0, 10);
+      const offsetDate = new Date(next.getTime() - next.getTimezoneOffset() * 60000);
+      return offsetDate.toISOString().slice(0, 10);
     },
     buildRemediationDraftFromTemplate(message, template) {
       const base = this.buildRemediationDraftFromAlert(message);
       const lifecyclePlanSeed = this.applyLifecyclePlanSeed(template.lifecyclePlanSeed, message);
       const resilienceRunbookSeed = this.applyResilienceRunbookSeed(template.resilienceRunbookSeed, message);
+      const vmMigrationSeed = this.applyVmMigrationSeed(template.vmMigrationSeed, message);
 
       if (lifecyclePlanSeed) {
         lifecyclePlanSeed.sourceTemplateId = template.id || '';
@@ -891,6 +975,11 @@ const AlertsView = {
       if (resilienceRunbookSeed) {
         resilienceRunbookSeed.sourceTemplateId = template.id || '';
         resilienceRunbookSeed.sourceTemplateName = template.name || '';
+      }
+
+      if (vmMigrationSeed) {
+        vmMigrationSeed.sourceTemplateId = template.id || '';
+        vmMigrationSeed.sourceTemplateName = template.name || '';
       }
 
       return buildRemediationTaskDraft({
@@ -912,6 +1001,7 @@ const AlertsView = {
         cooldownDays: Number(template.cooldownDays || 0),
         lifecyclePlanSeed,
         resilienceRunbookSeed,
+        vmMigrationSeed,
       });
     },
     openRemediationComposer(message) {
@@ -930,13 +1020,9 @@ const AlertsView = {
       try {
         const task = await api.queueRemediationTemplate(this.buildRemediationDraftFromTemplate(message, template));
         this.showProps = false;
-        this.$router.push(buildFocusedRoute('/activity', {
-          kind: 'task',
-          ref: task.ref || '',
-          uuid: task.uuid || '',
-          name: task.name_label || template.name || '',
-          cls: 'task',
-          source: 'alert',
+        this.$router.push(this.resolveRemediationLaunchLocation(task, {
+          nameLabel: task.name_label || template.name || '',
+          templateLaunchMode: template.launchMode || 'draft',
         }));
       } catch (error) {
         if (error.code === 'REMEDIATION_TASK_RECURRENCE_BLOCKED') {
@@ -964,14 +1050,7 @@ const AlertsView = {
         const task = await api.createRemediationTask(payload);
         this.closeRemediationComposer();
         this.showProps = false;
-        this.$router.push(buildFocusedRoute('/activity', {
-          kind: 'task',
-          ref: task.ref || '',
-          uuid: task.uuid || '',
-          name: task.name_label || payload.nameLabel || '',
-          cls: 'task',
-          source: 'alert',
-        }));
+        this.$router.push(this.resolveRemediationLaunchLocation(task, payload));
       } catch (error) {
         if (error.code === 'REMEDIATION_TASK_RECURRENCE_BLOCKED') {
           const nextEligibleAt = error.payload?.nextEligibleAt ? this.formatDateTime(error.payload.nextEligibleAt) : 'manual clearance';
@@ -1040,10 +1119,26 @@ const AlertsView = {
       this.templateSaving = true;
       this.templateError = null;
       try {
-        await api.deleteRemediationTemplate(template.id);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'remediation_template_delete',
+          entityType: 'task-template',
+          entityRef: String(template.id),
+          entityName: template.name || template.title || `Template ${template.id}`,
+          route: '/alerts',
+        });
+        await api.deleteRemediationTemplate(template.id, approvalId ? { approvalId } : null);
         await this.loadWorkspace();
         this.closeTemplateEditor();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.templateError = 'Governance approval is required before deleting this remediation template.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this remediation template.'
+          );
+          return;
+        }
         this.templateError = error.message || 'Unable to remove the remediation template';
       } finally {
         this.templateSaving = false;
@@ -1146,10 +1241,26 @@ const AlertsView = {
       this.policySaving = true;
       this.policyError = null;
       try {
-        await api.deleteAlertPolicy(policy.id);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'alert_policy_delete',
+          entityType: 'alert-policy',
+          entityRef: String(policy.id),
+          entityName: policy.name || policy.title || `Policy ${policy.id}`,
+          route: '/alerts',
+        });
+        await api.deleteAlertPolicy(policy.id, approvalId ? { approvalId } : null);
         await this.loadWorkspace();
         this.closePolicyEditor();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.policyError = 'Governance approval is required before deleting this alert policy.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this alert policy.'
+          );
+          return;
+        }
         this.policyError = error.message || 'Unable to remove alert policy';
       } finally {
         this.policySaving = false;

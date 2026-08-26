@@ -27,6 +27,7 @@ jest.mock('../../../../server/services/xenapi', () => {
 });
 
 const { getSecurityDb } = require('../../../../server/models/security-db');
+const governanceService = require('../../../../server/services/governance');
 const app = require('../../../../server/index');
 
 describe('Credential Vault Routes', () => {
@@ -247,5 +248,56 @@ describe('Credential Vault Routes', () => {
     expect(visible.status).toBe(200);
     expect(visible.body.data.some((entry) => entry.name === 'Shared Pool Root')).toBe(true);
     expect(visible.body.data.some((entry) => entry.name === 'Private Host Root')).toBe(false);
+  });
+
+  it('should require approved destructive tokens before operators delete vault credentials', async () => {
+    governanceService.updatePolicy({
+      defaultRole: 'operator',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 180,
+    });
+
+    createLocalUser('vault-operator');
+    const operator = await request('POST', '/api/auth/login', {
+      username: 'vault-operator',
+      password: 'password123!',
+    });
+    const admin = await appLogin();
+
+    const created = await request('POST', '/api/credentials', {
+      name: 'Operator Vault Credential',
+      scope: 'private',
+      targetType: 'host',
+      targetHint: '10.0.0.77',
+      username: 'root',
+      password: 'super-secret',
+    }, operator.cookie);
+    expect(created.status).toBe(201);
+
+    const blocked = await request('DELETE', `/api/credentials/${created.body.id}`, null, operator.cookie);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('APPROVAL_REQUIRED');
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'credential_delete',
+      entityType: 'credential',
+      entityRef: String(created.body.id),
+      entityName: created.body.name,
+      justification: 'Remove a private vault credential during Monday, August 24, 2026 governance testing.',
+      route: '/settings',
+    }, operator.cookie);
+    expect(approval.status).toBe(201);
+
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Approved during Monday, August 24, 2026 vault cleanup validation.',
+    }, admin.cookie);
+    expect(decision.status).toBe(200);
+
+    const removed = await request('DELETE', `/api/credentials/${created.body.id}`, {
+      approvalId: approval.body.id,
+    }, operator.cookie);
+    expect(removed.status).toBe(200);
+    expect(removed.body.success).toBe(true);
   });
 });

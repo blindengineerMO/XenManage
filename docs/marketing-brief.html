@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>XenMange — Marketing Brief</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  body {
+    width: 210mm; height: 297mm;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: #0a0f14; color: #e0e0e0;
+    overflow: hidden; position: relative;
+  }
+  /* scanline overlay */
+  body::after {
+    content: ""; position: absolute; inset: 0; z-index: 10; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,0,0.015) 2px, rgba(0,255,0,0.015) 4px);
+  }
+  .page { padding: 18mm 20mm 14mm 20mm; position: relative; z-index: 1; height: 297mm; display: flex; flex-direction: column; }
+
+  /* header */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .logo { font-size: 28pt; font-weight: 800; color: #0a0; letter-spacing: 2px; text-transform: uppercase; text-shadow: 0 0 20px rgba(0,255,0,0.4); }
+  .tagline { font-size: 8pt; color: #0f0; letter-spacing: 4px; text-transform: uppercase; opacity: 0.8; }
+  .version-badge { background: rgba(0,255,0,0.1); border: 1px solid rgba(0,255,0,0.3); border-radius: 4px; padding: 3px 10px; font-size: 7.5pt; color: #0f0; letter-spacing: 1px; }
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, #0a0, transparent); margin: 8px 0 10px 0; }
+
+  /* hero */
+  .hero { text-align: center; margin-bottom: 12px; }
+  .hero h1 { font-size: 16pt; color: #fff; font-weight: 300; line-height: 1.3; }
+  .hero h1 strong { color: #0f0; font-weight: 700; text-shadow: 0 0 15px rgba(0,255,0,0.3); }
+  .hero p { font-size: 8.5pt; color: #999; margin-top: 5px; max-width: 440px; margin-left: auto; margin-right: auto; line-height: 1.4; }
+
+  /* value props */
+  .value-row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .value-card {
+    flex: 1; background: rgba(0,255,0,0.04); border: 1px solid rgba(0,255,0,0.15);
+    border-radius: 6px; padding: 8px 10px; text-align: center;
+  }
+  .value-card .icon { font-size: 16pt; margin-bottom: 3px; }
+  .value-card h3 { font-size: 8pt; color: #0f0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+  .value-card p { font-size: 7pt; color: #aaa; line-height: 1.35; }
+
+  /* features grid */
+  .features-title { font-size: 9pt; color: #0f0; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; text-align: center; }
+  .features { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; margin-bottom: 10px; }
+  .feat {
+    background: rgba(0,255,0,0.03); border: 1px solid rgba(0,255,0,0.1);
+    border-radius: 5px; padding: 6px 8px;
+  }
+  .feat h4 { font-size: 7.5pt; color: #0f0; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; }
+  .feat h4 .dot { width: 5px; height: 5px; border-radius: 50%; background: #0f0; flex-shrink: 0; box-shadow: 0 0 4px #0f0; }
+  .feat p { font-size: 6.5pt; color: #bbb; line-height: 1.3; }
+
+  /* comparison */
+  .compare { margin-bottom: 10px; }
+  .compare-title { font-size: 9pt; color: #0f0; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; text-align: center; }
+  .compare table { width: 100%; border-collapse: collapse; font-size: 7pt; }
+  .compare th { background: rgba(0,255,0,0.1); color: #0f0; padding: 4px 6px; text-align: left; border: 1px solid rgba(0,255,0,0.2); font-weight: 600; }
+  .compare td { padding: 3px 6px; border: 1px solid rgba(255,255,255,0.08); }
+  .compare tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+  .check { color: #0f0; font-weight: 700; }
+  .cross { color: #e53935; }
+  .partial { color: #f9a825; }
+
+  /* CTA */
+  .cta { text-align: center; margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(0,255,0,0.15); }
+  .cta-row { display: flex; justify-content: center; gap: 16px; margin-bottom: 6px; }
+  .cta-stat { text-align: center; }
+  .cta-stat .num { font-size: 14pt; color: #0f0; font-weight: 700; text-shadow: 0 0 10px rgba(0,255,0,0.3); }
+  .cta-stat .label { font-size: 6.5pt; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .cta p { font-size: 7.5pt; color: #999; }
+  .cta .url { color: #0f0; font-weight: 600; font-size: 8pt; }
+  .footer { font-size: 5.5pt; color: #555; text-align: center; margin-top: 5px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div>
+      <div class="logo">XenMange</div>
+      <div class="tagline">XenServer Command &amp; Control</div>
+    </div>
+    <div class="version-badge">v1.0.0 &mdash; MIT License</div>
+  </div>
+  <div class="divider"></div>
+
+  <div class="hero">
+    <h1>The Modern <strong>Web Interface</strong> for<br>Citrix XenServer &amp; XCP-ng Administration</h1>
+    <p>Replace aging XenCenter with a futuristic, browser-based control plane that unifies pool, host, VM, storage, and network management &mdash; with built-in governance, telemetry, and credential security.</p>
+  </div>
+
+  <div class="value-row">
+    <div class="value-card">
+      <div class="icon">&#x1f6e1;</div>
+      <h3>Governance Built-In</h3>
+      <p>Role-based access, destructive-action approvals, pool quotas, and full audit trails. No bolt-ons required.</p>
+    </div>
+    <div class="value-card">
+      <div class="icon">&#x1f4ca;</div>
+      <h3>Live Telemetry</h3>
+      <p>Built-in metrics collector with hourly rollups, capacity forecasting, and noisy-neighbor detection.</p>
+    </div>
+    <div class="value-card">
+      <div class="icon">&#x1f512;</div>
+      <h3>Credential Vault</h3>
+      <p>AES-256-GCM envelope encryption for stored passwords. Key rotation. Zero plaintext exposure.</p>
+    </div>
+    <div class="value-card">
+      <div class="icon">&#x26a1;</div>
+      <h3>No CDN, No Bloat</h3>
+      <p>Single Node.js process. Local SQLite. All vendor assets self-hosted. CSP-safe. Runs anywhere.</p>
+    </div>
+  </div>
+
+  <div class="features-title">Core Capabilities</div>
+  <div class="features">
+    <div class="feat"><h4><span class="dot"></span>VM Lifecycle</h4><p>Start, stop, reboot, suspend, resume, clone, copy, migrate (same-pool &amp; cross-pool), import/export XVA.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Host Operations</h4><p>Maintenance mode with live VM evacuation, reboot, shutdown, real-time CPU/memory metrics.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Storage &amp; Networking</h4><p>SR/VDI topology, VIF/PIF mapping, VLAN/bond visibility, network relationship panes.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Alert Center</h4><p>Telemetry + Xen alerts, acknowledgement, suppression, severity overrides, remediation task creation.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Lifecycle Compliance</h4><p>Desired-state tracking, drift detection, remediation templates, host maintenance posture.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Resilience &amp; HA/DR</h4><p>Protection coverage, failover readiness, evacuation targets, recovery runbooks &amp; drills.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Template Governance</h4><p>Version tracking, golden-image baselines, compare-and-promote workflows, deployment validation.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Activity &amp; Logs</h4><p>Federated log center: audit, auth, alerts, tasks, telemetry. Export as JSON, HTML, or PDF.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Multi-Target Sessions</h4><p>Attach to multiple XenServer pools simultaneously. Switch targets without re-authentication.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Inventory Search</h4><p>Universal search across pools, hosts, VMs, SRs, networks, templates, alerts, and tasks.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Capacity Planning</h4><p>Memory pressure, storage commitment, top consumers, trend analysis, forecast thresholds.</p></div>
+    <div class="feat"><h4><span class="dot"></span>Remediation Tasks</h4><p>Alert-to-task workflows, SLA tracking, templates with recurrence guards, audit coverage.</p></div>
+  </div>
+
+  <div class="compare">
+    <div class="compare-title">How XenMange Compares</div>
+    <table>
+      <tr><th>Feature</th><th>XenMange</th><th>XenCenter (Citrix)</th><th>XenOrchestra (Vates)</th><th>VMware Aria Auto</th></tr>
+      <tr><td>XenServer/XCP-ng Native</td><td class="check">&#x2713;</td><td class="check">&#x2713;</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td></tr>
+      <tr><td>Web-Based UI</td><td class="check">&#x2713;</td><td class="cross">&#x2717; Desktop only</td><td class="check">&#x2713;</td><td class="check">&#x2713;</td></tr>
+      <tr><td>Built-In Governance &amp; RBAC</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td><td class="partial">Basic ACLs</td><td class="check">&#x2713;</td></tr>
+      <tr><td>Approval Workflows</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td></tr>
+      <tr><td>Built-In Telemetry &amp; Capacity</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td><td class="partial">3rd-party add-on</td><td class="check">&#x2713; Requires Aria Ops</td></tr>
+      <tr><td>Credential Vault (Encrypted)</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td><td class="cross">&#x2717;</td><td class="partial">vIDM</td></tr>
+      <tr><td>Lifecycle Compliance</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td><td class="cross">&#x2717;</td><td class="check">&#x2713; Requires vLCM</td></tr>
+      <tr><td>Remediation Templates</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td><td class="cross">&#x2717;</td><td class="cross">&#x2717;</td></tr>
+      <tr><td>No External Dependencies</td><td class="check">&#x2713; Single process</td><td class="cross">&#x2717; vCenter required</td><td class="partial">XOA appliance</td><td class="cross">&#x2717; Multi-appliance</td></tr>
+      <tr><td>Licensing</td><td class="check">&#x2713; MIT (Free)</td><td class="partial">Included w/ license</td><td class="check">&#x2713; AGPL (Free)</td><td class="cross">~$350/core/yr VCF only</td></tr>
+    </table>
+  </div>
+
+  <div class="cta">
+    <div class="cta-row">
+      <div class="cta-stat"><div class="num">22</div><div class="label">API Route Modules</div></div>
+      <div class="cta-stat"><div class="num">20</div><div class="label">Service Modules</div></div>
+      <div class="cta-stat"><div class="num">16</div><div class="label">UI Workspaces</div></div>
+      <div class="cta-stat"><div class="num">4</div><div class="label">Isolated Databases</div></div>
+      <div class="cta-stat"><div class="num">0</div><div class="label">CDN Dependencies</div></div>
+    </div>
+    <p>Built for operators who live in their infrastructure. <span class="url">github.com/xenmange</span></p>
+  </div>
+
+  <div class="footer">XenMange v1.0.0 &mdash; For Citrix XenServer 7.x+ and XCP-ng 8.x+ &mdash; MIT License &mdash; August 2026</div>
+
+</div>
+</body>
+</html>

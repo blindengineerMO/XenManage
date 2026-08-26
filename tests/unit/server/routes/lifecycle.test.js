@@ -154,6 +154,59 @@ describe('Lifecycle Routes', () => {
     expect(list.body.total).toBe(0);
   });
 
+  it('should require approved destructive tokens before operators delete lifecycle plans', async () => {
+    const auth = await login();
+
+    const save = await request('PUT', '/api/lifecycle/plans/OpaqueRef%3Ahost2', {
+      baselineStatus: 'drifted',
+      targetStage: 'maintenance',
+      maintenanceWindow: 'Sun 03:00',
+      patchGroup: 'Validation Ring',
+      owner: 'Platform Ops',
+      nextAction: 'reboot',
+      rebootRequired: true,
+      evacuationRequired: false,
+      dueDate: '2026-08-25',
+      notes: 'Plan used for Monday, August 24, 2026 destructive approval validation.',
+    }, auth.cookie);
+    expect(save.status).toBe(200);
+
+    const lower = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
+    expect(lower.status).toBe(200);
+
+    const blocked = await request('DELETE', '/api/lifecycle/plans/OpaqueRef%3Ahost2', null, auth.cookie);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('APPROVAL_REQUIRED');
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'lifecycle_plan_delete',
+      entityType: 'host',
+      entityRef: 'OpaqueRef:host2',
+      entityName: 'Lifecycle Validation Host',
+      justification: 'Delete a lifecycle plan during Monday, August 24, 2026 approval validation.',
+      route: '/lifecycle',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const elevate = await request('PUT', '/api/governance/role', { role: 'admin' }, auth.cookie);
+    expect(elevate.status).toBe(200);
+
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Approved during Monday, August 24, 2026 lifecycle validation.',
+    }, auth.cookie);
+    expect(decision.status).toBe(200);
+
+    const lowerAgain = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
+    expect(lowerAgain.status).toBe(200);
+
+    const removed = await request('DELETE', '/api/lifecycle/plans/OpaqueRef%3Ahost2', {
+      approvalId: approval.body.id,
+    }, auth.cookie);
+    expect(removed.status).toBe(200);
+    expect(removed.body.success).toBe(true);
+  });
+
   it('should reject invalid lifecycle plan refs', async () => {
     const auth = await login();
     const res = await request('PUT', '/api/lifecycle/plans/host1', { targetStage: 'review' }, auth.cookie);

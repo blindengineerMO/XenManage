@@ -88,6 +88,8 @@ const RemediationTaskTemplateForm = {
             <option value="network">Network</option>
             <option value="vif">VIF</option>
             <option value="pif">PIF</option>
+            <option value="bond">Bond</option>
+            <option value="vlan">VLAN</option>
             <option value="task">Task</option>
             <option value="alert">Alert</option>
           </select>
@@ -170,6 +172,11 @@ const RemediationTaskTemplateForm = {
           <select id="remediation-template-launch-mode" class="form-input" v-model="draft.launchMode">
             <option value="draft">Open Draft First</option>
             <option value="queue">Queue Immediately</option>
+            <option value="lifecycle-plan">Launch Lifecycle Draft</option>
+            <option value="lifecycle-maintenance">Launch Maintenance Handoff</option>
+            <option value="resilience-runbook">Launch Recovery Runbook Draft</option>
+            <option value="resilience-drill">Launch Recovery Drill Handoff</option>
+            <option value="vm-migration">Launch VM Migration Handoff</option>
           </select>
         </div>
 

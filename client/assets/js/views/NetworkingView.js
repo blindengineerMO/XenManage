@@ -23,6 +23,9 @@ const NetworkingView = {
         <template #cell-bridge="{ row }">
           <span class="mono text-cyan">{{ row.bridge || '-' }}</span>
         </template>
+        <template #cell-vlan="{ row }">
+          <span class="mono">{{ formatVlanLabel(row) }}</span>
+        </template>
         <template #cell-managed="{ row }">
           <status-badge :status="row.managed ? 'enabled' : 'disabled'"></status-badge>
         </template>
@@ -35,12 +38,22 @@ const NetworkingView = {
             <span class="text-muted">Bridge</span><span class="mono">{{ selectedNetwork.bridge || '-' }}</span>
             <span class="text-muted">Description</span><span>{{ selectedNetwork.name_description || selectedNetwork.description || '-' }}</span>
             <span class="text-muted">Managed</span><status-badge :status="selectedNetwork.managed ? 'enabled' : 'disabled'"></status-badge>
+            <span class="text-muted">VLAN Tag</span><span class="mono">{{ selectedNetworkVlanLabel }}</span>
+            <span class="text-muted">Topology</span><span>{{ selectedNetworkTopologyLabel }}</span>
             <span class="text-muted">Default Locking Mode</span><span>{{ selectedNetwork.default_locking_mode || '-' }}</span>
             <span class="text-muted">Host Uplinks</span><span>{{ summarizeCount('uplinks', selectedNetworkHostUplinks.length) }}</span>
             <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('interfaces', selectedNetworkVmAttachments.length) }}</span>
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedNetwork.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedNetwork.tags) }}</span>
             <span class="text-muted">Other Config</span><span class="mono property-wrap">{{ JSON.stringify(selectedNetwork.other_config || {}) }}</span>
+          </div>
+
+          <div class="detail-section" v-if="focusedNetworkContext">
+            <div class="detail-section-title">{{ focusedNetworkContext.title }}</div>
+            <div class="capacity-callout">
+              <strong>{{ focusedNetworkContext.summary }}</strong>
+              <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ focusedNetworkContext.detail }}</div>
+            </div>
           </div>
 
           <div class="detail-section">
@@ -118,16 +131,73 @@ const NetworkingView = {
       detailError: null,
       focusedPifRef: '',
       focusedVifRef: '',
+      focusedNetworkClass: '',
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name' },
         { key: 'bridge', label: 'Bridge' },
+        { key: 'vlan', label: 'VLAN' },
         { key: 'managed', label: 'Managed' },
         { key: 'uuid', label: 'UUID' },
       ],
     };
   },
   computed: {
+    selectedNetworkVlanLabel() {
+      return this.formatVlanLabel(this.selectedNetwork);
+    },
+    selectedNetworkTopologyLabel() {
+      if (!this.selectedNetwork) return '-';
+      const uplinkCount = Array.isArray(this.selectedNetwork.PIFs) ? this.selectedNetwork.PIFs.length : 0;
+      const attachmentCount = Array.isArray(this.selectedNetwork.VIFs) ? this.selectedNetwork.VIFs.length : 0;
+      const hostCount = new Set(this.selectedNetworkHostUplinks.map((uplink) => uplink.hostRef || uplink.hostUuid || uplink.hostName)).size;
+      const parts = [
+        this.selectedNetworkVlanLabel,
+        `${uplinkCount} uplink${uplinkCount === 1 ? '' : 's'}`,
+        `${attachmentCount} interface${attachmentCount === 1 ? '' : 's'}`,
+      ];
+      if (hostCount) {
+        parts.push(`${hostCount} host${hostCount === 1 ? '' : 's'}`);
+      }
+      return parts.join(' · ');
+    },
+    focusedNetworkContext() {
+      if (!this.focusedNetworkClass) return null;
+
+      if (this.focusedNetworkClass === 'vif') {
+        return {
+          title: 'Focused Interface Handoff',
+          summary: 'This network was opened from a specific VM interface path.',
+          detail: `${this.focusedVifRef || 'Interface ref unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
+        };
+      }
+
+      if (this.focusedNetworkClass === 'pif') {
+        return {
+          title: 'Focused Uplink Handoff',
+          summary: 'This network was opened from a specific host uplink path.',
+          detail: `${this.focusedPifRef || 'Uplink ref unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
+        };
+      }
+
+      if (this.focusedNetworkClass === 'vlan') {
+        return {
+          title: 'Focused VLAN Handoff',
+          summary: 'This network was opened from a VLAN-targeted alert or follow-through route.',
+          detail: `${this.focusedPifRef || 'Representative uplink unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
+        };
+      }
+
+      if (this.focusedNetworkClass === 'bond') {
+        return {
+          title: 'Focused Bond Handoff',
+          summary: 'This network was opened from a bond-targeted alert or follow-through route.',
+          detail: `${this.focusedPifRef || 'Representative uplink unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
+        };
+      }
+
+      return null;
+    },
     selectedNetworkHostUplinks() {
       if (!this.selectedNetwork) return [];
 
@@ -142,7 +212,7 @@ const NetworkingView = {
             hostName: host.name_label || host.hostname || host.address || host.ref || 'Host',
             hostAddress: host.address || host.hostname || host.uuid || '-',
             interfaceRef: ref,
-            detail: `${host.enabled ? 'enabled host' : 'disabled host'} · ${host.hostname || 'no hostname'} · ${host.uuid || host.ref || '-'}`,
+            detail: `${this.selectedNetworkVlanLabel} · ${host.enabled ? 'enabled host' : 'disabled host'} · ${host.hostname || 'no hostname'} · ${host.uuid || host.ref || '-'}`,
             status: host.enabled ? 'enabled' : 'warning',
           }))
       );
@@ -187,6 +257,10 @@ const NetworkingView = {
     formatBytes,
     summarizeCount,
     truncateList,
+    formatVlanLabel(network) {
+      const value = String(network?.other_config?.vlan || '').trim();
+      return value ? `VLAN ${value}` : 'untagged';
+    },
     async loadNetworks() {
       this.loading = true;
       try {
@@ -208,6 +282,7 @@ const NetworkingView = {
       this.relatedVMs = options.vms || [];
       this.focusedPifRef = options.focusedPifRef || '';
       this.focusedVifRef = options.focusedVifRef || '';
+      this.focusedNetworkClass = options.focusedNetworkClass || '';
 
       try {
         if (!options.hosts || !options.vms) {
@@ -264,16 +339,16 @@ const NetworkingView = {
     resolveFocusedNetworkTarget(focus) {
       const direct = this.findNetworkByFocus(focus);
       if (direct) {
-        return { network: direct, focusedPifRef: '', focusedVifRef: '' };
+        return { network: direct, focusedPifRef: '', focusedVifRef: '', focusedNetworkClass: '' };
       }
 
       for (const network of this.networks) {
-        if (focus.cls === 'pif' && recordMatchesRouteFocus(network, focus, [], network.PIFs || [])) {
-          return { network, focusedPifRef: focus.ref || '', focusedVifRef: '' };
+        if (['pif', 'bond', 'vlan'].includes(focus.cls) && recordMatchesRouteFocus(network, focus, [], network.PIFs || [])) {
+          return { network, focusedPifRef: focus.ref || '', focusedVifRef: '', focusedNetworkClass: focus.cls || '' };
         }
 
         if (focus.cls === 'vif' && recordMatchesRouteFocus(network, focus, [], network.VIFs || [])) {
-          return { network, focusedPifRef: '', focusedVifRef: focus.ref || '' };
+          return { network, focusedPifRef: '', focusedVifRef: focus.ref || '', focusedNetworkClass: focus.cls || '' };
         }
       }
 
@@ -285,6 +360,7 @@ const NetworkingView = {
         this.lastAppliedFocusKey = '';
         this.focusedPifRef = '';
         this.focusedVifRef = '';
+        this.focusedNetworkClass = '';
         return;
       }
 
@@ -299,6 +375,7 @@ const NetworkingView = {
       await this.openProperties(target.network, {
         focusedPifRef: target.focusedPifRef,
         focusedVifRef: target.focusedVifRef,
+        focusedNetworkClass: target.focusedNetworkClass,
       });
       this.lastAppliedFocusKey = key;
     },

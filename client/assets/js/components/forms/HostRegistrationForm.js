@@ -58,6 +58,15 @@ const HostRegistrationForm = {
           <option value="shared">Shared with other operators</option>
         </select>
       </div>
+      <div class="form-group" v-if="draft.mode === 'standalone' && selectedCredential">
+        <label class="form-toggle">
+          <input type="checkbox" v-model="draft.attachAfterSave">
+          <span>Attach this standalone host to the current session after save</span>
+        </label>
+        <div class="login-meta-note">
+          XenMange will use the linked vault credential server-side and keep you in the current control-plane session.
+        </div>
+      </div>
       <div class="form-actions">
         <button class="form-btn" type="submit">{{ submitLabel || 'Save Host Target' }}</button>
       </div>
@@ -107,6 +116,7 @@ const HostRegistrationForm = {
         poolConnectionId: value?.pool_connection_id || value?.poolConnectionId || null,
         notes: value?.notes || '',
         visibility: value?.visibility || 'private',
+        attachAfterSave: false,
       };
     },
     handleSubmit() {
@@ -120,6 +130,7 @@ const HostRegistrationForm = {
         poolConnectionId: this.draft.mode === 'pool-member' ? Number(this.draft.poolConnectionId || 0) : null,
         notes: this.draft.notes.trim(),
         visibility: this.draft.visibility || 'private',
+        attachAfterSave: Boolean(this.draft.attachAfterSave && this.draft.mode === 'standalone' && this.draft.vaultCredentialId),
       });
     },
   },

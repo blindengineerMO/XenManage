@@ -11,7 +11,7 @@ const SettingsView = {
     <div class="animate-fade-in">
       <div v-if="loading" class="empty-state">
         <span class="loading-spinner"></span>
-        <p style="margin-top:12px">Loading runtime configuration, vault posture, and retention controls...</p>
+        <p style="margin-top:12px">Loading runtime configuration, telemetry posture, vault posture, and retention controls...</p>
       </div>
 
       <template v-else>
@@ -21,7 +21,7 @@ const SettingsView = {
               <span class="mdi mdi-tune-variant"></span>
               Settings
             </h2>
-            <p class="section-subtitle">Centralized runtime configuration, credential-vault management, proxy posture, logging defaults, and governed data-retention operations.</p>
+            <p class="section-subtitle">Centralized runtime configuration, telemetry collection, credential-vault management, proxy posture, logging defaults, and governed data-retention operations.</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn" @click="openCredentialEditor()">
@@ -47,7 +47,7 @@ const SettingsView = {
           <div>
             <div class="dash-card-label">Configuration Plane</div>
             <h3>Live control for session behavior, vault-backed Xen targets, proxy posture, logging defaults, and retention governance.</h3>
-            <p>The Settings workspace turns runtime settings and the encrypted credential vault into first-class management surfaces, with explicit key guidance, saved secret inventory, and one-click cleanup previews for historical data domains.</p>
+            <p>The Settings workspace turns runtime settings, persisted telemetry collection, and the encrypted credential vault into first-class management surfaces, with explicit key guidance, collector health, saved secret inventory, and one-click cleanup previews for historical data domains.</p>
           </div>
           <div class="dashboard-hero-rail">
             <button class="btn btn-primary" @click="$router.push('/governance')">
@@ -124,6 +124,65 @@ const SettingsView = {
 
         <div class="dashboard-panels">
           <div class="dash-card">
+            <div class="dash-card-label">Telemetry Collection</div>
+            <system-config-section-form
+              :initial-value="config.performance"
+              :fields="performanceFields"
+              :saving="savingSection === 'performance'"
+              submit-label="Save Telemetry Settings"
+              @submit="saveSection('performance', $event)">
+            </system-config-section-form>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-label">Collector Status</div>
+            <div class="stack-list">
+              <div class="stack-item">
+                <div>
+                  <strong>{{ collectorModeLabel }}</strong>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">
+                    {{ telemetryCollector.enabled
+                        ? `Polling every ${formatSecondsLabel(telemetryCollector.intervalSeconds)} across live Xen targets while the server is running.`
+                        : 'Background telemetry polling is disabled. History only refreshes when operators explicitly trigger metrics routes.' }}
+                  </div>
+                </div>
+                <span class="badge" :class="collectorBadgeClass">{{ collectorBadgeLabel }}</span>
+              </div>
+              <div class="stack-item">
+                <div>
+                  <strong>Latest Collector Result</strong>
+                  <div class="text-muted mono" style="font-size:11px;margin-top:6px">
+                    {{ telemetryCollector.lastRunAt ? formatDateTime(telemetryCollector.lastRunAt) : 'No collector run has completed yet.' }}
+                  </div>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">
+                    {{ collectorResultSummary }}
+                  </div>
+                </div>
+                <span class="badge" :class="telemetryCollector.lastError ? 'badge-error' : 'badge-info'">
+                  {{ telemetryCollector.lastError ? 'Error' : 'Summary' }}
+                </span>
+              </div>
+            </div>
+
+            <div class="detail-section" style="margin-top:16px">
+              <div class="detail-section-title">Collector Runtime</div>
+              <div class="property-grid">
+                <span class="text-muted">Enabled</span><span>{{ telemetryCollector.enabled ? 'Yes' : 'No' }}</span>
+                <span class="text-muted">Interval</span><span>{{ formatSecondsLabel(telemetryCollector.intervalSeconds) }}</span>
+                <span class="text-muted">Targets Seen</span><span>{{ telemetryCollector.targetCount || 0 }}</span>
+                <span class="text-muted">Runs Completed</span><span>{{ telemetryCollector.runCount || 0 }}</span>
+                <span class="text-muted">Next Run</span><span>{{ telemetryCollector.nextRunAt ? formatDateTime(telemetryCollector.nextRunAt) : '-' }}</span>
+                <span class="text-muted">Last Duration</span><span>{{ telemetryCollector.lastDurationMs ? `${telemetryCollector.lastDurationMs} ms` : '-' }}</span>
+              </div>
+              <div class="form-error" v-if="telemetryCollector.lastError" style="margin-top:12px;text-align:left">
+                {{ telemetryCollector.lastError }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <div class="dash-card">
             <div class="dash-card-label">Retention Runtime</div>
             <system-config-section-form
               :initial-value="config.retention"
@@ -152,9 +211,27 @@ const SettingsView = {
                 <span class="text-muted">Key Source</span><span>{{ formatVaultKeySource(vaultStatus.keySource) }}</span>
                 <span class="text-muted">Development Fallback</span><span>{{ vaultStatus.usingDevelopmentFallback ? 'Enabled' : 'Disabled' }}</span>
                 <span class="text-muted">Previous Key Loaded</span><span>{{ vaultStatus.hasPreviousMasterKey ? 'Yes' : 'No' }}</span>
+                <span class="text-muted">Re-wrap Needed</span><span>{{ vaultStatus.staleCredentialCount || 0 }}</span>
                 <span class="text-muted">Credential Count</span><span>{{ credentials.length }}</span>
                 <span class="text-muted">Vault DB Path</span><span class="mono property-wrap">{{ vaultStatus.vaultDatabasePath || '-' }}</span>
                 <span class="text-muted">Timezone</span><span>{{ config.general.timezone || '-' }}</span>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px">
+                <button class="btn btn-sm"
+                        @click="rewrapVaultCredentials"
+                        :disabled="rewrapLoading || !vaultStatus.hasPreviousMasterKey || !Number(vaultStatus.staleCredentialCount || 0)">
+                  <span class="mdi" :class="rewrapLoading ? 'mdi-loading mdi-spin' : 'mdi-key-sync'"></span>
+                  {{ rewrapLoading ? 'Re-wrapping...' : 'Re-wrap Legacy Keys' }}
+                </button>
+                <div class="text-muted" style="font-size:12px;line-height:1.6">
+                  Refresh any credential still wrapped by the previous master key without exposing plaintext secrets to the browser.
+                </div>
+              </div>
+              <div class="form-error" v-if="vaultStatus.scanError" style="margin-top:12px;text-align:left">
+                {{ vaultStatus.scanError }}
+              </div>
+              <div class="empty-state" v-if="vaultActionMessage" style="padding:12px 14px;margin-top:12px;text-align:left">
+                {{ vaultActionMessage }}
               </div>
             </div>
           </div>
@@ -171,6 +248,12 @@ const SettingsView = {
                 <button class="btn btn-sm" @click="loadCredentials" :disabled="credentialLoading">
                   <span class="mdi mdi-refresh"></span>
                   {{ credentialLoading ? 'Refreshing...' : 'Refresh Vault' }}
+                </button>
+                <button class="btn btn-sm"
+                        @click="rewrapVaultCredentials"
+                        :disabled="rewrapLoading || !vaultStatus.hasPreviousMasterKey || !Number(vaultStatus.staleCredentialCount || 0)">
+                  <span class="mdi" :class="rewrapLoading ? 'mdi-loading mdi-spin' : 'mdi-key-sync'"></span>
+                  {{ rewrapLoading ? 'Re-wrapping...' : 'Re-wrap Legacy Keys' }}
                 </button>
                 <button class="btn btn-primary btn-sm" @click="openCredentialEditor()">
                   <span class="mdi mdi-key-plus"></span>
@@ -246,6 +329,8 @@ const SettingsView = {
                 <span class="text-muted">Port</span><span class="mono">{{ runtime.port || '-' }}</span>
                 <span class="text-muted">Timezone</span><span>{{ config.general.timezone || '-' }}</span>
                 <span class="text-muted">Sweep Interval</span><span>{{ config.retention.sweepIntervalHours || 24 }} hour(s)</span>
+                <span class="text-muted">Collector Interval</span><span>{{ formatSecondsLabel(config.performance.collectionIntervalSeconds || 60) }}</span>
+                <span class="text-muted">Collector State</span><span>{{ collectorModeLabel }}</span>
               </div>
             </div>
           </div>
@@ -378,13 +463,16 @@ const SettingsView = {
       credentialLoading: false,
       credentialSaving: false,
       credentialDeleteId: null,
+      rewrapLoading: false,
       pageError: '',
       credentialError: '',
+      vaultActionMessage: '',
       config: {
         general: { appName: 'XenMange', timezone: 'UTC' },
         network: { publicBaseUrl: '', trustProxy: false },
         security: { sessionMaxAgeMs: 86400000, failedLoginWindowMinutes: 15, failedLoginMaxAttempts: 20 },
         logging: { level: 'info', structuredJson: false },
+        performance: { collectionEnabled: true, collectionIntervalSeconds: 60 },
         retention: { sweepIntervalHours: 24, vacuumAfterSweep: true },
       },
       runtime: {
@@ -392,6 +480,19 @@ const SettingsView = {
         port: '',
         restartRequiredSettings: [],
         liveAppliedSettings: [],
+        metricsCollector: {
+          enabled: true,
+          intervalSeconds: 60,
+          active: false,
+          inFlight: false,
+          targetCount: 0,
+          runCount: 0,
+          lastRunAt: '',
+          lastDurationMs: 0,
+          nextRunAt: '',
+          lastError: '',
+          lastResult: null,
+        },
       },
       vaultStatus: {
         hasConfiguredMasterKey: false,
@@ -400,6 +501,11 @@ const SettingsView = {
         rotationRecommended: false,
         keySource: '',
         vaultDatabasePath: '',
+        totalCredentialCount: 0,
+        staleCredentialCount: 0,
+        rewrapAvailable: false,
+        scanAvailable: false,
+        scanError: '',
       },
       credentials: [],
       retentionPolicies: [],
@@ -462,11 +568,73 @@ const SettingsView = {
         { key: 'structuredJson', label: 'Prefer structured JSON logs', type: 'checkbox', help: 'Useful when shipping logs into external aggregation later.' },
       ];
     },
+    performanceFields() {
+      return [
+        {
+          key: 'collectionEnabled',
+          label: 'Enable background telemetry collection',
+          type: 'checkbox',
+          help: 'When enabled, XenMange captures persisted capacity history from currently attached Xen targets on an in-process schedule.',
+        },
+        {
+          key: 'collectionIntervalSeconds',
+          label: 'Collection Interval (seconds)',
+          type: 'number',
+          min: 30,
+          max: 3600,
+          help: 'Applies live to the in-process collector without restarting the server.',
+        },
+      ];
+    },
     retentionRuntimeFields() {
       return [
         { key: 'sweepIntervalHours', label: 'Scheduled Sweep Interval (hours)', type: 'number', min: 1, max: 168, help: 'Changing this restarts the in-process retention scheduler immediately.' },
         { key: 'vacuumAfterSweep', label: 'Vacuum databases after retention runs', type: 'checkbox', help: 'Helps reclaim SQLite disk space after purge operations.' },
       ];
+    },
+    telemetryCollector() {
+      return this.runtime.metricsCollector || {
+        enabled: true,
+        intervalSeconds: 60,
+        active: false,
+        inFlight: false,
+        targetCount: 0,
+        runCount: 0,
+        lastRunAt: '',
+        lastDurationMs: 0,
+        nextRunAt: '',
+        lastError: '',
+        lastResult: null,
+      };
+    },
+    collectorModeLabel() {
+      if (!this.telemetryCollector.enabled) return 'Collector Disabled';
+      if (this.telemetryCollector.inFlight) return 'Collector Running';
+      if (this.telemetryCollector.active) return 'Collector Scheduled';
+      return 'Collector Idle';
+    },
+    collectorBadgeLabel() {
+      if (!this.telemetryCollector.enabled) return 'Disabled';
+      if (this.telemetryCollector.inFlight) return 'Collecting';
+      if (this.telemetryCollector.active) return 'Scheduled';
+      return 'Idle';
+    },
+    collectorBadgeClass() {
+      if (!this.telemetryCollector.enabled) return 'badge-warning';
+      if (this.telemetryCollector.inFlight) return 'badge-running';
+      if (this.telemetryCollector.active) return 'badge-success';
+      return 'badge-info';
+    },
+    collectorResultSummary() {
+      if (this.telemetryCollector.lastError) return `Last collector error: ${this.telemetryCollector.lastError}`;
+
+      const result = this.telemetryCollector.lastResult || null;
+      if (!result) return 'No collector summary has been recorded yet.';
+      if (result.skipped === 'NO_LIVE_TARGETS') return 'No live Xen targets were attached when the collector last ran.';
+
+      const targetCount = Number(result.capturedTargetCount || result.targetCount || 0);
+      const sampleCount = Number(result.sampleCount || 0);
+      return `${sampleCount} sample(s) captured across ${targetCount} target(s).`;
     },
     summaryCards() {
       const enabledPolicies = this.retentionPolicies.filter((policy) => policy.enabled).length;
@@ -475,6 +643,10 @@ const SettingsView = {
       const totalPreview = (this.retentionPreview.results || []).reduce((sum, result) => sum + Number(result.candidateCount || 0), 0);
       const sharedCredentials = this.credentials.filter((credential) => credential.scope === 'shared').length;
       const hostCredentials = this.credentials.filter((credential) => credential.targetType === 'host').length;
+      const staleWrapCount = Number(this.vaultStatus.staleCredentialCount || 0);
+      const telemetryState = this.telemetryCollector.enabled
+        ? (this.telemetryCollector.active ? 'Scheduled' : 'Idle')
+        : 'Disabled';
 
       return [
         {
@@ -496,7 +668,14 @@ const SettingsView = {
           label: 'Vault Inventory',
           value: `${this.credentials.length}`,
           icon: 'mdi-key-wireless',
-          detail: `${sharedCredentials} shared · ${hostCredentials} host credential(s)`,
+          detail: `${sharedCredentials} shared · ${hostCredentials} host · ${staleWrapCount} stale wrap(s)`,
+        },
+        {
+          key: 'telemetry',
+          label: 'Telemetry Collector',
+          value: telemetryState,
+          icon: 'mdi-chart-timeline-variant',
+          detail: `${this.formatSecondsLabel(this.config.performance.collectionIntervalSeconds || 60)} · ${this.telemetryCollector.targetCount || 0} target(s)`,
         },
         {
           key: 'retention',
@@ -529,6 +708,14 @@ const SettingsView = {
           badgeClass: 'badge-warning',
         },
         {
+          title: 'Telemetry Collection',
+          detail: this.telemetryCollector.enabled
+            ? `The background collector is ${this.telemetryCollector.active ? 'scheduled' : 'idle'} and polls every ${this.formatSecondsLabel(this.telemetryCollector.intervalSeconds)}.`
+            : 'Background telemetry polling is disabled, so history only refreshes through explicit metrics requests.',
+          badge: this.collectorBadgeLabel,
+          badgeClass: this.collectorBadgeClass,
+        },
+        {
           title: 'Proxy Guidance',
           detail: 'Use Public Base URL plus Trust Proxy together when XenMange sits behind Traefik, Nginx, or a cloud load balancer.',
           badge: 'Guide',
@@ -551,10 +738,14 @@ const SettingsView = {
         {
           title: 'Rotation Posture',
           detail: this.vaultStatus.hasPreviousMasterKey
-            ? 'A previous vault master key is loaded, so legacy wrapped DEKs can still be decrypted during rotation.'
+            ? `A previous vault master key is loaded, so legacy wrapped DEKs can still be decrypted during rotation. ${Number(this.vaultStatus.staleCredentialCount || 0)} credential wrap(s) still need refresh.`
             : 'No previous vault master key is loaded. Set VAULT_ENCRYPTION_KEY_PREVIOUS during a staged key rotation window.',
-          badge: this.vaultStatus.hasPreviousMasterKey ? 'Rotation Window' : 'Single Key',
-          badgeClass: this.vaultStatus.hasPreviousMasterKey ? 'badge-info' : 'badge-warning',
+          badge: this.vaultStatus.hasPreviousMasterKey
+            ? (Number(this.vaultStatus.staleCredentialCount || 0) ? 'Pending Rewrap' : 'Rotation Window')
+            : 'Single Key',
+          badgeClass: this.vaultStatus.hasPreviousMasterKey
+            ? (Number(this.vaultStatus.staleCredentialCount || 0) ? 'badge-warning' : 'badge-info')
+            : 'badge-warning',
         },
         {
           title: 'Secret Handling',
@@ -572,6 +763,7 @@ const SettingsView = {
     async loadAll() {
       this.loading = true;
       this.pageError = '';
+      this.vaultActionMessage = '';
 
       try {
         await Promise.all([this.loadSettings(), this.loadCredentials()]);
@@ -587,6 +779,7 @@ const SettingsView = {
           network: response.network || this.config.network,
           security: response.security || this.config.security,
           logging: response.logging || this.config.logging,
+          performance: response.performance || this.config.performance,
           retention: response.retention || this.config.retention,
         };
         this.runtime = response.runtime || this.runtime;
@@ -668,7 +861,20 @@ const SettingsView = {
       this.pageError = '';
 
       try {
-        const result = await api.runRetentionSweep({ domain, dryRun: false });
+        const entityRef = domain || 'all';
+        const entityName = domain ? this.formatDomainLabel(domain) : 'All Retention Domains';
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'retention_sweep_run',
+          entityType: 'retention-domain',
+          entityRef,
+          entityName,
+          route: '/settings',
+        });
+        const result = await api.runRetentionSweep({
+          domain,
+          dryRun: false,
+          ...(approvalId ? { approvalId } : {}),
+        });
         this.retentionPreview = {
           generatedAt: result.generatedAt,
           results: result.results.map((entry) => ({
@@ -678,6 +884,15 @@ const SettingsView = {
         };
         await this.loadSettings();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.pageError = 'Governance approval is required before running retention cleanup.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before running retention cleanup.'
+          );
+          return;
+        }
         this.pageError = error.message || 'Failed to run retention sweep.';
       } finally {
         this.runLoading = false;
@@ -732,20 +947,59 @@ const SettingsView = {
       this.credentialError = '';
 
       try {
-        await api.deleteCredential(targetId);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'credential_delete',
+          entityType: 'credential',
+          entityRef: String(targetId),
+          entityName: credential?.name || `Credential ${targetId}`,
+          route: '/settings',
+        });
+        await api.deleteCredential(targetId, approvalId ? { approvalId } : null);
         this.credentials = this.credentials.filter((entry) => Number(entry.id) !== targetId);
         if (Number(this.editingCredentialId) === targetId) {
           this.closeCredentialEditor();
         }
         await this.loadSettings();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.credentialError = 'Governance approval is required before deleting this vault credential.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this vault credential.'
+          );
+          return;
+        }
         this.credentialError = error.message || 'Failed to delete the vault credential.';
       } finally {
         this.credentialDeleteId = null;
       }
     },
+    async rewrapVaultCredentials() {
+      this.rewrapLoading = true;
+      this.pageError = '';
+      this.credentialError = '';
+      this.vaultActionMessage = '';
+
+      try {
+        const response = await api.rewrapVaultCredentials();
+        this.vaultStatus = response.vault || this.vaultStatus;
+        const result = response.result || {};
+        this.vaultActionMessage = `${result.rewrapped || 0} stale credential wrap(s) were re-wrapped under the current master key. ${result.alreadyCurrent || 0} credential(s) were already current.`;
+        await this.loadCredentials();
+      } catch (error) {
+        this.credentialError = error.message || 'Failed to re-wrap legacy vault credentials.';
+      } finally {
+        this.rewrapLoading = false;
+      }
+    },
     formatDateTime(value) {
       return formatDateTime(value);
+    },
+    formatSecondsLabel(value) {
+      const seconds = Math.max(0, Number(value || 0));
+      if (!seconds) return '0 seconds';
+      return `${seconds} second(s)`;
     },
     formatDomainLabel(domain) {
       const policy = this.retentionPolicies.find((entry) => entry.domain === domain);

@@ -43,6 +43,14 @@ function initializeSchema() {
 }
 
 const credentialModel = {
+  listAll() {
+    return getVaultDb().prepare(`
+      SELECT id, owner_user_id, scope, target_type, target_hint, name, username, dek_key_id, created_at, updated_at, last_used_at, last_used_by
+      FROM credentials
+      ORDER BY name COLLATE NOCASE
+    `).all();
+  },
+
   listVisible(userId) {
     return getVaultDb().prepare(`
       SELECT id, owner_user_id, scope, target_type, target_hint, name, username, dek_key_id, created_at, updated_at, last_used_at, last_used_by

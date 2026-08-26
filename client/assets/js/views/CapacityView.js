@@ -1,5 +1,10 @@
 const CapacityView = {
-  components: { FloatingWindow, StatusBadge, 'metric-trend-card': MetricTrendCard },
+  components: {
+    FloatingWindow,
+    StatusBadge,
+    'metric-trend-card': MetricTrendCard,
+    'remediation-task-form': RemediationTaskForm,
+  },
   template: `
     <div class="animate-fade-in">
       <div v-if="loading" class="empty-state">
@@ -80,6 +85,13 @@ const CapacityView = {
             :accent-status="historyStatus(clusterMetricSeries('cluster_memory_used_percent'), { warning: 70, critical: 85 })">
           </metric-trend-card>
           <metric-trend-card
+            title="Cluster CPU Trend"
+            subtitle="Average persisted host CPU pressure derived from Xen RRD telemetry."
+            :series="clusterMetricSeries('cluster_cpu_usage_percent')"
+            value-kind="percent"
+            :accent-status="historyStatus(clusterMetricSeries('cluster_cpu_usage_percent'), { warning: 70, critical: 90 })">
+          </metric-trend-card>
+          <metric-trend-card
             title="Storage Utilization Trend"
             subtitle="Aggregated SR allocation pressure across the current telemetry window."
             :series="clusterMetricSeries('cluster_storage_utilization_percent')"
@@ -91,6 +103,20 @@ const CapacityView = {
             subtitle="Current workload memory footprint persisted over time."
             :series="clusterMetricSeries('cluster_vm_memory_actual_bytes')"
             value-kind="bytes"
+            accent-status="info">
+          </metric-trend-card>
+          <metric-trend-card
+            title="VM Network Throughput"
+            subtitle="Aggregated persisted VM ingress and egress throughput."
+            :series="combinedClusterMetricSeries(['cluster_vm_network_rx_kib_per_s', 'cluster_vm_network_tx_kib_per_s'])"
+            value-kind="throughput"
+            accent-status="info">
+          </metric-trend-card>
+          <metric-trend-card
+            title="VM Disk Throughput"
+            subtitle="Aggregated persisted VM read and write throughput."
+            :series="combinedClusterMetricSeries(['cluster_vm_disk_read_kib_per_s', 'cluster_vm_disk_write_kib_per_s'])"
+            value-kind="throughput"
             accent-status="info">
           </metric-trend-card>
         </div>
@@ -157,14 +183,14 @@ const CapacityView = {
                       @click="openInspector('vm', vm)">
                 <div class="capacity-item-main">
                   <strong>{{ vm.name_label || 'Virtual Machine' }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ vm.hostName }} · {{ vm.vcpuDemand }} vCPU</div>
+                  <div class="text-muted mono" style="font-size:11px">{{ vm.hostName }} · {{ vm.vcpuDemand }} vCPU · {{ formatPercentValue(vm.cpuUsagePercent || 0) }} CPU</div>
                   <div class="capacity-meter">
                     <div class="capacity-meter-track">
                       <div class="capacity-meter-fill"
                            :class="getUtilizationStatus(vm.riskPercentOfHost, { warning: 12, critical: 20 })"
                            :style="{ width: formatPercentValue(vm.riskPercentOfHost) }"></div>
                     </div>
-                    <span class="mono">{{ formatBytes(vm.memoryDemand) }}</span>
+                    <span class="mono">{{ formatBytes(vm.memoryDemand) }} observed</span>
                   </div>
                 </div>
                 <status-badge :status="getUtilizationStatus(vm.riskPercentOfHost, { warning: 12, critical: 20 })"></status-badge>
@@ -183,7 +209,7 @@ const CapacityView = {
                 <div class="capacity-item-main">
                   <strong>{{ row.name_label || row.hostname || 'Host' }}</strong>
                   <div class="text-muted mono" style="font-size:11px">
-                    {{ formatBytes(row.vmMemoryDemand) }} assigned · {{ row.assignedVms.length }} VMs · {{ row.vmVcpuDemand }} vCPU
+                    {{ formatBytes(row.vmMemoryDemand) }} observed · {{ row.assignedVms.length }} VMs · {{ formatPercentValue(row.vmCpuUsagePercent || 0) }} CPU avg
                   </div>
                   <div class="capacity-meter">
                     <div class="capacity-meter-track">
@@ -271,6 +297,62 @@ const CapacityView = {
               <div class="capacity-callout">
                 <strong>{{ capacityForecast.title }}</strong>
                 <p>{{ capacityForecast.detail }} {{ capacityForecast.nextAction }}</p>
+                <div v-if="capacityForecast.attribution" class="text-muted" style="font-size:12px;margin-top:8px">{{ capacityForecast.attribution }}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" v-if="capacityForecast.driver">
+                  <button class="btn btn-sm" @click="inspectForecastDriver">
+                    <span class="mdi mdi-crosshairs-gps"></span>
+                    Inspect Driver
+                  </button>
+                  <button class="btn btn-primary btn-sm"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="queueForecastFollowThrough">
+                    <span class="mdi mdi-clipboard-plus-outline"></span>
+                    {{ forecastActionBusy === 'queue' ? 'Queueing...' : 'Queue Follow-through' }}
+                  </button>
+                  <button class="btn btn-sm"
+                          v-if="hasForecastLifecycleSeed()"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="launchForecastLifecycleMaintenance">
+                    <span class="mdi mdi-wrench-clock"></span>
+                    {{ forecastActionBusy === 'lifecycle-maintenance' ? 'Launching...' : 'Launch Maintenance Handoff' }}
+                  </button>
+                  <button class="btn btn-sm"
+                          v-if="hasForecastLifecycleSeed()"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="launchForecastLifecycleDraft">
+                    <span class="mdi mdi-calendar-edit-outline"></span>
+                    {{ forecastActionBusy === 'lifecycle' ? 'Launching...' : 'Draft Lifecycle Plan' }}
+                  </button>
+                  <button class="btn btn-sm"
+                          v-if="hasForecastResilienceSeed()"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="launchForecastResilienceDrill">
+                    <span class="mdi mdi-clipboard-pulse-outline"></span>
+                    {{ forecastActionBusy === 'resilience-drill' ? 'Launching...' : 'Launch Recovery Drill Handoff' }}
+                  </button>
+                  <button class="btn btn-sm"
+                          v-if="hasForecastResilienceSeed()"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="launchForecastResilienceDraft">
+                    <span class="mdi mdi-book-edit-outline"></span>
+                    {{ forecastActionBusy === 'resilience' ? 'Launching...' : 'Draft Recovery Runbook' }}
+                  </button>
+                  <button class="btn btn-sm"
+                          v-if="hasForecastVmMigrationSeed()"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="launchForecastVmMigrationDraft">
+                    <span class="mdi mdi-swap-horizontal-bold"></span>
+                    {{ forecastActionBusy === 'vm-migration' ? 'Launching...' : 'Draft VM Migration' }}
+                  </button>
+                  <button class="btn btn-sm"
+                          :disabled="remediationSaving || !!forecastActionBusy"
+                          @click="openForecastRemediationComposer">
+                    <span class="mdi mdi-clipboard-check-outline"></span>
+                    Create Follow-through
+                  </button>
+                </div>
+                <div class="form-error" v-if="forecastActionError" style="text-align:left;margin-top:10px">{{ forecastActionError }}</div>
+                <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ capacityForecast.confidence }}</div>
               </div>
             </div>
           </div>
@@ -342,13 +424,29 @@ const CapacityView = {
 
             <div class="detail-section">
               <div class="detail-section-title">Historical Telemetry</div>
-              <metric-trend-card
-                title="Host Memory Utilization"
-                subtitle="Persisted host-memory pressure for the selected telemetry window."
-                :series="inspectorMetricSeries('memory_used_percent')"
-                value-kind="percent"
-                :accent-status="historyStatus(inspectorMetricSeries('memory_used_percent'), { warning: 70, critical: 85 })">
-              </metric-trend-card>
+              <div class="dashboard-panels">
+                <metric-trend-card
+                  title="Host Memory Utilization"
+                  subtitle="Persisted host-memory pressure for the selected telemetry window."
+                  :series="inspectorMetricSeries('memory_used_percent')"
+                  value-kind="percent"
+                  :accent-status="historyStatus(inspectorMetricSeries('memory_used_percent'), { warning: 70, critical: 85 })">
+                </metric-trend-card>
+                <metric-trend-card
+                  title="Host CPU Utilization"
+                  subtitle="Persisted RRD-derived CPU pressure for the selected host."
+                  :series="inspectorMetricSeries('cpu_usage_percent')"
+                  value-kind="percent"
+                  :accent-status="historyStatus(inspectorMetricSeries('cpu_usage_percent'), { warning: 70, critical: 90 })">
+                </metric-trend-card>
+                <metric-trend-card
+                  title="Host Network Throughput"
+                  subtitle="Persisted host ingress and egress throughput from Xen RRD telemetry."
+                  :series="combinedInspectorMetricSeries(['network_rx_kib_per_s', 'network_tx_kib_per_s'])"
+                  value-kind="throughput"
+                  accent-status="info">
+                </metric-trend-card>
+              </div>
             </div>
 
             <div class="detail-section" v-if="selectedEntity.assignedVms && selectedEntity.assignedVms.length">
@@ -404,7 +502,8 @@ const CapacityView = {
               <span class="text-muted">Resident Host</span><span>{{ selectedEntity.hostName || '-' }}</span>
               <span class="text-muted">Power State</span><status-badge :status="selectedEntity.power_state || 'info'"></status-badge>
               <span class="text-muted">vCPUs</span><span class="mono">{{ selectedEntity.vcpuDemand }}</span>
-              <span class="text-muted">Memory Demand</span><span class="mono">{{ formatBytes(selectedEntity.memoryDemand) }}</span>
+              <span class="text-muted">Observed Memory</span><span class="mono">{{ formatBytes(selectedEntity.memoryDemand) }}</span>
+              <span class="text-muted">CPU Usage</span><span class="mono">{{ formatPercentValue(selectedEntity.cpuUsagePercent || 0) }}</span>
               <span class="text-muted">Host Footprint</span><span class="mono">{{ formatPercentValue(selectedEntity.riskPercentOfHost) }}</span>
               <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedEntity.uuid || '-' }}</span>
               <span class="text-muted">Tags</span><span>{{ truncateList(selectedEntity.tags) }}</span>
@@ -420,14 +519,53 @@ const CapacityView = {
 
             <div class="detail-section">
               <div class="detail-section-title">Historical Footprint</div>
-              <metric-trend-card
-                title="VM Memory Utilization"
-                subtitle="Persisted workload memory demand relative to configured memory."
-                :series="inspectorMetricSeries('memory_usage_percent')"
-                value-kind="percent"
-                :accent-status="historyStatus(inspectorMetricSeries('memory_usage_percent'), { warning: 75, critical: 90 })">
-              </metric-trend-card>
+              <div class="dashboard-panels">
+                <metric-trend-card
+                  title="VM Memory Utilization"
+                  subtitle="Persisted workload memory demand relative to configured memory."
+                  :series="inspectorMetricSeries('memory_usage_percent')"
+                  value-kind="percent"
+                  :accent-status="historyStatus(inspectorMetricSeries('memory_usage_percent'), { warning: 75, critical: 90 })">
+                </metric-trend-card>
+                <metric-trend-card
+                  title="VM CPU Utilization"
+                  subtitle="Persisted RRD-derived vCPU pressure averaged across this workload's configured CPUs."
+                  :series="inspectorMetricSeries('cpu_usage_percent')"
+                  value-kind="percent"
+                  :accent-status="historyStatus(inspectorMetricSeries('cpu_usage_percent'), { warning: 70, critical: 90 })">
+                </metric-trend-card>
+                <metric-trend-card
+                  title="VM Network Throughput"
+                  subtitle="Persisted VM ingress and egress throughput."
+                  :series="combinedInspectorMetricSeries(['network_rx_kib_per_s', 'network_tx_kib_per_s'])"
+                  value-kind="throughput"
+                  accent-status="info">
+                </metric-trend-card>
+                <metric-trend-card
+                  title="VM Disk Throughput"
+                  subtitle="Persisted VM read and write throughput."
+                  :series="combinedInspectorMetricSeries(['disk_read_kib_per_s', 'disk_write_kib_per_s'])"
+                  value-kind="throughput"
+                  accent-status="info">
+                </metric-trend-card>
+              </div>
             </div>
+          </div>
+        </floating-window>
+
+        <floating-window :show="showRemediationComposer"
+                         title="Forecast Follow-through"
+                         :width="720"
+                         :height="700"
+                         @close="closeRemediationComposer">
+          <div class="stack-list">
+            <div class="form-error" v-if="remediationError" style="text-align:left">{{ remediationError }}</div>
+            <remediation-task-form
+              :initial-value="remediationDraft"
+              :saving="remediationSaving"
+              submit-label="Create Follow-through"
+              @submit="submitForecastRemediation">
+            </remediation-task-form>
           </div>
         </floating-window>
       </template>
@@ -456,6 +594,13 @@ const CapacityView = {
       selectedEntity: null,
       selectedEntityType: '',
       showInspector: false,
+      showRemediationComposer: false,
+      remediationDraft: null,
+      remediationSaving: false,
+      remediationError: null,
+      forecastActionBusy: '',
+      forecastActionError: null,
+      lastAppliedFocusKey: '',
     };
   },
   computed: {
@@ -472,6 +617,8 @@ const CapacityView = {
         vms: this.vms,
         tasks: this.tasks,
         messages: this.messages,
+        clusterHistory: this.clusterHistory,
+        historyRange: this.historyRange,
       });
     },
     topVms() {
@@ -661,9 +808,19 @@ const CapacityView = {
     }
 
     await this.loadCapacity();
+    await this.syncRouteFocus();
+  },
+  watch: {
+    '$route.query': {
+      deep: true,
+      async handler() {
+        await this.syncRouteFocus();
+      },
+    },
   },
   methods: {
     formatBytes,
+    formatThroughput,
     formatPercentValue,
     truncateList,
     getUtilizationStatus,
@@ -687,6 +844,7 @@ const CapacityView = {
     openAutomationTask(task) {
       if (!task?.ref) return;
       this.showInspector = false;
+      this.showRemediationComposer = false;
       this.$router.push(buildFocusedRoute('/activity', {
         kind: 'task',
         ref: task.ref || '',
@@ -741,6 +899,7 @@ const CapacityView = {
       this.selectedEntityType = type;
       this.selectedEntity = entity;
       this.showInspector = true;
+      this.showRemediationComposer = false;
       this.loadInspectorHistory();
     },
     closeInspector() {
@@ -749,11 +908,295 @@ const CapacityView = {
       this.selectedEntityType = '';
       this.inspectorHistory = { metrics: [] };
     },
+    closeRemediationComposer() {
+      this.showRemediationComposer = false;
+      this.remediationDraft = null;
+      this.remediationSaving = false;
+      this.remediationError = null;
+    },
+    hasForecastLifecycleSeed() {
+      return Boolean(this.buildForecastRemediationDraft()?.lifecyclePlanSeed?.enabled);
+    },
+    hasForecastResilienceSeed() {
+      return Boolean(this.buildForecastRemediationDraft()?.resilienceRunbookSeed?.enabled);
+    },
+    hasForecastVmMigrationSeed() {
+      return Boolean(this.buildForecastRemediationDraft()?.vmMigrationSeed?.enabled);
+    },
+    forecastDriverRecord() {
+      const driver = this.capacityForecast?.driver || null;
+      if (!driver?.entityType) return null;
+      if (driver.entityType === 'host') {
+        const host = this.hostBalanceRows.find((entry) => entry.ref === driver.entityRef || entry.uuid === driver.entityUuid) || null;
+        return host ? { type: 'host', entity: host } : null;
+      }
+      if (driver.entityType === 'sr') {
+        const storage = this.srs.find((entry) => entry.ref === driver.entityRef || entry.uuid === driver.entityUuid) || null;
+        return storage ? { type: 'storage', entity: storage } : null;
+      }
+      if (driver.entityType === 'vm') {
+        const vm = this.vms.find((entry) => entry.ref === driver.entityRef || entry.uuid === driver.entityUuid) || null;
+        return vm ? { type: 'vm', entity: vm } : null;
+      }
+      return null;
+    },
+    inspectForecastDriver() {
+      const driver = this.forecastDriverRecord();
+      if (!driver?.entity) return;
+      this.openInspector(driver.type, driver.entity);
+    },
+    buildForecastRemediationDraft() {
+      const driver = this.forecastDriverRecord();
+      const forecast = this.capacityForecast || {};
+      if (!driver?.entity) return null;
+
+      const entity = driver.entity;
+      const targetRoute = '/capacity';
+      const relatedClass = driver.type === 'storage' ? 'sr' : driver.type;
+      const relatedObject = entity.uuid || entity.ref || '';
+      const driverName = entity.name_label || entity.hostname || entity.address || entity.ref || forecast.driver?.entityName || 'capacity driver';
+      const dueDate = (() => {
+        const next = new Date();
+        next.setDate(next.getDate() + 1);
+        const offsetDate = new Date(next.getTime() - next.getTimezoneOffset() * 60000);
+        return offsetDate.toISOString().slice(0, 10);
+      })();
+
+      const lifecyclePlanSeed = driver.type === 'host'
+        ? {
+            enabled: true,
+            baselineStatus: 'drifted',
+            targetStage: 'maintenance',
+            maintenanceWindow: entity.other_config?.maintenance_window || '',
+            patchGroup: '',
+            owner: store.username || '',
+            nextAction: 'validate',
+            rebootRequired: false,
+            evacuationRequired: true,
+            dueDate,
+            notes: `Created from the Tuesday, August 25, 2026 capacity forecast for ${driverName}.`,
+          }
+        : null;
+      const resilienceRunbookSeed = driver.type === 'storage'
+        ? {
+            enabled: true,
+            recoveryTier: 'tier-1',
+            haPolicy: 'priority-restart',
+            restartPriority: 'high',
+            backupWindowHours: 12,
+            rpoMinutes: 30,
+            rtoMinutes: 90,
+            restorePointStatus: 'review',
+            owner: store.username || '',
+            standbyHostRef: '',
+            failoverNetworkRef: '',
+            runbookSteps: [
+              `Validate backup currency for workloads backed by ${driverName}.`,
+              `Confirm recovery capacity before additional allocation lands on ${driverName}.`,
+            ],
+            notes: `Created from the Tuesday, August 25, 2026 capacity forecast for ${driverName}.`,
+          }
+        : null;
+      const vmMigrationSeed = driver.type === 'vm'
+        ? {
+            enabled: true,
+            mode: 'same-pool',
+            hostRef: '',
+            destinationTargetKey: '',
+            transferNetworkRef: '',
+            srRef: '',
+            vifNetworkMap: [],
+            live: ['running', 'suspended'].includes(String(entity.power_state || '').toLowerCase()),
+            copy: false,
+            force: false,
+            compress: ['running', 'suspended'].includes(String(entity.power_state || '').toLowerCase()),
+            setAsHomeServer: true,
+            notes: `Created from the Tuesday, August 25, 2026 capacity forecast for ${driverName}.`,
+          }
+        : null;
+
+      return {
+        nameLabel: `Capacity Follow-through: ${driverName}`,
+        nameDescription: `${forecast.detail || 'Forecast-driven follow-through requested.'}\n\n${forecast.nextAction || 'Review the current pressure signature and capture the next operational step.'}`,
+        actionType: 'capacity',
+        assignee: store.username || '',
+        dueDate,
+        alertRef: '',
+        alertUuid: '',
+        alertSummary: forecast.title || 'Capacity forecast follow-through',
+        targetRoute,
+        relatedObject,
+        relatedClass,
+        workspaceSummary: forecast.attribution || `Open Capacity on ${driverName} and capture the next rebalancing or remediation step.`,
+        evidenceChecklist: [
+          `Review the current forecast driver for ${driverName}.`,
+          'Capture whether the trend is sustained across the active telemetry window.',
+          'Document the next balancing, cleanup, or protection step before closing the task.',
+        ],
+        completionCriteria: [
+          'A named operator owns the follow-through.',
+          'The forecast driver has been reviewed in Capacity.',
+          'Any downstream Lifecycle or Resilience work has been launched or explicitly ruled out.',
+        ],
+        lifecyclePlanSeed,
+        resilienceRunbookSeed,
+        vmMigrationSeed,
+      };
+    },
+    openForecastRemediationComposer() {
+      this.remediationDraft = this.buildForecastRemediationDraft();
+      this.remediationError = null;
+      this.forecastActionError = null;
+      this.showRemediationComposer = Boolean(this.remediationDraft);
+    },
+    buildForecastTaskFocus(task, payload = {}) {
+      return {
+        kind: 'task',
+        ref: task?.ref || '',
+        uuid: task?.uuid || '',
+        name: task?.name_label || payload.nameLabel || '',
+        cls: 'task',
+        source: 'capacity',
+      };
+    },
+    async runForecastAutomation(mode, buildRoute) {
+      if (this.remediationSaving || this.forecastActionBusy) return null;
+
+      const payload = this.buildForecastRemediationDraft();
+      if (!payload) return null;
+
+      this.forecastActionBusy = mode;
+      this.forecastActionError = null;
+      this.remediationError = null;
+
+      try {
+        const task = await api.createRemediationTask(payload);
+        this.closeRemediationComposer();
+        const focus = this.buildForecastTaskFocus(task, payload);
+        const route = typeof buildRoute === 'function'
+          ? buildRoute(task, payload, focus)
+          : buildFocusedRoute('/activity', focus);
+        if (route) {
+          this.$router.push(route);
+        }
+        return task;
+      } catch (error) {
+        this.forecastActionError = error.message || 'Unable to automate the forecast follow-through.';
+        return null;
+      } finally {
+        this.forecastActionBusy = '';
+      }
+    },
+    async queueForecastFollowThrough() {
+      await this.runForecastAutomation('queue');
+    },
+    async launchForecastLifecycleDraft() {
+      if (!this.hasForecastLifecycleSeed()) return;
+      await this.runForecastAutomation('lifecycle', (task, payload, focus) =>
+        buildFocusedRoute('/lifecycle', focus, { seedAction: 'lifecycle-plan' })
+      );
+    },
+    async launchForecastLifecycleMaintenance() {
+      if (!this.hasForecastLifecycleSeed()) return;
+      await this.runForecastAutomation('lifecycle-maintenance', (task, payload, focus) =>
+        buildFocusedRoute('/lifecycle', focus, { seedAction: 'lifecycle-maintenance' })
+      );
+    },
+    async launchForecastResilienceDraft() {
+      if (!this.hasForecastResilienceSeed()) return;
+      await this.runForecastAutomation('resilience', (task, payload, focus) =>
+        buildFocusedRoute('/resilience', focus, { seedAction: 'resilience-runbook' })
+      );
+    },
+    async launchForecastResilienceDrill() {
+      if (!this.hasForecastResilienceSeed()) return;
+      await this.runForecastAutomation('resilience-drill', (task, payload, focus) =>
+        buildFocusedRoute('/resilience', focus, { seedAction: 'resilience-drill' })
+      );
+    },
+    async launchForecastVmMigrationDraft() {
+      if (!this.hasForecastVmMigrationSeed()) return;
+      await this.runForecastAutomation('vm-migration', (task, payload, focus) =>
+        buildFocusedRoute('/vms', focus, { seedAction: 'vm-migration' })
+      );
+    },
+    async submitForecastRemediation(payload) {
+      this.remediationSaving = true;
+      this.remediationError = null;
+      this.forecastActionError = null;
+      try {
+        const task = await api.createRemediationTask(payload);
+        this.closeRemediationComposer();
+        this.$router.push(buildFocusedRoute('/activity', this.buildForecastTaskFocus(task, payload)));
+      } catch (error) {
+        this.remediationError = error.message || 'Unable to create the forecast follow-through task.';
+      } finally {
+        this.remediationSaving = false;
+      }
+    },
+    findFocusedEntity(focus) {
+      if (!focus) return null;
+      if (focus.kind === 'host' || focus.cls === 'host') {
+        const host = this.hostBalanceRows.find((entry) =>
+          recordMatchesRouteFocus(entry, focus, ['ref', 'uuid', 'name_label', 'hostname', 'address'])
+        ) || null;
+        return host ? { type: 'host', entity: host } : null;
+      }
+      if (focus.kind === 'storage' || focus.cls === 'sr' || focus.cls === 'vdi' || focus.cls === 'vbd') {
+        const storage = this.srs.find((entry) =>
+          recordMatchesRouteFocus(entry, focus, ['ref', 'uuid', 'name_label'])
+        ) || null;
+        return storage ? { type: 'storage', entity: storage } : null;
+      }
+      if (focus.kind === 'vm' || focus.cls === 'vm') {
+        const vm = this.vms.find((entry) =>
+          recordMatchesRouteFocus(entry, focus, ['ref', 'uuid', 'name_label'])
+        ) || null;
+        return vm ? { type: 'vm', entity: vm } : null;
+      }
+      return null;
+    },
+    async syncRouteFocus() {
+      const focus = getRouteFocus(this.$route.query);
+      if (!focus) {
+        this.lastAppliedFocusKey = '';
+        return;
+      }
+
+      const key = getRouteFocusKey(focus);
+      if (this.lastAppliedFocusKey === key) return;
+
+      const target = this.findFocusedEntity(focus);
+      if (!target?.entity) return;
+
+      this.lastAppliedFocusKey = key;
+      this.openInspector(target.type, target.entity);
+    },
     clusterMetricSeries(metricName) {
       return (this.clusterHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
     },
+    combineMetricSeries(metricNames = [], metrics = []) {
+      const buckets = new Map();
+      (Array.isArray(metricNames) ? metricNames : []).forEach((metricName) => {
+        const points = (Array.isArray(metrics) ? metrics : []).find((entry) => entry.metricName === metricName)?.points || [];
+        points.forEach((point) => {
+          const ts = Number(point?.ts || 0);
+          if (!ts) return;
+          buckets.set(ts, (buckets.get(ts) || 0) + Number(point?.value || 0));
+        });
+      });
+      return [...buckets.entries()]
+        .sort((left, right) => left[0] - right[0])
+        .map(([ts, value]) => ({ ts, value }));
+    },
+    combinedClusterMetricSeries(metricNames = []) {
+      return this.combineMetricSeries(metricNames, this.clusterHistory.metrics || []);
+    },
     inspectorMetricSeries(metricName) {
       return (this.inspectorHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
+    },
+    combinedInspectorMetricSeries(metricNames = []) {
+      return this.combineMetricSeries(metricNames, this.inspectorHistory.metrics || []);
     },
     historyStatus(series, thresholds = {}) {
       const points = Array.isArray(series) ? series : [];
@@ -807,15 +1250,19 @@ const CapacityView = {
     async loadCapacity() {
       this.loading = true;
       try {
-        const [hostsResult, srsResult, tasksResult, vmsResult, alertsResult] = await Promise.all([
+        const [hostsResult, srsResult, tasksResult, vmsResult, alertsResult, baselineResult] = await Promise.all([
           api.getHosts(),
           api.getSRs(),
           api.getTasks(),
           api.getVMs().catch(() => ({ data: [] })),
           api.getAlerts().catch(() => []),
+          api.getCapacityBaseline().catch(() => ({ hosts: [], vms: [], storage: [] })),
         ]);
 
         const hostRecords = hostsResult.data || [];
+        const baselineHostsByRef = Object.fromEntries((baselineResult?.hosts || []).map((entry) => [entry.entityRef, entry]));
+        const baselineVmsByRef = Object.fromEntries((baselineResult?.vms || []).map((entry) => [entry.entityRef, entry]));
+        const baselineStorageByRef = Object.fromEntries((baselineResult?.storage || []).map((entry) => [entry.entityRef, entry]));
         const metricEntries = await Promise.all(hostRecords.map(async (host) => {
           try {
             const metrics = await api.getHostMetrics(host.ref);
@@ -828,6 +1275,7 @@ const CapacityView = {
 
         this.hosts = hostRecords.map((host) => {
           const metrics = metricsByRef[host.ref] || {};
+          const baseline = baselineHostsByRef[host.ref] || {};
           const memoryTotal = Number(metrics.memory_total || 0);
           const memoryFree = Number(metrics.memory_free || 0);
           const memoryUsed = Math.max(0, memoryTotal - memoryFree);
@@ -839,11 +1287,14 @@ const CapacityView = {
             memoryFree,
             memoryUsed,
             memoryUsagePercent: percentValue(memoryUsed, memoryTotal),
+            cpuUsagePercentLatest: Number(baseline.cpu_usage_percent || 0),
+            latestTelemetryTs: Number(baseline.ts || 0),
             residentVmCount: Array.isArray(host.resident_VMs) ? host.resident_VMs.length : 0,
           };
         });
 
         this.srs = (srsResult.data || []).map((sr) => {
+          const baseline = baselineStorageByRef[sr.ref] || {};
           const physical = Number(sr.physical_size || 0);
           const allocation = Number(sr.virtual_allocation || 0);
           const freeBytes = Math.max(0, physical - allocation);
@@ -852,13 +1303,26 @@ const CapacityView = {
             ...sr,
             freeBytes,
             utilizationPercent: percentValue(allocation, physical),
+            latestUtilizationPercent: Number(baseline.utilization_percent || 0),
+            latestTelemetryTs: Number(baseline.ts || 0),
           };
         });
 
-        this.vms = vmsResult.data || [];
+        this.vms = (vmsResult.data || []).map((vm) => {
+          const baseline = baselineVmsByRef[vm.ref] || {};
+          return {
+            ...vm,
+            memoryActualBytesLatest: Number(baseline.memory_actual_bytes || 0),
+            memoryUsagePercentLatest: Number(baseline.memory_usage_percent || 0),
+            cpuUsagePercentLatest: Number(baseline.cpu_usage_percent || 0),
+            vcpuCountLatest: Number(baseline.vcpu_count || 0),
+            latestTelemetryTs: Number(baseline.ts || 0),
+          };
+        });
         this.messages = alertsResult || [];
         this.tasks = tasksResult.data || [];
         await this.loadClusterHistory();
+        await this.syncRouteFocus();
       } catch (error) {
         console.error(error);
         this.hosts = [];

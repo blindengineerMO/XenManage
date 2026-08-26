@@ -32,6 +32,32 @@ function normalizeHostTargetRecord(record) {
   };
 }
 
+function normalizeDeploymentRunRecord(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    progress: Number(record.progress || 0),
+    start_after: Boolean(Number(record.start_after || 0)),
+    boot_verified: Boolean(Number(record.boot_verified || 0)),
+    network_verified: Boolean(Number(record.network_verified || 0)),
+    storage_verified: Boolean(Number(record.storage_verified || 0)),
+    policy_tagged: Boolean(Number(record.policy_tagged || 0)),
+    steps: Array.isArray(record.steps) ? record.steps : [],
+  };
+}
+
+function normalizeDeploymentStepRecord(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    sort_order: Number(record.sort_order || 0),
+  };
+}
+
+function buildTextId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function buildVisibilityFilter(actor = {}, tableAlias = '') {
   const role = String(actor.role || '');
   const userId = normalizeOwnerUserId(actor.userId);
@@ -123,6 +149,50 @@ function initializeSchema() {
       enabled INTEGER DEFAULT 1,
       last_run_at DATETIME,
       last_purged_count INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS deployment_runs (
+      id TEXT PRIMARY KEY,
+      deployment_audit_id TEXT NOT NULL DEFAULT '',
+      template_ref TEXT NOT NULL,
+      template_name TEXT NOT NULL DEFAULT '',
+      template_version TEXT NOT NULL DEFAULT '',
+      vm_ref TEXT NOT NULL DEFAULT '',
+      vm_name TEXT NOT NULL DEFAULT '',
+      host_ref TEXT NOT NULL DEFAULT '',
+      host_label TEXT NOT NULL DEFAULT '',
+      storage_ref TEXT NOT NULL DEFAULT '',
+      storage_label TEXT NOT NULL DEFAULT '',
+      network_ref TEXT NOT NULL DEFAULT '',
+      network_label TEXT NOT NULL DEFAULT '',
+      submitted_by TEXT NOT NULL DEFAULT '',
+      submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      finished_at DATETIME,
+      status TEXT NOT NULL DEFAULT 'pending',
+      progress REAL NOT NULL DEFAULT 0,
+      start_after INTEGER DEFAULT 0,
+      validation_status TEXT NOT NULL DEFAULT 'pending',
+      validation_notes TEXT NOT NULL DEFAULT '',
+      guest_customization TEXT NOT NULL DEFAULT '',
+      boot_verified INTEGER DEFAULT 0,
+      network_verified INTEGER DEFAULT 0,
+      storage_verified INTEGER DEFAULT 0,
+      policy_tagged INTEGER DEFAULT 0,
+      result TEXT NOT NULL DEFAULT '',
+      target_route TEXT NOT NULL DEFAULT '/vms'
+    );
+
+    CREATE TABLE IF NOT EXISTS deployment_run_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      step_key TEXT NOT NULL,
+      step_label TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      detail TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      started_at DATETIME,
+      finished_at DATETIME,
+      error_text TEXT NOT NULL DEFAULT ''
     );
   `);
 
@@ -528,4 +598,230 @@ const retentionPolicyModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, hostTargetModel, settingsModel, retentionPolicyModel };
+const deploymentRunModel = {
+  list() {
+    const rows = getDb().prepare(`
+      SELECT *
+      FROM deployment_runs
+      ORDER BY COALESCE(finished_at, submitted_at) DESC
+    `).all();
+    const stepRows = getDb().prepare(`
+      SELECT *
+      FROM deployment_run_steps
+      ORDER BY sort_order ASC, started_at ASC, id ASC
+    `).all().map(normalizeDeploymentStepRecord);
+    const stepsByRunId = stepRows.reduce((acc, row) => {
+      acc[row.run_id] = acc[row.run_id] || [];
+      acc[row.run_id].push(row);
+      return acc;
+    }, {});
+
+    return rows.map((row) => normalizeDeploymentRunRecord({
+      ...row,
+      steps: stepsByRunId[row.id] || [],
+    }));
+  },
+
+  getById(id) {
+    const row = getDb().prepare('SELECT * FROM deployment_runs WHERE id = ?').get(id);
+    if (!row) return null;
+    const steps = getDb().prepare(`
+      SELECT *
+      FROM deployment_run_steps
+      WHERE run_id = ?
+      ORDER BY sort_order ASC, started_at ASC, id ASC
+    `).all(id).map(normalizeDeploymentStepRecord);
+    return normalizeDeploymentRunRecord({ ...row, steps });
+  },
+
+  getByDeploymentAuditId(deploymentAuditId) {
+    const row = getDb().prepare(`
+      SELECT *
+      FROM deployment_runs
+      WHERE deployment_audit_id = ?
+      ORDER BY submitted_at DESC, id DESC
+      LIMIT 1
+    `).get(deploymentAuditId);
+    if (!row) return null;
+    return this.getById(row.id);
+  },
+
+  replaceSteps(runId, steps = []) {
+    const db = getDb();
+    db.prepare('DELETE FROM deployment_run_steps WHERE run_id = ?').run(runId);
+    const insert = db.prepare(`
+      INSERT INTO deployment_run_steps (
+        id,
+        run_id,
+        step_key,
+        step_label,
+        status,
+        detail,
+        sort_order,
+        started_at,
+        finished_at,
+        error_text
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    steps.forEach((step, index) => {
+      insert.run(
+        step.id || buildTextId('tmplstep'),
+        runId,
+        String(step.step_key || step.key || '').trim(),
+        String(step.step_label || step.label || '').trim(),
+        String(step.status || 'pending').trim().toLowerCase(),
+        String(step.detail || '').trim(),
+        Number(step.sort_order ?? index),
+        step.started_at || step.startedAt || null,
+        step.finished_at || step.finishedAt || null,
+        String(step.error_text || step.errorText || '').trim()
+      );
+    });
+  },
+
+  create(record = {}, steps = []) {
+    const id = String(record.id || buildTextId('tmplrun')).trim();
+    getDb().prepare(`
+      INSERT INTO deployment_runs (
+        id,
+        deployment_audit_id,
+        template_ref,
+        template_name,
+        template_version,
+        vm_ref,
+        vm_name,
+        host_ref,
+        host_label,
+        storage_ref,
+        storage_label,
+        network_ref,
+        network_label,
+        submitted_by,
+        submitted_at,
+        finished_at,
+        status,
+        progress,
+        start_after,
+        validation_status,
+        validation_notes,
+        guest_customization,
+        boot_verified,
+        network_verified,
+        storage_verified,
+        policy_tagged,
+        result,
+        target_route
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      String(record.deployment_audit_id || record.deploymentAuditId || '').trim(),
+      String(record.template_ref || record.templateRef || '').trim(),
+      String(record.template_name || record.templateName || '').trim(),
+      String(record.template_version || record.templateVersion || '').trim(),
+      String(record.vm_ref || record.vmRef || '').trim(),
+      String(record.vm_name || record.vmName || '').trim(),
+      String(record.host_ref || record.hostRef || '').trim(),
+      String(record.host_label || record.hostLabel || '').trim(),
+      String(record.storage_ref || record.storageRef || '').trim(),
+      String(record.storage_label || record.storageLabel || '').trim(),
+      String(record.network_ref || record.networkRef || '').trim(),
+      String(record.network_label || record.networkLabel || '').trim(),
+      String(record.submitted_by || record.submittedBy || '').trim(),
+      record.submitted_at || record.submittedAt || new Date().toISOString(),
+      record.finished_at || record.finishedAt || null,
+      String(record.status || 'pending').trim().toLowerCase(),
+      Number(record.progress || 0),
+      record.start_after || record.startAfter ? 1 : 0,
+      String(record.validation_status || record.validationStatus || 'pending').trim().toLowerCase(),
+      String(record.validation_notes || record.validationNotes || '').trim(),
+      String(record.guest_customization || record.guestCustomization || '').trim(),
+      record.boot_verified || record.bootVerified ? 1 : 0,
+      record.network_verified || record.networkVerified ? 1 : 0,
+      record.storage_verified || record.storageVerified ? 1 : 0,
+      record.policy_tagged || record.policyTagged ? 1 : 0,
+      String(record.result || '').trim(),
+      String(record.target_route || record.targetRoute || '/vms').trim()
+    );
+    this.replaceSteps(id, steps);
+    return this.getById(id);
+  },
+
+  update(id, record = {}, steps) {
+    const existing = this.getById(id);
+    if (!existing) return null;
+    const next = {
+      ...existing,
+      ...record,
+    };
+
+    getDb().prepare(`
+      UPDATE deployment_runs
+      SET deployment_audit_id = ?,
+          template_ref = ?,
+          template_name = ?,
+          template_version = ?,
+          vm_ref = ?,
+          vm_name = ?,
+          host_ref = ?,
+          host_label = ?,
+          storage_ref = ?,
+          storage_label = ?,
+          network_ref = ?,
+          network_label = ?,
+          submitted_by = ?,
+          submitted_at = ?,
+          finished_at = ?,
+          status = ?,
+          progress = ?,
+          start_after = ?,
+          validation_status = ?,
+          validation_notes = ?,
+          guest_customization = ?,
+          boot_verified = ?,
+          network_verified = ?,
+          storage_verified = ?,
+          policy_tagged = ?,
+          result = ?,
+          target_route = ?
+      WHERE id = ?
+    `).run(
+      String(next.deployment_audit_id || next.deploymentAuditId || '').trim(),
+      String(next.template_ref || next.templateRef || '').trim(),
+      String(next.template_name || next.templateName || '').trim(),
+      String(next.template_version || next.templateVersion || '').trim(),
+      String(next.vm_ref || next.vmRef || '').trim(),
+      String(next.vm_name || next.vmName || '').trim(),
+      String(next.host_ref || next.hostRef || '').trim(),
+      String(next.host_label || next.hostLabel || '').trim(),
+      String(next.storage_ref || next.storageRef || '').trim(),
+      String(next.storage_label || next.storageLabel || '').trim(),
+      String(next.network_ref || next.networkRef || '').trim(),
+      String(next.network_label || next.networkLabel || '').trim(),
+      String(next.submitted_by || next.submittedBy || '').trim(),
+      next.submitted_at || next.submittedAt || existing.submitted_at,
+      next.finished_at || next.finishedAt || null,
+      String(next.status || 'pending').trim().toLowerCase(),
+      Number(next.progress || 0),
+      next.start_after || next.startAfter ? 1 : 0,
+      String(next.validation_status || next.validationStatus || 'pending').trim().toLowerCase(),
+      String(next.validation_notes || next.validationNotes || '').trim(),
+      String(next.guest_customization || next.guestCustomization || '').trim(),
+      next.boot_verified || next.bootVerified ? 1 : 0,
+      next.network_verified || next.networkVerified ? 1 : 0,
+      next.storage_verified || next.storageVerified ? 1 : 0,
+      next.policy_tagged || next.policyTagged ? 1 : 0,
+      String(next.result || '').trim(),
+      String(next.target_route || next.targetRoute || '/vms').trim(),
+      id
+    );
+
+    if (steps !== undefined) {
+      this.replaceSteps(id, steps);
+    }
+
+    return this.getById(id);
+  },
+};
+
+module.exports = { getDb, connectionModel, hostTargetModel, settingsModel, retentionPolicyModel, deploymentRunModel };

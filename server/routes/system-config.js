@@ -3,7 +3,9 @@ const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');
 const auditLogService = require('../services/audit-log');
 const systemConfigService = require('../services/system-config');
+const metricsCollector = require('../services/metrics-collector');
 const retentionService = require('../services/retention');
+const credentialVaultService = require('../services/credential-vault');
 
 const router = express.Router();
 
@@ -12,6 +14,7 @@ function getSectionSchema(section) {
   if (section === 'network') return schemas.systemConfigNetworkUpdate;
   if (section === 'security') return schemas.systemConfigSecurityUpdate;
   if (section === 'logging') return schemas.systemConfigLoggingUpdate;
+  if (section === 'performance') return schemas.systemConfigPerformanceUpdate;
   if (section === 'retention') return schemas.systemConfigRetentionUpdate;
   return null;
 }
@@ -36,6 +39,44 @@ router.get('/retention/preview', validate(schemas.retentionRun, 'query'), (req, 
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/vault/rewrap', (req, res) => {
+  try {
+    if (!ensureMutationAllowed(req, res, {
+      actionKey: 'vault_rewrap',
+      entityType: 'vault',
+      entityRef: 'credentials',
+    })) return;
+
+    const previous = systemConfigService.getAll().vault;
+    const result = credentialVaultService.rewrapAll(
+      req.session?.userId || null,
+      req.session?.governanceRole || req.session?.user?.role || 'admin'
+    );
+    const vault = systemConfigService.getAll().vault;
+
+    auditLogService.record({
+      category: 'system',
+      action: 'vault_rewrapped',
+      actionLabel: 'Re-wrapped vault credentials under',
+      entityType: 'vault',
+      entityRef: 'credentials',
+      entityName: 'Credential Vault',
+      operator: req.session?.appUsername || req.session?.xenUser || 'system',
+      route: '/settings',
+      status: result.failed ? 'warning' : 'success',
+      before: previous,
+      after: { result, vault },
+      detail: `${result.rewrapped} credential wrap(s) were refreshed under the current master key with ${result.failed} failure(s).`,
+    });
+
+    res.json({ result, vault });
+  } catch (err) {
+    const code = err.code || err.message || 'VAULT_REWRAP_FAILED';
+    const status = code === 'VAULT_PREVIOUS_KEY_NOT_CONFIGURED' ? 409 : 500;
+    res.status(status).json({ error: code });
   }
 });
 
@@ -128,6 +169,10 @@ router.put('/:section',
 
       if (req.params.section === 'retention') {
         retentionService.refreshScheduler();
+      }
+
+      if (req.params.section === 'performance') {
+        metricsCollector.refreshScheduler();
       }
 
       auditLogService.record({

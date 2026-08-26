@@ -1,6 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const { XenAPI, setConnection, getConnection, rehydrateConnection, removeConnection } = require('../services/xenapi');
+const {
+  XenAPI,
+  buildConnectionTargetKey,
+  setConnection,
+  getConnection,
+  rehydrateConnection,
+  rehydrateConnections,
+  removeConnection,
+} = require('../services/xenapi');
 const { connectionModel } = require('../models/connection');
 const { authEventModel, userModel } = require('../models/security-db');
 const { validate, schemas } = require('../middleware/validate');
@@ -8,14 +16,178 @@ const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const credentialVaultService = require('../services/credential-vault');
 
+function normalizeConnectionId(value) {
+  const normalized = Number(value || 0);
+  return normalized > 0 ? normalized : null;
+}
+
+function normalizePort(value) {
+  const normalized = Number(value || 443);
+  return normalized > 0 ? normalized : 443;
+}
+
+function normalizeSessionTargetRecord(target = {}) {
+  const connectionId = normalizeConnectionId(target.connectionId);
+  const host = String(target.host || '').trim();
+  const username = String(target.username || '').trim();
+  const port = normalizePort(target.port);
+  const sessionRef = String(target.sessionRef || '').trim();
+  const targetKey = String(target.targetKey || '').trim()
+    || buildConnectionTargetKey({ connectionId, host, username, port });
+
+  if (!host || !sessionRef) return null;
+
+  return {
+    targetKey,
+    connectionId,
+    connectionName: String(target.connectionName || '').trim(),
+    host,
+    username,
+    port,
+    sessionRef,
+    connectedAt: String(target.connectedAt || new Date().toISOString()),
+    lastActivatedAt: String(target.lastActivatedAt || target.connectedAt || new Date().toISOString()),
+  };
+}
+
+function listSessionTargets(session = {}) {
+  const targets = [];
+  const seen = new Set();
+
+  (Array.isArray(session?.xenTargets) ? session.xenTargets : []).forEach((target) => {
+    const record = normalizeSessionTargetRecord(target);
+    if (!record || seen.has(record.targetKey)) return;
+    seen.add(record.targetKey);
+    targets.push(record);
+  });
+
+  if (!targets.length && session?.xenHost && session?.xenSessionRef) {
+    const fallback = normalizeSessionTargetRecord({
+      connectionId: session?.xenConnectionId || null,
+      connectionName: session?.xenConnectionName || '',
+      host: session.xenHost,
+      username: session.xenTargetUsername || session.xenUser || '',
+      port: session.xenPort || 443,
+      sessionRef: session.xenSessionRef,
+      connectedAt: session.xenConnectedAt || new Date().toISOString(),
+      lastActivatedAt: session.xenLastActivatedAt || session.xenConnectedAt || new Date().toISOString(),
+    });
+    if (fallback) {
+      seen.add(fallback.targetKey);
+      targets.push(fallback);
+    }
+  }
+
+  return targets;
+}
+
+function persistSessionTargets(session, targets = [], activeTargetKey = '') {
+  const normalizedTargets = (Array.isArray(targets) ? targets : [])
+    .map((target) => normalizeSessionTargetRecord(target))
+    .filter(Boolean);
+  const resolvedActiveTarget = normalizedTargets.find((target) => target.targetKey === String(activeTargetKey || '').trim())
+    || normalizedTargets[0]
+    || null;
+
+  session.xenTargets = normalizedTargets;
+  session.activeXenTargetKey = resolvedActiveTarget?.targetKey || '';
+  session.xenConnectionId = resolvedActiveTarget?.connectionId || null;
+  session.xenConnectionName = resolvedActiveTarget?.connectionName || '';
+  session.xenHost = resolvedActiveTarget?.host || '';
+  session.xenTargetUsername = resolvedActiveTarget?.username || '';
+  session.xenPort = resolvedActiveTarget?.port || 443;
+  session.xenSessionRef = resolvedActiveTarget?.sessionRef || '';
+  session.xenConnectedAt = resolvedActiveTarget?.connectedAt || '';
+  session.xenLastActivatedAt = resolvedActiveTarget?.lastActivatedAt || '';
+
+  return resolvedActiveTarget;
+}
+
+function upsertSessionTarget(session, target = {}) {
+  const nextTarget = normalizeSessionTargetRecord(target);
+  if (!nextTarget) return null;
+
+  const targets = listSessionTargets(session).filter((entry) => entry.targetKey !== nextTarget.targetKey);
+  targets.push(nextTarget);
+  persistSessionTargets(session, targets, nextTarget.targetKey);
+  return nextTarget;
+}
+
+function activateSessionTarget(session, selector = {}) {
+  const requestedTargetKey = String(selector.targetKey || '').trim();
+  const requestedConnectionId = normalizeConnectionId(selector.connectionId);
+  const targets = listSessionTargets(session);
+  const activeTarget = targets.find((target) =>
+    (requestedTargetKey && target.targetKey === requestedTargetKey)
+    || (requestedConnectionId && target.connectionId === requestedConnectionId)
+  );
+  if (!activeTarget) return null;
+
+  const nextTarget = {
+    ...activeTarget,
+    lastActivatedAt: new Date().toISOString(),
+  };
+  persistSessionTargets(session, targets.map((target) => (
+    target.targetKey === nextTarget.targetKey ? nextTarget : target
+  )), nextTarget.targetKey);
+  return nextTarget;
+}
+
+function removeSessionTarget(session, targetKey = '') {
+  const normalizedTargetKey = String(targetKey || '').trim();
+  const targets = listSessionTargets(session);
+  const removedTarget = targets.find((target) => target.targetKey === normalizedTargetKey) || null;
+  const nextTargets = targets.filter((target) => target.targetKey !== normalizedTargetKey);
+  persistSessionTargets(session, nextTargets, session.activeXenTargetKey === normalizedTargetKey ? '' : session.activeXenTargetKey);
+  return removedTarget;
+}
+
+function ensureSessionTargetsRehydrated(sessionId, session = {}) {
+  const targets = listSessionTargets(session);
+  rehydrateConnections(sessionId, targets);
+  return targets;
+}
+
+function buildConnectedTargetPayload(session = {}) {
+  const targets = listSessionTargets(session);
+  const activeTargetKey = String(session?.activeXenTargetKey || '').trim();
+
+  return targets.map((target) => ({
+    targetKey: target.targetKey,
+    connectionId: target.connectionId,
+    connectionName: target.connectionName || '',
+    host: target.host,
+    username: target.username,
+    port: target.port,
+    connectedAt: target.connectedAt,
+    lastActivatedAt: target.lastActivatedAt,
+    active: target.targetKey === activeTargetKey,
+  }));
+}
+
+function restoreAuthenticatedSessionState(session = {}) {
+  if (session?.authenticated) return;
+
+  if ((session?.userId && session?.appUsername) || listSessionTargets(session).length) {
+    session.authenticated = true;
+  }
+}
+
 function buildStatusPayload(req) {
-  const connected = Boolean(getConnection(req.session?.id) || rehydrateConnection(req.session?.id, req.session?.xenHost || '', req.session?.xenSessionRef || ''));
+  restoreAuthenticatedSessionState(req.session);
+  ensureSessionTargetsRehydrated(req.session?.id, req.session);
+  const connectedTargets = buildConnectedTargetPayload(req.session);
+  const activeTarget = connectedTargets.find((target) => target.active) || connectedTargets[0] || null;
+  const connected = connectedTargets.length > 0;
+
   return {
     authenticated: Boolean(req.session?.authenticated),
     connected,
     authMode: req.session?.authMode || (connected ? 'legacy-xen' : 'local'),
-    host: req.session?.xenHost || '',
+    host: activeTarget?.connectionName || activeTarget?.host || '',
     username: req.session?.appUsername || req.session?.xenUser || '',
+    currentTargetKey: activeTarget?.targetKey || '',
+    connectedTargets,
     user: req.session?.userId ? {
       id: req.session.userId,
       username: req.session.appUsername || '',
@@ -52,8 +224,7 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
     req.session.governanceRole = governanceService.getPolicy().defaultRole;
     req.session.governanceRole = user.role || req.session.governanceRole;
     req.session.xenUser = user.username;
-    req.session.xenHost = '';
-    req.session.xenSessionRef = '';
+    persistSessionTargets(req.session, [], '');
 
     userModel.touchLastLogin(user.id);
     authEventModel.create({
@@ -97,7 +268,7 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
 // POST /api/auth/xen-login - Connect to XenServer
 router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
   try {
-    const { host, username, password, vaultCredentialId } = req.body;
+    const { host, username, password, vaultCredentialId, connectionId, connectionName, port } = req.body;
     const operatorName = req.session?.appUsername || username;
     let resolvedPassword = password;
 
@@ -128,19 +299,36 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
       req.session.appUsername = username;
       req.session.displayName = username;
       req.session.governanceRole = governanceService.getPolicy().defaultRole;
+      req.session.xenUser = username;
     }
 
-    setConnection(req.session.id, xenApi);
-
-    req.session.xenHost = host;
-    req.session.xenUser = operatorName;
-    req.session.xenTargetUsername = username;
-    req.session.xenSessionRef = xenApi.sessionRef;
-
-    connectionModel.touchByFingerprint(host, username, 443, {
+    const actor = {
       userId: req.session?.userId || null,
       role: governanceService.getSessionRole(req.session),
+    };
+    const normalizedConnectionId = normalizeConnectionId(connectionId);
+    const savedConnection = normalizedConnectionId
+      ? connectionModel.getVisibleById(normalizedConnectionId, actor)
+      : null;
+    const targetRecord = upsertSessionTarget(req.session, {
+      connectionId: savedConnection?.id || normalizedConnectionId,
+      connectionName: savedConnection?.name || connectionName || '',
+      host,
+      username,
+      port,
+      sessionRef: xenApi.sessionRef,
+      connectedAt: new Date().toISOString(),
+      lastActivatedAt: new Date().toISOString(),
     });
+    setConnection(req.session.id, targetRecord.targetKey, xenApi);
+    req.session.xenUser = operatorName;
+
+    if (savedConnection) {
+      connectionModel.updateLastConnected(savedConnection.id);
+    } else {
+      connectionModel.touchByFingerprint(host, username, normalizePort(port), actor);
+    }
+
     authEventModel.create({
       userId: req.session?.userId || null,
       username: operatorName,
@@ -153,20 +341,28 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
       action: 'session_login',
       actionLabel: 'Logged into Xen host',
       entityType: 'session',
-      entityRef: host,
-      entityName: host,
+      entityRef: targetRecord.targetKey,
+      entityName: targetRecord.connectionName || host,
       operator: operatorName,
       route: '/login',
       status: 'success',
       before: null,
-      after: { host, username: operatorName, xenCredentialUsername: username, vaultCredentialId: vaultCredentialId || null },
-      detail: `Authenticated to ${host} as ${username}${vaultCredentialId ? ` using saved credential #${vaultCredentialId}` : ''}.`,
+      after: {
+        targetKey: targetRecord.targetKey,
+        connectionId: targetRecord.connectionId,
+        connectionName: targetRecord.connectionName,
+        host,
+        username: operatorName,
+        xenCredentialUsername: username,
+        vaultCredentialId: vaultCredentialId || null,
+      },
+      detail: `Authenticated to ${host} as ${username}${vaultCredentialId ? ` using saved credential #${vaultCredentialId}` : ''} and attached it to the current XenMange session.`,
     });
 
     res.json({
       success: true,
       connected: true,
-      host,
+      host: targetRecord.connectionName || host,
       username,
       ...buildStatusPayload(req),
     });
@@ -179,13 +375,11 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
 
 // POST /api/auth/logout
 router.post('/logout', async (req, res) => {
-  const host = req.session?.xenHost || '';
+  const activeTarget = buildConnectedTargetPayload(req.session).find((target) => target.active) || null;
+  const host = activeTarget?.host || req.session?.xenHost || '';
   const username = req.session?.appUsername || req.session?.xenUser || 'system';
-  const connection = getConnection(req.session.id)
-    || rehydrateConnection(req.session.id, req.session?.xenHost || '', req.session?.xenSessionRef || '');
-  if (connection) {
-    removeConnection(req.session.id);
-  }
+  removeConnection(req.session.id);
+
   req.session.destroy((err) => {
     if (err) return res.status(500).json({ error: 'LOGOUT_FAILED' });
     authEventModel.create({
@@ -219,28 +413,89 @@ router.get('/status', (req, res) => {
   res.json(buildStatusPayload(req));
 });
 
+router.get('/targets', requireAuth, (req, res) => {
+  res.json(buildStatusPayload(req));
+});
+
+router.post('/targets/activate', requireAuth, (req, res) => {
+  const target = activateSessionTarget(req.session, req.body || {});
+  if (!target) {
+    return res.status(404).json({ error: 'XEN_TARGET_NOT_FOUND' });
+  }
+
+  ensureSessionTargetsRehydrated(req.session.id, req.session);
+  res.json(buildStatusPayload(req));
+});
+
+router.delete('/targets/:targetKey', requireAuth, (req, res) => {
+  const targetKey = decodeURIComponent(req.params.targetKey || '');
+  const removedTarget = removeSessionTarget(req.session, targetKey);
+  if (!removedTarget) {
+    return res.status(404).json({ error: 'XEN_TARGET_NOT_FOUND' });
+  }
+
+  removeConnection(req.session.id, targetKey);
+  res.json(buildStatusPayload(req));
+});
+
 // Middleware: require authentication for all /api routes below
 function requireAuth(req, res, next) {
+  restoreAuthenticatedSessionState(req.session);
   if (!req.session.authenticated) {
     return res.status(401).json({ error: 'NOT_AUTHENTICATED' });
   }
-  req.xenApi = getConnection(req.session.id)
-    || rehydrateConnection(req.session.id, req.session?.xenHost || '', req.session?.xenSessionRef || '')
-    || null;
+
+  const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
+  const requestedTargetKey = resolveRequestedTargetKey(req);
+  const target = sessionTargets.find((entry) => entry.targetKey === requestedTargetKey) || sessionTargets[0] || null;
+  req.xenTarget = target;
+  req.xenApi = target
+    ? getConnection(req.session.id, target.targetKey) || rehydrateConnection(req.session.id, target)
+    : null;
   next();
+}
+
+function resolveRequestedTargetKey(req) {
+  const explicitTargetKey = String(
+    req.body?.targetKey
+    || req.query?.targetKey
+    || req.headers['x-xenmange-target-key']
+    || ''
+  ).trim();
+  if (explicitTargetKey) return explicitTargetKey;
+
+  const explicitConnectionId = normalizeConnectionId(
+    req.body?.targetConnectionId
+    || req.query?.targetConnectionId
+    || req.headers['x-xenmange-target-connection-id']
+  );
+  if (explicitConnectionId) {
+    return buildConnectionTargetKey({ connectionId: explicitConnectionId });
+  }
+
+  return String(req.session?.activeXenTargetKey || '').trim();
 }
 
 function requireXenConnection(req, res, next) {
+  restoreAuthenticatedSessionState(req.session);
   if (!req.session.authenticated) {
     return res.status(401).json({ error: 'NOT_AUTHENTICATED' });
   }
-  const xenApi = getConnection(req.session.id)
-    || rehydrateConnection(req.session.id, req.session?.xenHost || '', req.session?.xenSessionRef || '');
+
+  const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
+  const requestedTargetKey = resolveRequestedTargetKey(req);
+  const target = sessionTargets.find((entry) => entry.targetKey === requestedTargetKey) || sessionTargets[0] || null;
+  const xenApi = target
+    ? getConnection(req.session.id, target.targetKey) || rehydrateConnection(req.session.id, target)
+    : null;
+
   if (!xenApi) {
     return res.status(409).json({ error: 'XEN_TARGET_NOT_CONNECTED' });
   }
+
   req.xenApi = xenApi;
+  req.xenTarget = target;
   next();
 }
 
-module.exports = { router, requireAuth, requireXenConnection };
+module.exports = { router, requireAuth, requireXenConnection, buildStatusPayload };

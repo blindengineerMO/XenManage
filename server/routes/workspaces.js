@@ -110,7 +110,7 @@ router.put('/inventory/:id', validate(schemas.inventoryWorkspaceIdParam, 'params
 
 router.delete('/inventory/:id', validate(schemas.inventoryWorkspaceIdParam, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'inventory_workspace_delete', entityType: 'workspace', entityRef: req.params.id })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'inventory_workspace_delete', entityType: 'workspace', entityRef: req.params.id, destructive: true })) return;
     const actor = resolveActor(req);
     const existing = inventoryWorkspaceService.get(req.params.id, actor);
     if (!existing) {

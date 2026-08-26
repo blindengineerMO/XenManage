@@ -2,7 +2,7 @@
    XenMange - Vue.js Application
    ============================================ */
 
-const { createApp, reactive, computed } = Vue;
+const { createApp, reactive, computed, ref, onMounted, onBeforeUnmount } = Vue;
 const { createRouter, createWebHistory, useRouter, useRoute } = VueRouter;
 
 const demoDb = {
@@ -41,6 +41,7 @@ const demoDb = {
       uuid: 'host-demo-uuid-1',
       pool: 'OpaqueRef:pool-demo-1',
       enabled: true,
+      maintenance_mode: false,
       tags: ['production', 'compute'],
       PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-2'],
       PBDs: ['OpaqueRef:pbd-demo-1'],
@@ -56,6 +57,7 @@ const demoDb = {
       uuid: 'host-demo-uuid-2',
       pool: 'OpaqueRef:pool-demo-1',
       enabled: true,
+      maintenance_mode: false,
       tags: ['production', 'compute'],
       PIFs: ['OpaqueRef:pif-demo-3', 'OpaqueRef:pif-demo-4'],
       PBDs: ['OpaqueRef:pbd-demo-1'],
@@ -71,6 +73,7 @@ const demoDb = {
       uuid: 'host-demo-uuid-3',
       pool: 'OpaqueRef:pool-demo-2',
       enabled: false,
+      maintenance_mode: true,
       tags: ['edge', 'maintenance'],
       PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
       PBDs: ['OpaqueRef:pbd-demo-2'],
@@ -95,7 +98,10 @@ const demoDb = {
       affinity: 'OpaqueRef:host-demo-1',
       VBDs: ['OpaqueRef:vbd-demo-1'],
       VIFs: ['OpaqueRef:vif-demo-1'],
+      consoles: ['OpaqueRef:console-demo-1'],
       HVM_boot_policy: 'BIOS order',
+      hardware_platform_version: 3,
+      last_boot_CPU_flags: { aes: 'true', avx: 'true', sse4_2: 'true', vmx: 'true' },
       platform: { secureboot: 'enabled', firmware: 'uefi' },
       tags: ['prod', 'api'],
     },
@@ -114,7 +120,10 @@ const demoDb = {
       affinity: 'OpaqueRef:host-demo-1',
       VBDs: ['OpaqueRef:vbd-demo-2'],
       VIFs: ['OpaqueRef:vif-demo-2'],
+      consoles: ['OpaqueRef:console-demo-2'],
       HVM_boot_policy: 'BIOS order',
+      hardware_platform_version: 3,
+      last_boot_CPU_flags: { aes: 'true', avx: 'true', sse4_2: 'true' },
       platform: { secureboot: 'enabled' },
       tags: ['prod', 'worker'],
     },
@@ -133,7 +142,10 @@ const demoDb = {
       affinity: 'OpaqueRef:host-demo-2',
       VBDs: ['OpaqueRef:vbd-demo-3'],
       VIFs: ['OpaqueRef:vif-demo-3'],
+      consoles: ['OpaqueRef:console-demo-3'],
       HVM_boot_policy: 'UEFI',
+      hardware_platform_version: 2,
+      last_boot_CPU_flags: { aes: 'true', sse4_2: 'true', vmx: 'true' },
       platform: { secureboot: 'disabled' },
       tags: ['staging', 'web'],
     },
@@ -152,7 +164,10 @@ const demoDb = {
       affinity: 'OpaqueRef:host-demo-3',
       VBDs: ['OpaqueRef:vbd-demo-4'],
       VIFs: ['OpaqueRef:vif-demo-4'],
+      consoles: ['OpaqueRef:console-demo-4'],
       HVM_boot_policy: 'BIOS order',
+      hardware_platform_version: 1,
+      last_boot_CPU_flags: { aes: 'true', sse4_2: 'true' },
       platform: { firmware: 'legacy' },
       tags: ['edge', 'cache'],
     },
@@ -179,6 +194,79 @@ const demoDb = {
       is_a_template: true,
       tags: ['golden', 'windows', 'staged'],
       platform: { vtpm: 'enabled' },
+    },
+  ],
+  vmSnapshots: {
+    'OpaqueRef:vm-demo-1': [
+      {
+        ref: 'OpaqueRef:snapshot-demo-1',
+        uuid: 'snapshot-demo-uuid-1',
+        name_label: 'billing-api-pre-patch',
+        name_description: 'Created before the Monday, August 24, 2026 patch window.',
+        snapshot_time: '2026-08-24T08:10:00.000Z',
+        snapshot_of: 'OpaqueRef:vm-demo-1',
+        is_a_snapshot: true,
+        snapshot_mode: 'snapshot',
+        power_state: 'Halted',
+      },
+      {
+        ref: 'OpaqueRef:snapshot-demo-2',
+        uuid: 'snapshot-demo-uuid-2',
+        name_label: 'billing-api-checkpoint',
+        name_description: 'Checkpoint captured after middleware tuning validation.',
+        snapshot_time: '2026-08-24T11:35:00.000Z',
+        snapshot_of: 'OpaqueRef:vm-demo-1',
+        is_a_snapshot: true,
+        snapshot_mode: 'checkpoint',
+        power_state: 'Running',
+      },
+    ],
+    'OpaqueRef:vm-demo-3': [
+      {
+        ref: 'OpaqueRef:snapshot-demo-3',
+        uuid: 'snapshot-demo-uuid-3',
+        name_label: 'analytics-web-staging-baseline',
+        name_description: 'Last known good staging state before catalog refresh.',
+        snapshot_time: '2026-08-23T19:20:00.000Z',
+        snapshot_of: 'OpaqueRef:vm-demo-3',
+        is_a_snapshot: true,
+        snapshot_mode: 'snapshot',
+        power_state: 'Halted',
+      },
+    ],
+  },
+  consoles: [
+    {
+      ref: 'OpaqueRef:console-demo-1',
+      VM: 'OpaqueRef:vm-demo-1',
+      protocol: 'rfb',
+      location: '/consoles/demo-fabric/billing-api-01',
+      other_config: { display: 'main', transport: 'web' },
+      uuid: 'console-demo-uuid-1',
+    },
+    {
+      ref: 'OpaqueRef:console-demo-2',
+      VM: 'OpaqueRef:vm-demo-2',
+      protocol: 'rfb',
+      location: '/consoles/demo-fabric/billing-worker-01',
+      other_config: { display: 'main', transport: 'web' },
+      uuid: 'console-demo-uuid-2',
+    },
+    {
+      ref: 'OpaqueRef:console-demo-3',
+      VM: 'OpaqueRef:vm-demo-3',
+      protocol: 'rfb',
+      location: '/consoles/demo-fabric/analytics-web-01',
+      other_config: { display: 'main', transport: 'web' },
+      uuid: 'console-demo-uuid-3',
+    },
+    {
+      ref: 'OpaqueRef:console-demo-4',
+      VM: 'OpaqueRef:vm-demo-4',
+      protocol: 'rfb',
+      location: '/consoles/demo-edge/branch-cache-01',
+      other_config: { display: 'main', transport: 'web' },
+      uuid: 'console-demo-uuid-4',
     },
   ],
   srs: [
@@ -851,6 +939,53 @@ const demoDb = {
       updatedAt: '2026-08-19T13:05:00.000Z',
     },
   ],
+  templateDeploymentRuns: [
+    {
+      ref: 'tmplrun-demo-1',
+      uuid: 'template-deployment-demo-1',
+      name_label: 'billing-api-01',
+      name_description: 'Guest boot, management address, and baseline tagging were confirmed.',
+      status: 'success',
+      progress: 1,
+      created: '2026-08-19T12:40:00.000Z',
+      finished: '2026-08-19T13:05:00.000Z',
+      result: 'billing-api-01 provisioning and post-deploy validation completed successfully.',
+      error_info: [],
+      resident_on: 'OpaqueRef:host-demo-1',
+      task_kind: 'template_deployment',
+      source: 'template_deployment',
+      template_ref: 'OpaqueRef:template-demo-1',
+      template_name: 'ubuntu-24-golden',
+      template_version: '2026.08-lts',
+      vm_ref: 'OpaqueRef:vm-demo-1',
+      vm_name: 'billing-api-01',
+      host_ref: 'OpaqueRef:host-demo-1',
+      host_label: 'xen-host-a01',
+      storage_ref: 'OpaqueRef:sr-demo-1',
+      storage_label: 'Tier-1 SSD SR',
+      network_ref: 'OpaqueRef:net-demo-1',
+      network_label: 'VMLAN Production',
+      submitted_by: 'demo',
+      validation_status: 'validated',
+      validation_notes: 'Guest boot, management address, and baseline tagging were confirmed.',
+      guest_customization: 'cloud-init baseline',
+      boot_verified: true,
+      network_verified: true,
+      storage_verified: true,
+      policy_tagged: true,
+      target_route: '/vms',
+      related_class: 'vm',
+      related_object: 'OpaqueRef:vm-demo-1',
+      steps: [
+        { key: 'clone', label: 'Clone Template', status: 'success', detail: 'ubuntu-24-golden was cloned into billing-api-01.' },
+        { key: 'config', label: 'Apply VM Configuration', status: 'success', detail: 'Compute, naming, and metadata settings were applied to the deployed VM.' },
+        { key: 'affinity', label: 'Place on Target Host', status: 'success', detail: 'Initial placement was directed to OpaqueRef:host-demo-1.' },
+        { key: 'network', label: 'Attach Primary Network', status: 'success', detail: 'Primary network attachment was requested for OpaqueRef:net-demo-1.' },
+        { key: 'power', label: 'Initial Power Action', status: 'success', detail: 'The deployed VM was started after provisioning completed.' },
+        { key: 'validation', label: 'Post-Deploy Validation', status: 'success', detail: 'Guest boot, management address, and baseline tagging were confirmed.' },
+      ],
+    },
+  ],
 };
 
 const DEMO_RANGE_TO_MS = {
@@ -914,11 +1049,19 @@ function buildDemoClusterMetrics(range = '24h') {
   const totalMemory = demoDb.hosts.reduce((sum, host) => sum + Number(demoDb.hostMetrics[host.ref]?.memory_total || 0), 0);
   const freeMemory = demoDb.hosts.reduce((sum, host) => sum + Number(demoDb.hostMetrics[host.ref]?.memory_free || 0), 0);
   const usedMemory = Math.max(0, totalMemory - freeMemory);
+  const averageCpu = demoDb.hosts.reduce((sum, host) => sum + demoHostCpuUsage(host.ref), 0) / Math.max(1, demoDb.hosts.length);
+  const hostNetworkRx = demoDb.hosts.reduce((sum, host) => sum + demoHostNetworkRx(host.ref), 0);
+  const hostNetworkTx = demoDb.hosts.reduce((sum, host) => sum + demoHostNetworkTx(host.ref), 0);
   const totalStorage = demoDb.srs.reduce((sum, sr) => sum + Number(sr.physical_size || 0), 0);
   const usedStorage = demoDb.srs.reduce((sum, sr) => sum + Number(sr.virtual_allocation || 0), 0);
   const vmMemory = demoDb.vms
     .filter((vm) => !vm.is_a_template)
     .reduce((sum, vm) => sum + Number(vm.memory_static_max || 0), 0);
+  const activeVms = demoDb.vms.filter((vm) => !vm.is_a_template);
+  const vmNetworkRx = activeVms.reduce((sum, vm) => sum + demoVmNetworkRx(vm), 0);
+  const vmNetworkTx = activeVms.reduce((sum, vm) => sum + demoVmNetworkTx(vm), 0);
+  const vmDiskRead = activeVms.reduce((sum, vm) => sum + demoVmDiskRead(vm), 0);
+  const vmDiskWrite = activeVms.reduce((sum, vm) => sum + demoVmDiskWrite(vm), 0);
 
   return {
     range: normalizedRange,
@@ -943,6 +1086,15 @@ function buildDemoClusterMetrics(range = '24h') {
         }),
       },
       {
+        metricName: 'cluster_cpu_usage_percent',
+        points: buildDemoTrendPoints(normalizedRange, averageCpu, {
+          amplitude: 7,
+          floor: 8,
+          ceiling: 96,
+          seed: 'cluster-cpu',
+        }),
+      },
+      {
         metricName: 'cluster_vm_memory_actual_bytes',
         points: buildDemoTrendPoints(normalizedRange, vmMemory * 0.82, {
           amplitude: vmMemory * 0.06,
@@ -950,8 +1102,100 @@ function buildDemoClusterMetrics(range = '24h') {
           seed: 'cluster-vm-memory',
         }),
       },
+      {
+        metricName: 'cluster_host_network_rx_kib_per_s',
+        points: buildDemoTrendPoints(normalizedRange, hostNetworkRx, {
+          amplitude: Math.max(16, hostNetworkRx * 0.15),
+          floor: 0,
+          seed: 'cluster-host-network-rx',
+        }),
+      },
+      {
+        metricName: 'cluster_host_network_tx_kib_per_s',
+        points: buildDemoTrendPoints(normalizedRange, hostNetworkTx, {
+          amplitude: Math.max(14, hostNetworkTx * 0.13),
+          floor: 0,
+          seed: 'cluster-host-network-tx',
+        }),
+      },
+      {
+        metricName: 'cluster_vm_network_rx_kib_per_s',
+        points: buildDemoTrendPoints(normalizedRange, vmNetworkRx, {
+          amplitude: Math.max(18, vmNetworkRx * 0.18),
+          floor: 0,
+          seed: 'cluster-vm-network-rx',
+        }),
+      },
+      {
+        metricName: 'cluster_vm_network_tx_kib_per_s',
+        points: buildDemoTrendPoints(normalizedRange, vmNetworkTx, {
+          amplitude: Math.max(16, vmNetworkTx * 0.16),
+          floor: 0,
+          seed: 'cluster-vm-network-tx',
+        }),
+      },
+      {
+        metricName: 'cluster_vm_disk_read_kib_per_s',
+        points: buildDemoTrendPoints(normalizedRange, vmDiskRead, {
+          amplitude: Math.max(16, vmDiskRead * 0.15),
+          floor: 0,
+          seed: 'cluster-vm-disk-read',
+        }),
+      },
+      {
+        metricName: 'cluster_vm_disk_write_kib_per_s',
+        points: buildDemoTrendPoints(normalizedRange, vmDiskWrite, {
+          amplitude: Math.max(12, vmDiskWrite * 0.14),
+          floor: 0,
+          seed: 'cluster-vm-disk-write',
+        }),
+      },
     ],
   };
+}
+
+function demoHostCpuUsage(ref) {
+  const metrics = demoDb.hostMetrics[ref] || { memory_total: 0, memory_free: 0 };
+  const total = Number(metrics.memory_total || 0);
+  const free = Number(metrics.memory_free || 0);
+  const used = Math.max(0, total - free);
+  const pressure = demoMetricPercent(used, total);
+  const offset = (metricSeed(`${ref}-cpu`) % 12) - 6;
+  return Math.max(5, Math.min(95, pressure * 0.78 + 12 + offset));
+}
+
+function demoHostNetworkRx(ref) {
+  const pressure = demoHostCpuUsage(ref);
+  const offset = metricSeed(`${ref}-network-rx`) % 220;
+  return Math.max(24, Math.round((pressure * 5.8) + 80 + offset));
+}
+
+function demoHostNetworkTx(ref) {
+  const rx = demoHostNetworkRx(ref);
+  const offset = metricSeed(`${ref}-network-tx`) % 140;
+  return Math.max(18, Math.round((rx * 0.76) + offset));
+}
+
+function demoVmNetworkRx(vm = {}) {
+  const configuredVcpus = Number(vm.VCPUs_at_startup || vm.VCPUs_max || 0);
+  const base = vm.power_state === 'Running' ? 140 : vm.power_state === 'Suspended' ? 36 : 18;
+  return Math.max(8, Math.round(base + (configuredVcpus * 32) + (metricSeed(`${vm.ref}-vm-rx`) % 90)));
+}
+
+function demoVmNetworkTx(vm = {}) {
+  const rx = demoVmNetworkRx(vm);
+  return Math.max(6, Math.round((rx * 0.68) + (metricSeed(`${vm.ref}-vm-tx`) % 60)));
+}
+
+function demoVmDiskRead(vm = {}) {
+  const configuredGiB = Number(vm.memory_static_max || vm.memory_dynamic_max || 0) / (1024 ** 3);
+  const base = vm.power_state === 'Running' ? 48 : vm.power_state === 'Suspended' ? 16 : 8;
+  return Math.max(4, Math.round(base + (configuredGiB * 3.5) + (metricSeed(`${vm.ref}-disk-read`) % 70)));
+}
+
+function demoVmDiskWrite(vm = {}) {
+  const read = demoVmDiskRead(vm);
+  return Math.max(4, Math.round((read * 0.62) + (metricSeed(`${vm.ref}-disk-write`) % 44)));
 }
 
 function buildDemoHostMetricHistory(ref, range = '24h') {
@@ -960,6 +1204,9 @@ function buildDemoHostMetricHistory(ref, range = '24h') {
   const total = Number(metrics.memory_total || 0);
   const free = Number(metrics.memory_free || 0);
   const used = Math.max(0, total - free);
+  const cpuUsage = demoHostCpuUsage(ref);
+  const networkRx = demoHostNetworkRx(ref);
+  const networkTx = demoHostNetworkTx(ref);
 
   return {
     entityType: 'host',
@@ -971,6 +1218,9 @@ function buildDemoHostMetricHistory(ref, range = '24h') {
       { metricName: 'memory_free_bytes', points: buildDemoTrendPoints(normalizedRange, free, { amplitude: Math.max(1, total * 0.05), floor: 0, ceiling: total, seed: `${ref}-free` }) },
       { metricName: 'memory_used_bytes', points: buildDemoTrendPoints(normalizedRange, used, { amplitude: Math.max(1, total * 0.04), floor: 0, ceiling: total, seed: `${ref}-used` }) },
       { metricName: 'memory_used_percent', points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(used, total), { amplitude: 6, floor: 0, ceiling: 100, seed: `${ref}-used-percent` }) },
+      { metricName: 'cpu_usage_percent', points: buildDemoTrendPoints(normalizedRange, cpuUsage, { amplitude: 7, floor: 0, ceiling: 100, seed: `${ref}-cpu` }) },
+      { metricName: 'network_rx_kib_per_s', points: buildDemoTrendPoints(normalizedRange, networkRx, { amplitude: Math.max(8, networkRx * 0.18), floor: 0, seed: `${ref}-network-rx` }) },
+      { metricName: 'network_tx_kib_per_s', points: buildDemoTrendPoints(normalizedRange, networkTx, { amplitude: Math.max(6, networkTx * 0.16), floor: 0, seed: `${ref}-network-tx` }) },
     ],
   };
 }
@@ -980,6 +1230,11 @@ function buildDemoVmMetricHistory(ref, range = '24h') {
   const vm = demoDb.vms.find((entry) => entry.ref === ref) || {};
   const configured = Number(vm.memory_static_max || vm.memory_dynamic_max || 0);
   const actual = vm.power_state === 'Halted' ? configured * 0.08 : vm.power_state === 'Suspended' ? configured * 0.24 : configured * 0.78;
+  const cpuUsage = Math.max(8, Math.min(94, (Number(vm.VCPUs_at_startup || 0) * 9) + (vm.power_state === 'Running' ? 18 : 6)));
+  const networkRx = demoVmNetworkRx(vm);
+  const networkTx = demoVmNetworkTx(vm);
+  const diskRead = demoVmDiskRead(vm);
+  const diskWrite = demoVmDiskWrite(vm);
 
   return {
     entityType: 'vm',
@@ -990,7 +1245,12 @@ function buildDemoVmMetricHistory(ref, range = '24h') {
       { metricName: 'memory_actual_bytes', points: buildDemoTrendPoints(normalizedRange, actual, { amplitude: Math.max(1, configured * 0.09), floor: 0, ceiling: configured, seed: `${ref}-actual` }) },
       { metricName: 'memory_static_max_bytes', points: buildDemoTrendPoints(normalizedRange, configured, { amplitude: 0, floor: 0, seed: `${ref}-static` }) },
       { metricName: 'memory_usage_percent', points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(actual, configured), { amplitude: 8, floor: 0, ceiling: 100, seed: `${ref}-usage` }) },
+      { metricName: 'cpu_usage_percent', points: buildDemoTrendPoints(normalizedRange, cpuUsage, { amplitude: 9, floor: 0, ceiling: 100, seed: `${ref}-cpu` }) },
       { metricName: 'vcpu_count', points: buildDemoTrendPoints(normalizedRange, Number(vm.VCPUs_at_startup || 0), { amplitude: 0, floor: 0, seed: `${ref}-vcpu` }) },
+      { metricName: 'network_rx_kib_per_s', points: buildDemoTrendPoints(normalizedRange, networkRx, { amplitude: Math.max(10, networkRx * 0.2), floor: 0, seed: `${ref}-network-rx` }) },
+      { metricName: 'network_tx_kib_per_s', points: buildDemoTrendPoints(normalizedRange, networkTx, { amplitude: Math.max(8, networkTx * 0.18), floor: 0, seed: `${ref}-network-tx` }) },
+      { metricName: 'disk_read_kib_per_s', points: buildDemoTrendPoints(normalizedRange, diskRead, { amplitude: Math.max(8, diskRead * 0.16), floor: 0, seed: `${ref}-disk-read` }) },
+      { metricName: 'disk_write_kib_per_s', points: buildDemoTrendPoints(normalizedRange, diskWrite, { amplitude: Math.max(6, diskWrite * 0.14), floor: 0, seed: `${ref}-disk-write` }) },
     ],
   };
 }
@@ -1011,6 +1271,70 @@ function buildDemoStorageMetricHistory(ref, range = '24h') {
       { metricName: 'physical_bytes', points: buildDemoTrendPoints(normalizedRange, physical, { amplitude: 0, floor: 0, seed: `${ref}-physical` }) },
       { metricName: 'utilization_percent', points: buildDemoTrendPoints(normalizedRange, demoMetricPercent(allocation, physical), { amplitude: 4, floor: 0, ceiling: 100, seed: `${ref}-utilization` }) },
     ],
+  };
+}
+
+function buildDemoCapacityBaseline() {
+  const generatedAt = new Date().toISOString();
+  const hosts = demoDb.hosts.map((host) => {
+    const metrics = demoDb.hostMetrics[host.ref] || { memory_total: 0, memory_free: 0 };
+    const total = Number(metrics.memory_total || 0);
+    const free = Number(metrics.memory_free || 0);
+    const used = Math.max(0, total - free);
+
+    return {
+      entityRef: host.ref,
+      ts: generatedAt,
+      memory_total_bytes: total,
+      memory_free_bytes: free,
+      memory_used_bytes: used,
+      memory_used_percent: demoMetricPercent(used, total),
+      cpu_usage_percent: demoHostCpuUsage(host.ref),
+      network_rx_kib_per_s: demoHostNetworkRx(host.ref),
+      network_tx_kib_per_s: demoHostNetworkTx(host.ref),
+    };
+  });
+
+  const vms = demoDb.vms
+    .filter((vm) => !vm.is_a_template)
+    .map((vm) => {
+      const configured = Number(vm.memory_static_max || vm.memory_dynamic_max || 0);
+      const actual = vm.power_state === 'Halted' ? configured * 0.08 : vm.power_state === 'Suspended' ? configured * 0.24 : configured * 0.78;
+
+      return {
+        entityRef: vm.ref,
+        ts: generatedAt,
+        memory_actual_bytes: Math.round(actual),
+        memory_static_max_bytes: configured,
+        memory_usage_percent: demoMetricPercent(actual, configured),
+        cpu_usage_percent: Math.max(8, Math.min(94, (Number(vm.VCPUs_at_startup || 0) * 9) + (vm.power_state === 'Running' ? 18 : 6))),
+        vcpu_count: Number(vm.VCPUs_at_startup || 0),
+        network_rx_kib_per_s: demoVmNetworkRx(vm),
+        network_tx_kib_per_s: demoVmNetworkTx(vm),
+        disk_read_kib_per_s: demoVmDiskRead(vm),
+        disk_write_kib_per_s: demoVmDiskWrite(vm),
+      };
+    });
+
+  const storage = demoDb.srs.map((sr) => {
+    const allocation = Number(sr.virtual_allocation || 0);
+    const physical = Number(sr.physical_size || 0);
+
+    return {
+      entityRef: sr.ref,
+      ts: generatedAt,
+      allocation_bytes: allocation,
+      physical_bytes: physical,
+      utilization_percent: demoMetricPercent(allocation, physical),
+    };
+  });
+
+  return {
+    generatedAt,
+    resolution: 'raw',
+    hosts,
+    vms,
+    storage,
   };
 }
 
@@ -2001,22 +2325,212 @@ function resolveDemoInventoryLabel(collection, ref, fallback = '') {
   return record.name_label || record.hostname || record.bridge || record.address || record.ref || fallback || '';
 }
 
+function getDemoTargetScope(targetKey = '') {
+  const normalizedTargetKey = String(targetKey || '').trim() || 'demo-fabric';
+  if (!normalizedTargetKey || normalizedTargetKey === 'demo-fabric') {
+    return {
+      targetKey: 'demo-fabric',
+      pools: clone(demoDb.pools),
+      hosts: clone(demoDb.hosts),
+      srs: clone(demoDb.srs),
+      networks: clone(demoDb.networks),
+    };
+  }
+
+  if (normalizedTargetKey === 'demo-edge') {
+    return {
+      targetKey: normalizedTargetKey,
+      pools: clone(demoDb.pools.filter((pool) => pool.ref === 'OpaqueRef:pool-demo-2')),
+      hosts: clone(demoDb.hosts.filter((host) => host.pool === 'OpaqueRef:pool-demo-2')),
+      srs: clone(demoDb.srs.filter((sr) => sr.ref === 'OpaqueRef:sr-demo-2')),
+      networks: clone(demoDb.networks.filter((network) => network.ref === 'OpaqueRef:net-demo-2')),
+    };
+  }
+
+  return getDemoTargetScope('demo-fabric');
+}
+
+function buildDemoVmInventory(targetKey = '') {
+  const scope = getDemoTargetScope(targetKey);
+  if (scope.targetKey === 'demo-fabric') {
+    return clone(demoDb.vms);
+  }
+
+  const hostRefs = new Set(scope.hosts.map((host) => host.ref));
+  return clone(demoDb.vms.filter((vm) =>
+    vm.is_a_template
+    || hostRefs.has(vm.resident_on)
+    || hostRefs.has(vm.affinity)
+  ));
+}
+
+function buildDemoConsoleLaunchUrl(vm = {}, consoleRecord = {}, targetKey = 'demo-fabric') {
+  const host = encodeURIComponent(targetKey === 'demo-edge' ? 'demo-edge-gateway.lab.local' : 'demo-fabric-gateway.lab.local');
+  const body = `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>${vm.name_label || 'Console'}</title>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; background: radial-gradient(circle at top, #15324d, #040b14 70%); color: #f5fbff; display: grid; place-items: center; min-height: 100vh; }
+      .panel { width: min(760px, 92vw); background: rgba(6, 17, 30, 0.94); border: 1px solid rgba(111, 208, 255, 0.28); border-radius: 22px; padding: 28px; box-shadow: 0 26px 70px rgba(0,0,0,0.5); }
+      h1 { margin: 0 0 8px; }
+      p { color: #bfd8ea; line-height: 1.6; }
+      .surface { margin-top: 18px; min-height: 380px; border-radius: 18px; background: linear-gradient(135deg, rgba(17, 38, 60, 0.9), rgba(5, 12, 22, 0.98)); border: 1px solid rgba(111, 208, 255, 0.16); display: grid; place-items: center; }
+      .meta { font-family: "Courier New", monospace; font-size: 12px; color: #7ec2e8; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <h1>${vm.name_label || 'Virtual Machine'} Console</h1>
+      <p>This is the demo-mode console surface for ${vm.name_label || 'the selected workload'}. In a live Xen target, XenMange launches the session-authenticated console endpoint resolved from the XAPI console record.</p>
+      <div class="surface">
+        <div>
+          <div style="font-size:54px;text-align:center;letter-spacing:6px">RFB</div>
+          <div style="margin-top:10px;text-align:center;color:#9bc6de">${consoleRecord.protocol || 'rfb'} session prepared for ${vm.name_label || 'VM'}</div>
+        </div>
+      </div>
+      <div class="meta">console=${consoleRecord.ref || '-'} · host=${decodeURIComponent(host)} · target=${targetKey}</div>
+    </div>
+  </body>
+</html>`;
+
+  return `data:text/html;charset=utf-8,${encodeURIComponent(body)}`;
+}
+
+function buildDemoVmConsoles(vm = {}, targetKey = 'demo-fabric') {
+  return (Array.isArray(vm.consoles) ? vm.consoles : [])
+    .map((consoleRef) => {
+      const record = demoDb.consoles.find((entry) => entry.ref === consoleRef && entry.VM === vm.ref);
+      if (!record) return null;
+      return {
+        ...clone(record),
+        launchUrl: buildDemoConsoleLaunchUrl(vm, record, targetKey),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildDemoVmCompatibility(vm = {}, targetKey = 'demo-fabric') {
+  const scope = getDemoTargetScope(targetKey);
+  const hostRecords = Array.isArray(scope.hosts) ? scope.hosts : [];
+  const currentHostRef = String(vm.resident_on || vm.affinity || '').trim();
+  const currentHost = hostRecords.find((host) => host.ref === currentHostRef) || null;
+  const currentCpuModel = String(currentHost?.cpu_info?.modelname || '').trim().toLowerCase();
+  const vmPlatformVersion = Number(vm.hardware_platform_version || 0) || 0;
+  const lastBootCpuFlags = vm.last_boot_CPU_flags || {};
+
+  const hosts = hostRecords.map((host) => {
+    const sameCpuFamily = currentCpuModel
+      ? String(host?.cpu_info?.modelname || '').trim().toLowerCase() === currentCpuModel
+      : true;
+    const compatible = Boolean(host.enabled) && !host.maintenance_mode && sameCpuFamily;
+    let compatibilityError = '';
+    if (!host.enabled) compatibilityError = 'HOST_DISABLED';
+    else if (host.maintenance_mode) compatibilityError = 'HOST_IN_MAINTENANCE';
+    else if (!sameCpuFamily) compatibilityError = 'CPU_FAMILY_MISMATCH';
+
+    return {
+      ref: host.ref,
+      uuid: host.uuid || '',
+      name_label: host.name_label || host.hostname || host.ref,
+      address: host.address || '',
+      enabled: Boolean(host.enabled),
+      maintenance_mode: Boolean(host.maintenance_mode),
+      pool: host.pool || '',
+      currentResident: host.ref === currentHostRef,
+      possiblePlacement: compatible || host.ref === currentHostRef,
+      compatible: compatible || host.ref === currentHostRef,
+      readiness: compatible || host.ref === currentHostRef ? 'compatible' : (host.maintenance_mode ? 'maintenance' : 'incompatible'),
+      compatibilityError,
+      sameCpuFamily,
+      cpuModel: String(host?.cpu_info?.modelname || '').trim(),
+      cpuCount: Number(host?.cpu_info?.cpu_count || 0) || 0,
+      socketCount: Number(host?.cpu_info?.socket_count || 0) || 0,
+    };
+  });
+
+  return {
+    ref: vm.ref || '',
+    uuid: vm.uuid || '',
+    name_label: vm.name_label || vm.ref || 'Virtual machine',
+    power_state: vm.power_state || '',
+    resident_on: vm.resident_on || '',
+    affinity: vm.affinity || '',
+    hardwarePlatformVersion: vmPlatformVersion,
+    lastBootCpuFlags: clone(lastBootCpuFlags),
+    possibleHostRefs: hosts.filter((host) => host.possiblePlacement).map((host) => host.ref),
+    hosts,
+    maskingApiAvailable: false,
+  };
+}
+
 function demoRequest(method, url, body) {
   const parsedUrl = new URL(url, window.location.origin);
   const path = parsedUrl.pathname;
   const search = parsedUrl.searchParams.get('search');
   const range = parsedUrl.searchParams.get('range') || '24h';
+  const targetKey = parsedUrl.searchParams.get('targetKey') || store.currentTargetKey || 'demo-fabric';
+  const scope = getDemoTargetScope(targetKey);
 
   if (method === 'POST' && path === '/api/auth/logout') {
     return { success: true };
   }
 
-  if (method === 'GET' && path === '/api/auth/status') {
+  if (method === 'GET' && path === '/api/auth/targets') {
+    return clone(Array.isArray(store.connectedTargets) ? store.connectedTargets : []);
+  }
+
+  if (method === 'POST' && path === '/api/auth/targets/activate') {
+    const requestedTargetKey = String(body?.targetKey || '').trim();
+    const connectedTargets = (Array.isArray(store.connectedTargets) ? store.connectedTargets : []).map((target) => ({
+      ...target,
+      active: String(target?.targetKey || '').trim() === requestedTargetKey,
+    }));
+    const activeTarget = connectedTargets.find((target) => target.active) || connectedTargets[0] || null;
+
+    store.connectedTargets = connectedTargets;
+    store.currentTargetKey = activeTarget?.targetKey || '';
+    store.host = activeTarget?.connectionName || activeTarget?.host || 'Demo Fabric';
+
     return {
       authenticated: true,
-      host: store.host || 'Demo Fabric',
+      connected: Boolean(connectedTargets.length),
+      host: store.host,
       username: store.username || 'demo',
+      authMode: 'demo',
       demoMode: true,
+      currentTargetKey: store.currentTargetKey,
+      connectedTargets: clone(connectedTargets),
+      user: clone(store.user || {
+        id: 'demo',
+        username: 'demo',
+        displayName: 'Demo Operator',
+        role: 'admin',
+      }),
+      governance: getDemoGovernanceState(),
+    };
+  }
+
+  if (method === 'GET' && path === '/api/auth/status') {
+    const connectedTargets = Array.isArray(store.connectedTargets) ? store.connectedTargets : [];
+    const activeTarget = connectedTargets.find((target) => target.active) || connectedTargets[0] || null;
+    return {
+      authenticated: true,
+      connected: Boolean(connectedTargets.length),
+      host: store.host || activeTarget?.connectionName || activeTarget?.host || 'Demo Fabric',
+      username: store.username || 'demo',
+      authMode: 'demo',
+      demoMode: true,
+      currentTargetKey: store.currentTargetKey || activeTarget?.targetKey || 'demo-fabric',
+      connectedTargets: clone(connectedTargets),
+      user: clone(store.user || {
+        id: 'demo',
+        username: 'demo',
+        displayName: 'Demo Operator',
+        role: 'admin',
+      }),
       governance: getDemoGovernanceState(),
     };
   }
@@ -2178,7 +2692,7 @@ function demoRequest(method, url, body) {
   }
 
   if (method === 'GET' && path === '/api/tasks') {
-    const tasks = sortTasks([...(demoDb.tasks || []), ...(demoDb.remediationTasks || [])]);
+    const tasks = sortTasks([...(demoDb.tasks || []), ...(demoDb.remediationTasks || []), ...(demoDb.templateDeploymentRuns || [])]);
     return { total: tasks.length, data: clone(tasks) };
   }
 
@@ -2412,13 +2926,18 @@ function demoRequest(method, url, body) {
     return clone(buildDemoClusterMetrics(range));
   }
 
+  if (method === 'GET' && path === '/api/metrics/capacity-baseline') {
+    return clone(buildDemoCapacityBaseline());
+  }
+
   if (method === 'POST' && path === '/api/metrics/collect') {
+    const activeVmCount = demoDb.vms.filter((vm) => !vm.is_a_template).length;
     return {
       captured: true,
       ts: Date.now(),
-      sampleCount: (demoDb.hosts.length * 4) + (demoDb.vms.filter((vm) => !vm.is_a_template).length * 4) + (demoDb.srs.length * 3),
+      sampleCount: (demoDb.hosts.length * 6) + (activeVmCount * 9) + (demoDb.srs.length * 3),
       hostCount: demoDb.hosts.length,
-      vmCount: demoDb.vms.filter((vm) => !vm.is_a_template).length,
+      vmCount: activeVmCount,
       srCount: demoDb.srs.length,
     };
   }
@@ -3050,11 +3569,11 @@ function demoRequest(method, url, body) {
   }
 
   if (method === 'GET' && path === '/api/pools') {
-    return { total: demoDb.pools.length, data: clone(demoDb.pools) };
+    return { total: scope.pools.length, data: clone(scope.pools) };
   }
 
   if (method === 'GET' && path === '/api/hosts') {
-    return { total: demoDb.hosts.length, data: clone(demoDb.hosts) };
+    return { total: scope.hosts.length, data: clone(scope.hosts) };
   }
 
   if (method === 'GET' && path.startsWith('/api/hosts/') && path.endsWith('/metrics')) {
@@ -3062,8 +3581,157 @@ function demoRequest(method, url, body) {
     return clone(demoDb.hostMetrics[ref] || { live: false, memory_total: 0, memory_free: 0 });
   }
 
+  if (method === 'POST' && path.startsWith('/api/hosts/') && path.endsWith('/maintenance/enter')) {
+    const hostRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'host_maintenance_enter', entityType: 'host', entityRef: hostRef });
+    const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    const previous = clone(host);
+    const evacuateRunningVms = body?.evacuateRunningVms !== false;
+    const networkRef = String(body?.networkRef || '').trim();
+    const poolHosts = demoDb.hosts.filter((entry) => entry.pool === host.pool && entry.ref !== host.ref);
+
+    if (evacuateRunningVms) {
+      if (!networkRef) throw new Error('VALIDATION_ERROR');
+      if (!poolHosts.length && (host.resident_VMs || []).length) {
+        const error = new Error('DEMO_CANNOT_EVACUATE_HOST');
+        error.code = 'DEMO_CANNOT_EVACUATE_HOST';
+        throw error;
+      }
+
+      const destination = poolHosts[0] || null;
+      const residentVmRefs = [...(host.resident_VMs || [])];
+      residentVmRefs.forEach((vmRef) => {
+        const vm = demoDb.vms.find((entry) => entry.ref === vmRef);
+        if (vm && destination) {
+          vm.resident_on = destination.ref;
+          vm.affinity = destination.ref;
+        }
+      });
+      if (destination) {
+        destination.resident_VMs = [...new Set([...(destination.resident_VMs || []), ...(host.resident_VMs || [])])];
+        host.resident_VMs = [];
+      }
+    }
+
+    host.enabled = false;
+    host.maintenance_mode = true;
+    host.last_maintenance_started_at = new Date().toISOString();
+    host.other_config = {
+      ...(host.other_config || {}),
+      maintenance_network: networkRef,
+      maintenance_mode: 'true',
+    };
+
+    recordAudit({
+      category: 'hosts',
+      action: 'host_maintenance_entered',
+      actionLabel: 'Entered maintenance mode for',
+      entityType: 'host',
+      entityRef: hostRef,
+      entityName: host.name_label || hostRef,
+      route: '/hosts',
+      before: previous,
+      after: clone(host),
+      detail: evacuateRunningVms
+        ? `${host.name_label || hostRef} entered maintenance mode and evacuated resident workloads over ${networkRef}.`
+        : `${host.name_label || hostRef} entered maintenance mode without workload evacuation.`,
+    });
+
+    return clone(host);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/hosts/') && path.endsWith('/maintenance/exit')) {
+    const hostRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'host_maintenance_exit', entityType: 'host', entityRef: hostRef });
+    const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    const previous = clone(host);
+    host.enabled = true;
+    host.maintenance_mode = false;
+    host.last_maintenance_ended_at = new Date().toISOString();
+    host.other_config = {
+      ...(host.other_config || {}),
+      maintenance_mode: 'false',
+    };
+
+    recordAudit({
+      category: 'hosts',
+      action: 'host_maintenance_exited',
+      actionLabel: 'Exited maintenance mode for',
+      entityType: 'host',
+      entityRef: hostRef,
+      entityName: host.name_label || hostRef,
+      route: '/hosts',
+      before: previous,
+      after: clone(host),
+      detail: `${host.name_label || hostRef} was returned to the workload placement pool.`,
+    });
+
+    return clone(host);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/hosts/') && path.endsWith('/reboot')) {
+    const hostRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'host_reboot',
+      entityType: 'host',
+      entityRef: hostRef,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+    const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+    host.last_power_operation = 'reboot';
+    host.last_power_operation_at = new Date().toISOString();
+    recordAudit({
+      category: 'hosts',
+      action: 'host_reboot_requested',
+      actionLabel: 'Requested host reboot for',
+      entityType: 'host',
+      entityRef: hostRef,
+      entityName: host.name_label || hostRef,
+      route: '/hosts',
+      before: null,
+      after: { ref: hostRef, success: true },
+      detail: `${host.name_label || hostRef} received a reboot request from the demo control plane.`,
+    });
+    return { success: true, ref: hostRef };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/hosts/') && path.endsWith('/shutdown')) {
+    const hostRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'host_shutdown',
+      entityType: 'host',
+      entityRef: hostRef,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+    const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+    host.last_power_operation = 'shutdown';
+    host.last_power_operation_at = new Date().toISOString();
+    host.enabled = false;
+    recordAudit({
+      category: 'hosts',
+      action: 'host_shutdown_requested',
+      actionLabel: 'Requested host shutdown for',
+      entityType: 'host',
+      entityRef: hostRef,
+      entityName: host.name_label || hostRef,
+      route: '/hosts',
+      before: null,
+      after: { ref: hostRef, success: true },
+      detail: `${host.name_label || hostRef} received a shutdown request from the demo control plane.`,
+    });
+    return { success: true, ref: hostRef };
+  }
+
   if (method === 'GET' && path === '/api/vms/templates') {
-    const templates = demoDb.vms.filter((vm) => vm.is_a_template);
+    const templates = buildDemoVmInventory(targetKey).filter((vm) => vm.is_a_template);
     return { total: templates.length, data: clone(templates) };
   }
 
@@ -3127,6 +3795,62 @@ function demoRequest(method, url, body) {
     const templateRef = decodeURIComponent(path.split('/')[4] || '');
     const records = demoDb.templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef);
     return { total: records.length, data: clone(records) };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/templates/') && path.includes('/history/') && path.endsWith('/restore')) {
+    ensureDemoMutationAllowed({ actionKey: 'template_governance_restore', entityType: 'template', entityRef: decodeURIComponent(path.split('/')[4] || '') });
+    const templateRef = decodeURIComponent(path.split('/')[4] || '');
+    const historyId = decodeURIComponent(path.split('/')[6] || '');
+    const template = demoDb.vms.find((entry) => entry.ref === templateRef);
+    const sourceEntry = demoDb.templateGovernanceHistory.find((entry) => entry.templateRef === templateRef && entry.id === historyId);
+    if (!sourceEntry) throw new Error('TEMPLATE_GOVERNANCE_HISTORY_NOT_FOUND');
+
+    const previous = clone(demoDb.templateGovernance.find((entry) => entry.templateRef === templateRef) || null);
+    const record = {
+      ...clone(sourceEntry.snapshot || {}),
+      templateRef,
+      updatedAt: new Date().toISOString(),
+    };
+    const index = demoDb.templateGovernance.findIndex((entry) => entry.templateRef === templateRef);
+    if (index === -1) {
+      demoDb.templateGovernance.push(record);
+    } else {
+      demoDb.templateGovernance[index] = record;
+    }
+
+    demoDb.templateGovernanceHistory.unshift({
+      id: `tmplhist-${Date.now()}-restore`,
+      templateRef,
+      templateName: template?.name_label || templateRef,
+      eventType: 'restored',
+      actor: store.username || 'demo',
+      happenedAt: record.updatedAt,
+      baselineTemplateRef: '',
+      baselineTemplateName: '',
+      baselineVersionLabel: '',
+      promotionNotes: '',
+      detail: `Restored governance snapshot from ${sourceEntry.eventType || 'history'} recorded on ${sourceEntry.happenedAt || 'an earlier revision'}.`,
+      snapshot: clone(record),
+    });
+
+    recordDemoAudit({
+      category: 'templates',
+      action: 'template_governance_restored',
+      actionLabel: 'Restored template governance for',
+      entityType: 'template',
+      entityRef: templateRef,
+      entityName: template?.name_label || templateRef,
+      route: '/templates',
+      before: previous,
+      after: clone(record),
+      detail: `Restored governance from ${sourceEntry.eventType || 'history'} snapshot ${sourceEntry.id}.`,
+    });
+
+    return {
+      record: clone(record),
+      sourceEntry: clone(sourceEntry),
+      history: clone(demoDb.templateGovernanceHistory.filter((entry) => entry.templateRef === templateRef)),
+    };
   }
 
   if (method === 'POST' && path.startsWith('/api/vms/templates/') && path.endsWith('/promote')) {
@@ -3235,6 +3959,39 @@ function demoRequest(method, url, body) {
       updatedAt: new Date().toISOString(),
     };
     demoDb.templateDeployments[index] = nextRecord;
+    const runIndex = demoDb.templateDeploymentRuns.findIndex((entry) => entry.vm_ref === nextRecord.vmRef);
+    let deploymentRun = null;
+    if (runIndex !== -1) {
+      const status = String(nextRecord.validationStatus || '').toLowerCase();
+      deploymentRun = {
+        ...demoDb.templateDeploymentRuns[runIndex],
+        status: status === 'validated' ? 'success' : (status === 'failed' ? 'failure' : (status === 'warning' ? 'warning' : 'pending')),
+        progress: status === 'validated' || status === 'failed' ? 1 : (status === 'warning' ? 0.9 : 0.8),
+        finished: status === 'validated' || status === 'failed' ? new Date().toISOString() : '',
+        result: nextRecord.validationNotes
+          || (status === 'validated'
+            ? `${nextRecord.vmName} provisioning and post-deploy validation completed successfully.`
+            : (status === 'failed'
+              ? `${nextRecord.vmName} was provisioned, but post-deploy validation failed and needs operator follow-through.`
+              : `${nextRecord.vmName} was provisioned and is waiting for operator review.`)),
+        validation_status: nextRecord.validationStatus,
+        validation_notes: nextRecord.validationNotes,
+        guest_customization: nextRecord.guestCustomization,
+        boot_verified: Boolean(nextRecord.bootVerified),
+        network_verified: Boolean(nextRecord.networkVerified),
+        storage_verified: Boolean(nextRecord.storageVerified),
+        policy_tagged: Boolean(nextRecord.policyTagged),
+        steps: (demoDb.templateDeploymentRuns[runIndex].steps || []).map((step) =>
+          step.key === 'validation'
+            ? {
+              ...step,
+              status: status === 'validated' ? 'success' : (status === 'failed' ? 'failure' : (status === 'warning' ? 'warning' : 'pending')),
+              detail: nextRecord.validationNotes || step.detail,
+            }
+            : step),
+      };
+      demoDb.templateDeploymentRuns[runIndex] = deploymentRun;
+    }
     recordDemoAudit({
       category: 'templates',
       action: 'template_deployment_validated',
@@ -3247,7 +4004,7 @@ function demoRequest(method, url, body) {
       after: nextRecord,
       detail: `${nextRecord.validationStatus} validation with guest customization ${nextRecord.guestCustomization || 'unset'}.`,
     });
-    return clone(nextRecord);
+    return clone({ ...nextRecord, deploymentRun });
   }
 
   if (method === 'POST' && path.includes('/api/vms/templates/') && path.endsWith('/deploy')) {
@@ -3356,6 +4113,54 @@ function demoRequest(method, url, body) {
       updatedAt: new Date().toISOString(),
     };
     demoDb.templateDeployments.unshift(deploymentAudit);
+    const deploymentRun = {
+      ref: `tmplrun-${Date.now()}`,
+      uuid: `template-deployment-${Date.now()}`,
+      name_label: vmRecord.name_label,
+      name_description: deploymentAudit.validationNotes,
+      status: deploymentAudit.validationStatus === 'warning' ? 'warning' : 'pending',
+      progress: deploymentAudit.validationStatus === 'warning' ? 0.9 : 0.8,
+      created: deploymentAudit.submittedAt,
+      finished: '',
+      result: deploymentAudit.validationStatus === 'warning'
+        ? `${vmRecord.name_label} was provisioned and is waiting for operator review before it can be treated as a validated baseline deployment.`
+        : `${vmRecord.name_label} was provisioned and is waiting for post-deploy validation checks.`,
+      error_info: [],
+      resident_on: hostRef,
+      task_kind: 'template_deployment',
+      source: 'template_deployment',
+      template_ref: templateRef,
+      template_name: template.name_label || templateRef,
+      template_version: governance?.versionLabel || '',
+      vm_ref: vmRef,
+      vm_name: vmRecord.name_label,
+      host_ref: hostRef,
+      host_label: resolveDemoInventoryLabel(demoDb.hosts, hostRef, ''),
+      storage_ref: srRef,
+      storage_label: resolveDemoInventoryLabel(demoDb.srs, srRef, ''),
+      network_ref: body.networkRef || '',
+      network_label: resolveDemoInventoryLabel(demoDb.networks, body.networkRef, ''),
+      submitted_by: store.username || 'demo',
+      validation_status: deploymentAudit.validationStatus,
+      validation_notes: deploymentAudit.validationNotes,
+      guest_customization: governance?.guestCustomization || '',
+      boot_verified: false,
+      network_verified: false,
+      storage_verified: false,
+      policy_tagged: Array.isArray(body.tags) && body.tags.length > 0,
+      target_route: '/vms',
+      related_class: 'vm',
+      related_object: vmRef,
+      steps: [
+        { key: 'clone', label: 'Clone Template', status: 'success', detail: `${template.name_label || templateRef} was cloned into ${vmRecord.name_label}.` },
+        { key: 'config', label: 'Apply VM Configuration', status: 'success', detail: 'Compute, naming, and metadata settings were applied to the deployed VM.' },
+        { key: 'affinity', label: 'Place on Target Host', status: hostRef ? 'success' : 'info', detail: hostRef ? `Initial placement was directed to ${hostRef}.` : 'No explicit host placement was requested for this deployment.' },
+        { key: 'network', label: 'Attach Primary Network', status: body.networkRef ? 'success' : 'info', detail: body.networkRef ? `Primary network attachment was requested for ${body.networkRef}.` : 'No explicit primary network attachment was requested at deploy time.' },
+        { key: 'power', label: 'Initial Power Action', status: body.startAfter ? 'success' : 'info', detail: body.startAfter ? 'The deployed VM was started after provisioning completed.' : 'The deployed VM was left halted for operator-led validation.' },
+        { key: 'validation', label: 'Post-Deploy Validation', status: deploymentAudit.validationStatus === 'warning' ? 'warning' : 'pending', detail: deploymentAudit.validationNotes },
+      ],
+    };
+    demoDb.templateDeploymentRuns.unshift(deploymentRun);
     recordDemoAudit({
       category: 'templates',
       action: 'template_deployed',
@@ -3365,15 +4170,15 @@ function demoRequest(method, url, body) {
       entityName: vmRecord.name_label,
       route: '/templates',
       before: template,
-      after: { ...vmRecord, deploymentAudit },
+      after: { ...vmRecord, deploymentAudit, deploymentRun },
       detail: `${template.name_label || templateRef} deployed with ${deploymentAudit.validationStatus} validation status.`,
     });
 
-    return clone({ ...vmRecord, deploymentAudit });
+    return clone({ ...vmRecord, deploymentAudit, deploymentRun });
   }
 
   if (method === 'GET' && path === '/api/vms') {
-    let vms = demoDb.vms.filter((vm) => !vm.is_a_template);
+    let vms = buildDemoVmInventory(targetKey).filter((vm) => !vm.is_a_template);
     if (search) {
       const query = search.toLowerCase();
       vms = vms.filter((vm) =>
@@ -3384,9 +4189,508 @@ function demoRequest(method, url, body) {
     return { total: vms.length, data: clone(vms) };
   }
 
+  if (method === 'PUT' && path === '/api/vms/import') {
+    ensureDemoMutationAllowed({ actionKey: 'vm_duplicate_create', entityType: 'vm', entityRef: 'import' });
+
+    const metadataOnly = parsedUrl.searchParams.get('metadataOnly') === 'true';
+    const restore = parsedUrl.searchParams.get('restore') === 'true';
+    const force = parsedUrl.searchParams.get('force') === 'true';
+    const requestedSrRef = decodeURIComponent(parsedUrl.searchParams.get('srRef') || '');
+    const fileName = body?.fileName || body?.file?.name || 'package.xva';
+    const normalizedName = String(fileName)
+      .replace(/\.[^.]+$/g, '')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'imported-vm';
+
+    const targetSr = demoDb.srs.find((entry) => entry.ref === requestedSrRef)
+      || demoDb.srs.find((entry) => entry.ref === demoDb.pools[0]?.default_SR)
+      || demoDb.srs[0]
+      || null;
+
+    const targetHost = demoDb.hosts.find((host) =>
+      host.enabled && !host.maintenance_mode && (
+        (targetSr && Array.isArray(host.PBDs) && Array.isArray(targetSr.PBDs) && host.PBDs.some((pbdRef) => targetSr.PBDs.includes(pbdRef)))
+        || host.pool === demoDb.pools.find((pool) => pool.default_SR === targetSr?.ref)?.ref
+      )
+    ) || demoDb.hosts.find((host) => host.enabled && !host.maintenance_mode) || demoDb.hosts[0] || null;
+
+    const targetPool = demoDb.pools.find((pool) => pool.ref === targetHost?.pool)
+      || demoDb.pools.find((pool) => pool.default_SR === targetSr?.ref)
+      || demoDb.pools[0]
+      || null;
+
+    const targetNetwork = demoDb.networks.find((network) =>
+      Array.isArray(network.PIFs) && network.PIFs.some((pifRef) => Array.isArray(targetHost?.PIFs) && targetHost.PIFs.includes(pifRef))
+    ) || demoDb.networks[0] || null;
+
+    const nextVmRef = nextDemoOpaqueRef('vm');
+    const nextVm = {
+      ref: nextVmRef,
+      uuid: `${nextVmRef.replace('OpaqueRef:', '')}-uuid`,
+      name_label: restore ? normalizedName : `${normalizedName}-import`,
+      name_description: metadataOnly
+        ? 'Imported from a metadata-only XenServer archive.'
+        : 'Imported from a XenServer XVA package.',
+      power_state: 'Halted',
+      VCPUs_at_startup: 2,
+      VCPUs_max: 2,
+      memory_static_max: 4294967296,
+      memory_dynamic_max: 4294967296,
+      is_a_template: false,
+      resident_on: targetHost?.ref || '',
+      affinity: targetHost?.ref || '',
+      VBDs: [],
+      VIFs: [],
+      HVM_boot_policy: 'UEFI',
+      platform: { secureboot: 'enabled' },
+      tags: ['imported', metadataOnly ? 'metadata' : 'xva'],
+      pool: targetPool?.ref || '',
+      last_import_at: new Date().toISOString(),
+      last_import_file: fileName,
+      import_restore_identity: restore,
+      import_force_requested: force,
+    };
+
+    if (!metadataOnly && targetSr) {
+      const vbdRef = nextDemoOpaqueRef('vbd');
+      const vdiRef = nextDemoOpaqueRef('vdi');
+      nextVm.VBDs = [vbdRef];
+      if (!demoDb.vdis[targetSr.ref]) {
+        demoDb.vdis[targetSr.ref] = [];
+      }
+      demoDb.vdis[targetSr.ref].push({
+        ref: vdiRef,
+        uuid: `${vdiRef.replace('OpaqueRef:', '')}-uuid`,
+        SR: targetSr.ref,
+        name_label: `${nextVm.name_label}-root`,
+        virtual_size: 42949672960,
+        type: 'user',
+        managed: true,
+        VBDs: [vbdRef],
+      });
+    }
+
+    if (targetNetwork) {
+      const vifRef = nextDemoOpaqueRef('vif');
+      nextVm.VIFs = [vifRef];
+      targetNetwork.VIFs = [...(targetNetwork.VIFs || []), vifRef];
+    }
+
+    demoDb.vms.push(nextVm);
+
+    if (targetHost) {
+      targetHost.resident_VMs = [...(targetHost.resident_VMs || []), nextVmRef];
+    }
+
+    recordDemoAudit({
+      category: 'vms',
+      action: metadataOnly ? 'vm_metadata_imported' : 'vm_xva_imported',
+      actionLabel: metadataOnly ? 'Imported VM metadata for' : 'Imported VM package for',
+      entityType: 'vm',
+      entityRef: nextVmRef,
+      entityName: nextVm.name_label,
+      route: '/vms',
+      after: nextVm,
+      detail: `${fileName} imported into ${targetSr?.name_label || 'default storage'}${metadataOnly ? ' as metadata only' : ''}.`,
+    });
+
+    return {
+      success: true,
+      fileName,
+      metadataOnly,
+      importedVm: clone(nextVm),
+    };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/') && path.endsWith('/duplicate')) {
+    ensureDemoMutationAllowed({ actionKey: 'vm_duplicate_create', entityType: 'vm', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+
+    const nextVmRef = nextDemoOpaqueRef('vm');
+    const nextVm = {
+      ...clone(vm),
+      ref: nextVmRef,
+      uuid: nextVmRef.replace('OpaqueRef:', '') + '-uuid',
+      name_label: body.nameLabel,
+      name_description: body.nameDescription || vm.name_description || '',
+      power_state: body.startAfter ? 'Running' : 'Halted',
+      VBDs: [],
+      VIFs: [],
+      duplication_mode: body.mode === 'copy' ? 'copy' : 'clone',
+      targetSrRef: body.mode === 'copy' ? (body.srRef || '') : '',
+    };
+
+    for (const sourceVbdRef of vm.VBDs || []) {
+      const sourceVdi = Object.values(demoDb.vdis)
+        .flat()
+        .find((entry) => Array.isArray(entry.VBDs) && entry.VBDs.includes(sourceVbdRef));
+      if (!sourceVdi) continue;
+
+      const nextVbdRef = nextDemoOpaqueRef('vbd');
+      const nextVdiRef = nextDemoOpaqueRef('vdi');
+      const targetSrRef = body.mode === 'copy' ? (body.srRef || sourceVdi.SR) : sourceVdi.SR;
+      const nextVdi = {
+        ...clone(sourceVdi),
+        ref: nextVdiRef,
+        uuid: nextVdiRef.replace('OpaqueRef:', '') + '-uuid',
+        SR: targetSrRef,
+        name_label: `${body.nameLabel}-${sourceVdi.name_label || 'disk'}`,
+        VBDs: [nextVbdRef],
+      };
+
+      if (!demoDb.vdis[targetSrRef]) {
+        demoDb.vdis[targetSrRef] = [];
+      }
+      demoDb.vdis[targetSrRef].push(nextVdi);
+      nextVm.VBDs.push(nextVbdRef);
+    }
+
+    for (const sourceVifRef of vm.VIFs || []) {
+      const targetNetwork = demoDb.networks.find((entry) => Array.isArray(entry.VIFs) && entry.VIFs.includes(sourceVifRef));
+      if (!targetNetwork) continue;
+
+      const nextVifRef = nextDemoOpaqueRef('vif');
+      nextVm.VIFs.push(nextVifRef);
+      targetNetwork.VIFs = [...(targetNetwork.VIFs || []), nextVifRef];
+    }
+
+    demoDb.vms.push(nextVm);
+    return clone(nextVm);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/') && path.endsWith('/migrate')) {
+    ensureDemoMutationAllowed({ actionKey: 'vm_migrate', entityType: 'vm', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    const previous = clone(vm);
+    const powerState = String(vm.power_state || '').toLowerCase();
+    const liveEligible = powerState === 'running' || powerState === 'suspended';
+
+    if (body.mode === 'cross-pool') {
+      const destinationScope = getDemoTargetScope(body.destinationTargetKey);
+      const destinationHost = destinationScope.hosts[0];
+      if (!destinationHost) throw new Error('HOST_NOT_FOUND');
+
+      const migrationMode = body.copy ? 'cross-pool-copy' : (liveEligible && body.live !== false ? 'cross-pool-live' : 'cross-pool-relocate');
+      const destinationNetworkMap = Object.fromEntries((body.vifNetworkMap || []).map((entry) => [entry.vifRef, entry.networkRef]));
+
+      if (body.copy) {
+        const nextVmRef = nextDemoOpaqueRef('vm');
+        const nextVm = {
+          ...clone(vm),
+          ref: nextVmRef,
+          uuid: `${nextVmRef.replace('OpaqueRef:', '')}-uuid`,
+          resident_on: destinationHost.ref,
+          affinity: destinationHost.ref,
+          VBDs: [],
+          VIFs: [],
+          last_migration_at: new Date().toISOString(),
+          last_migration_mode: migrationMode,
+          last_migration_target_key: body.destinationTargetKey,
+        };
+
+        for (const sourceVbdRef of vm.VBDs || []) {
+          const sourceVdi = Object.values(demoDb.vdis)
+            .flat()
+            .find((entry) => Array.isArray(entry.VBDs) && entry.VBDs.includes(sourceVbdRef));
+          if (!sourceVdi) continue;
+
+          const nextVbdRef = nextDemoOpaqueRef('vbd');
+          const nextVdiRef = nextDemoOpaqueRef('vdi');
+          const nextVdi = {
+            ...clone(sourceVdi),
+            ref: nextVdiRef,
+            uuid: `${nextVdiRef.replace('OpaqueRef:', '')}-uuid`,
+            SR: body.srRef || sourceVdi.SR,
+            VBDs: [nextVbdRef],
+          };
+
+          if (!demoDb.vdis[nextVdi.SR]) {
+            demoDb.vdis[nextVdi.SR] = [];
+          }
+          demoDb.vdis[nextVdi.SR].push(nextVdi);
+          nextVm.VBDs.push(nextVbdRef);
+        }
+
+        for (const sourceVifRef of vm.VIFs || []) {
+          const nextVifRef = nextDemoOpaqueRef('vif');
+          const destinationNetwork = demoDb.networks.find((network) => network.ref === destinationNetworkMap[sourceVifRef]);
+          if (!destinationNetwork) continue;
+          nextVm.VIFs.push(nextVifRef);
+          destinationNetwork.VIFs = [...(destinationNetwork.VIFs || []), nextVifRef];
+        }
+
+        demoDb.vms.push(nextVm);
+        const persistentDestinationHost = demoDb.hosts.find((entry) => entry.ref === destinationHost.ref);
+        if (persistentDestinationHost) {
+          persistentDestinationHost.resident_VMs = [...new Set([...(persistentDestinationHost.resident_VMs || []), nextVmRef])];
+        }
+
+        const record = {
+          ...clone(nextVm),
+          migration_mode: migrationMode,
+          destinationTargetKey: body.destinationTargetKey,
+          destinationVmRef: nextVmRef,
+          destinationVmUuid: nextVm.uuid,
+          targetSrRef: body.srRef || '',
+          transferNetworkRef: body.transferNetworkRef || '',
+          homeServerUpdated: false,
+          homeServerUpdateError: '',
+        };
+
+        recordDemoAudit({
+          category: 'vms',
+          action: 'vm_cross_pool_copied',
+          actionLabel: 'Copied VM to target fabric',
+          entityType: 'vm',
+          entityRef: nextVmRef,
+          entityName: nextVm.name_label || nextVmRef,
+          route: '/vms',
+          before: previous,
+          after: record,
+          detail: `${vm.name_label || ref} was copied into ${body.destinationTargetKey} on ${destinationHost.name_label || destinationHost.ref}.`,
+        });
+
+        return record;
+      }
+
+      const previousHost = demoDb.hosts.find((entry) => entry.ref === vm.resident_on);
+      if (previousHost) {
+        previousHost.resident_VMs = (previousHost.resident_VMs || []).filter((vmRef) => vmRef !== vm.ref);
+      }
+
+      vm.resident_on = destinationHost.ref;
+      vm.affinity = destinationHost.ref;
+      vm.last_migration_at = new Date().toISOString();
+      vm.last_migration_mode = migrationMode;
+      vm.last_migration_target_key = body.destinationTargetKey;
+      vm.last_migration_target = destinationHost.ref;
+
+      Object.values(demoDb.vdis)
+        .flat()
+        .filter((entry) => Array.isArray(entry.VBDs) && entry.VBDs.some((vbdRef) => (vm.VBDs || []).includes(vbdRef)))
+        .forEach((entry) => {
+          entry.SR = body.srRef || entry.SR;
+        });
+
+      demoDb.networks.forEach((network) => {
+        network.VIFs = (network.VIFs || []).filter((vifRef) => !(vm.VIFs || []).includes(vifRef));
+      });
+      (vm.VIFs || []).forEach((vifRef) => {
+        const destinationNetwork = demoDb.networks.find((network) => network.ref === destinationNetworkMap[vifRef]);
+        if (destinationNetwork) {
+          destinationNetwork.VIFs = [...new Set([...(destinationNetwork.VIFs || []), vifRef])];
+        }
+      });
+
+      const persistentDestinationHost = demoDb.hosts.find((entry) => entry.ref === destinationHost.ref);
+      if (persistentDestinationHost) {
+        persistentDestinationHost.resident_VMs = [...new Set([...(persistentDestinationHost.resident_VMs || []), vm.ref])];
+      }
+
+      const record = {
+        ...clone(vm),
+        migration_mode: migrationMode,
+        destinationTargetKey: body.destinationTargetKey,
+        destinationVmRef: vm.ref,
+        destinationVmUuid: vm.uuid,
+        migrated_to: destinationHost.ref,
+        targetSrRef: body.srRef || '',
+        transferNetworkRef: body.transferNetworkRef || '',
+        homeServerUpdated: false,
+        homeServerUpdateError: '',
+      };
+
+      recordDemoAudit({
+        category: 'vms',
+        action: 'vm_cross_pool_migrated',
+        actionLabel: 'Migrated VM to target fabric',
+        entityType: 'vm',
+        entityRef: vm.ref,
+        entityName: vm.name_label || vm.ref,
+        route: '/vms',
+        before: previous,
+        after: record,
+        detail: `${vm.name_label || ref} moved into ${body.destinationTargetKey} on ${destinationHost.name_label || destinationHost.ref}.`,
+      });
+
+      return record;
+    }
+
+    const targetHost = demoDb.hosts.find((entry) => entry.ref === body.hostRef);
+    if (!targetHost) throw new Error('HOST_NOT_FOUND');
+
+    const migrationMode = liveEligible && body.live !== false ? 'live' : 'relocate';
+    vm.resident_on = body.hostRef;
+    if (body.setAsHomeServer) {
+      vm.affinity = body.hostRef;
+    }
+    vm.last_migration_at = new Date().toISOString();
+    vm.last_migration_mode = migrationMode;
+    vm.last_migration_target = body.hostRef;
+
+    const record = {
+      ...clone(vm),
+      migration_mode: migrationMode,
+      migrated_to: body.hostRef,
+      homeServerUpdated: Boolean(body.setAsHomeServer),
+      homeServerUpdateError: '',
+    };
+
+    recordDemoAudit({
+      category: 'vms',
+      action: migrationMode === 'live' ? 'vm_live_migrated' : 'vm_relocated',
+      actionLabel: migrationMode === 'live' ? 'Live migrated VM' : 'Relocated VM',
+      entityType: 'vm',
+      entityRef: ref,
+      entityName: vm.name_label || ref,
+      route: '/vms',
+      before: previous,
+      after: record,
+      detail: `${vm.name_label || ref} moved to ${targetHost.name_label || body.hostRef} via ${migrationMode === 'live' ? 'live migration' : 'relocation'}.`,
+    });
+
+    return record;
+  }
+
+  if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/snapshots')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const snapshots = demoDb.vmSnapshots[ref] || [];
+    return { total: snapshots.length, data: clone(snapshots) };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/vms/') && path.endsWith('/snapshots')) {
+    ensureDemoMutationAllowed({ actionKey: 'vm_snapshot_create', entityType: 'vm', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+
+    const snapshotRef = nextDemoOpaqueRef('snapshot');
+    const snapshot = {
+      ref: snapshotRef,
+      uuid: snapshotRef.replace('OpaqueRef:', '') + '-uuid',
+      name_label: body.nameLabel,
+      name_description: body.nameDescription || '',
+      snapshot_time: new Date().toISOString(),
+      snapshot_of: ref,
+      is_a_snapshot: true,
+      snapshot_mode: body.mode === 'checkpoint' ? 'checkpoint' : 'snapshot',
+      power_state: vm.power_state || 'Halted',
+    };
+
+    if (!demoDb.vmSnapshots[ref]) {
+      demoDb.vmSnapshots[ref] = [];
+    }
+
+    demoDb.vmSnapshots[ref].unshift(snapshot);
+    return clone(snapshot);
+  }
+
+  if (method === 'POST' && /\/api\/vms\/.+\/snapshots\/.+\/revert$/.test(path)) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const snapshotRef = decodeURIComponent(path.split('/')[5] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'vm_snapshot_revert',
+      entityType: 'vm-snapshot',
+      entityRef: snapshotRef,
+      destructive: true,
+      approvalId: body.approvalId || '',
+    });
+
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    const snapshot = (demoDb.vmSnapshots[ref] || []).find((entry) => entry.ref === snapshotRef);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    if (!snapshot) throw new Error('VM_SNAPSHOT_NOT_FOUND');
+
+    vm.last_reverted_snapshot = snapshot.ref;
+    vm.last_reverted_at = new Date().toISOString();
+    return { success: true, snapshotRef };
+  }
+
+  if (method === 'DELETE' && /\/api\/vms\/.+\/snapshots\/.+$/.test(path)) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const snapshotRef = decodeURIComponent(path.split('/')[5] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'vm_snapshot_delete',
+      entityType: 'vm-snapshot',
+      entityRef: snapshotRef,
+      destructive: true,
+      approvalId: body.approvalId || '',
+    });
+
+    const snapshots = demoDb.vmSnapshots[ref] || [];
+    const nextSnapshots = snapshots.filter((entry) => entry.ref !== snapshotRef);
+    if (nextSnapshots.length === snapshots.length) throw new Error('VM_SNAPSHOT_NOT_FOUND');
+    demoDb.vmSnapshots[ref] = nextSnapshots;
+    return { success: true, snapshotRef };
+  }
+
+  if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/export')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const metadataOnly = parsedUrl.searchParams.get('metadataOnly') === 'true';
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+
+    const vbdRefs = new Set(Array.isArray(vm.VBDs) ? vm.VBDs : []);
+    const vifRefs = new Set(Array.isArray(vm.VIFs) ? vm.VIFs : []);
+    const disks = Object.values(demoDb.vdis)
+      .flat()
+      .filter((entry) => Array.isArray(entry.VBDs) && entry.VBDs.some((vbdRef) => vbdRefs.has(vbdRef)));
+    const networks = demoDb.networks
+      .filter((entry) => Array.isArray(entry.VIFs) && entry.VIFs.some((vifRef) => vifRefs.has(vifRef)));
+    const targetVm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (targetVm) {
+      targetVm.last_export_at = new Date().toISOString();
+      targetVm.last_export_mode = metadataOnly ? 'metadata' : 'xva';
+    }
+
+    recordDemoAudit({
+      category: 'vms',
+      action: metadataOnly ? 'vm_metadata_exported' : 'vm_xva_exported',
+      actionLabel: metadataOnly ? 'Exported VM metadata for' : 'Exported VM package for',
+      entityType: 'vm',
+      entityRef: ref,
+      entityName: vm.name_label || ref,
+      route: '/vms',
+      after: targetVm || vm,
+      detail: `${vm.name_label || ref} exported as ${metadataOnly ? 'metadata-only archive' : 'full XVA package'}.`,
+    });
+
+    return {
+      filename: `${String(vm.name_label || 'vm').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'vm'}${metadataOnly ? '-metadata' : ''}.xva`,
+      contentType: 'application/octet-stream',
+      content: JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        metadataOnly,
+        vm: clone(vm),
+        disks: metadataOnly ? [] : clone(disks),
+        networks: clone(networks),
+      }, null, 2),
+    };
+  }
+
+  if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/compatibility')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = buildDemoVmInventory(targetKey).find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    return clone(buildDemoVmCompatibility(vm, targetKey));
+  }
+
+  if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/consoles')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = buildDemoVmInventory(targetKey).find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    const consoles = buildDemoVmConsoles(vm, targetKey);
+    return { total: consoles.length, data: clone(consoles) };
+  }
+
   if (method === 'GET' && path.startsWith('/api/vms/')) {
     const ref = decodeURIComponent(path.split('/')[3] || '');
-    return clone(demoDb.vms.find((vm) => vm.ref === ref) || {});
+    return clone(buildDemoVmInventory(targetKey).find((vm) => vm.ref === ref) || {});
   }
 
   if (method === 'PUT' && path.startsWith('/api/vms/') && path.endsWith('/config')) {
@@ -3473,7 +4777,187 @@ function demoRequest(method, url, body) {
   }
 
   if (method === 'GET' && path === '/api/storage') {
-    return { total: demoDb.srs.length, data: clone(demoDb.srs) };
+    return { total: scope.srs.length, data: clone(scope.srs) };
+  }
+
+  if (method === 'POST' && path === '/api/storage') {
+    ensureDemoMutationAllowed({ actionKey: 'sr_create', entityType: 'host', entityRef: body?.hostRef || '' });
+    const host = demoDb.hosts.find((entry) => entry.ref === body?.hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    const srRef = nextDemoOpaqueRef('sr');
+    const record = {
+      ref: srRef,
+      uuid: `${srRef.replace('OpaqueRef:', '')}-uuid`,
+      name_label: body?.nameLabel,
+      name_description: body?.nameDescription || '',
+      type: body?.type || 'nfs',
+      content_type: body?.contentType || 'user',
+      shared: Boolean(body?.shared),
+      physical_size: 0,
+      physical_utilisation: 0,
+      virtual_allocation: 0,
+      tags: [],
+      sm_config: clone(body?.smConfig || {}),
+      other_config: {},
+      PBDs: [],
+      VDIs: [],
+      resident_on: body?.hostRef || '',
+      device_config: clone(body?.deviceConfig || {}),
+    };
+
+    demoDb.srs.push(record);
+    if (!demoDb.vdis[srRef]) {
+      demoDb.vdis[srRef] = [];
+    }
+
+    return clone(record);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/repair')) {
+    ensureDemoMutationAllowed({ actionKey: 'sr_repair', entityType: 'sr', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === ref);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+
+    const repairedPbdRefs = Array.isArray(sr.PBDs) ? [...sr.PBDs] : [];
+    sr.other_config = {
+      ...(sr.other_config || {}),
+      last_repair_at: '2026-08-26T19:10:00.000Z',
+    };
+
+    return clone({
+      ...sr,
+      checkedPbdRefs: Array.isArray(sr.PBDs) ? [...sr.PBDs] : [],
+      repairedPbdRefs,
+      reattachedCount: repairedPbdRefs.length,
+    });
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/rescan')) {
+    ensureDemoMutationAllowed({ actionKey: 'sr_rescan', entityType: 'sr', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === ref);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+    sr.other_config = {
+      ...(sr.other_config || {}),
+      last_rescan_at: new Date().toISOString(),
+    };
+    return clone(sr);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/forget')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'sr_forget',
+      entityType: 'sr',
+      entityRef: ref,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+    const index = demoDb.srs.findIndex((entry) => entry.ref === ref);
+    if (index === -1) throw new Error('SR_NOT_FOUND');
+
+    demoDb.srs.splice(index, 1);
+    delete demoDb.vdis[ref];
+
+    return { success: true, ref };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/destroy')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vdis = demoDb.vdis[ref] || [];
+    if (vdis.length) {
+      const error = new Error(`Destroy requires an empty repository. ${vdis.length} VDI${vdis.length === 1 ? '' : 's'} still map to this storage repository.`);
+      error.code = 'SR_DESTROY_REQUIRES_EMPTY_REPOSITORY';
+      throw error;
+    }
+
+    ensureDemoMutationAllowed({
+      actionKey: 'sr_destroy',
+      entityType: 'sr',
+      entityRef: ref,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+    const index = demoDb.srs.findIndex((entry) => entry.ref === ref);
+    if (index === -1) throw new Error('SR_NOT_FOUND');
+
+    demoDb.srs.splice(index, 1);
+    delete demoDb.vdis[ref];
+
+    return { success: true, ref };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/vdis')) {
+    ensureDemoMutationAllowed({ actionKey: 'sr_vdi_create', entityType: 'sr', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === ref);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+
+    const vdiRef = nextDemoOpaqueRef('vdi');
+    const vdi = {
+      ref: vdiRef,
+      uuid: `${vdiRef.replace('OpaqueRef:', '')}-uuid`,
+      SR: ref,
+      name_label: body.nameLabel,
+      virtual_size: Number(body.sizeBytes || 0),
+      type: String(body.type || 'user'),
+      managed: true,
+      VBDs: [],
+    };
+
+    if (!demoDb.vdis[ref]) {
+      demoDb.vdis[ref] = [];
+    }
+
+    demoDb.vdis[ref].push(vdi);
+    sr.virtual_allocation = Number(sr.virtual_allocation || 0) + Number(body.sizeBytes || 0);
+    return clone(vdi);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.includes('/vdis/') && path.endsWith('/resize')) {
+    ensureDemoMutationAllowed({ actionKey: 'vdi_resize', entityType: 'vdi', entityRef: decodeURIComponent(path.split('/')[5] || '') });
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    const vdiRef = decodeURIComponent(path.split('/')[5] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === srRef);
+    const vdi = Object.values(demoDb.vdis).flat().find((entry) => entry.ref === vdiRef);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+    if (!vdi) throw new Error('VDI_NOT_FOUND');
+    if (vdi.SR !== srRef) throw new Error('VDI_SR_MISMATCH');
+
+    const previousSize = Number(vdi.virtual_size || 0);
+    const nextSize = Number(body.sizeBytes || previousSize);
+    vdi.virtual_size = nextSize;
+    sr.virtual_allocation = Math.max(0, Number(sr.virtual_allocation || 0) + (nextSize - previousSize));
+    return clone(vdi);
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/storage/') && path.includes('/vdis/')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    const vdiRef = decodeURIComponent(path.split('/')[5] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === srRef);
+    const vdis = demoDb.vdis[srRef] || [];
+    const index = vdis.findIndex((entry) => entry.ref === vdiRef);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+    if (index === -1) throw new Error('VDI_NOT_FOUND');
+    if (Array.isArray(vdis[index]?.VBDs) && vdis[index].VBDs.length) {
+      const error = new Error(`Delete only supports detached VDIs. ${vdis[index].VBDs.length} attachment path${vdis[index].VBDs.length === 1 ? '' : 's'} still map to this disk.`);
+      error.code = 'VDI_DELETE_REQUIRES_DETACHED_DISK';
+      throw error;
+    }
+
+    ensureDemoMutationAllowed({
+      actionKey: 'vdi_delete',
+      entityType: 'vdi',
+      entityRef: vdiRef,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+
+    const [removed] = vdis.splice(index, 1);
+    sr.virtual_allocation = Math.max(0, Number(sr.virtual_allocation || 0) - Number(removed?.virtual_size || 0));
+    return { success: true, vdiRef };
   }
 
   if (method === 'GET' && path.startsWith('/api/storage/') && path.endsWith('/vdis')) {
@@ -3483,7 +4967,7 @@ function demoRequest(method, url, body) {
   }
 
   if (method === 'GET' && path === '/api/networks') {
-    return { total: demoDb.networks.length, data: clone(demoDb.networks) };
+    return { total: scope.networks.length, data: clone(scope.networks) };
   }
 
   if (method === 'GET' && path === '/api/connections') {

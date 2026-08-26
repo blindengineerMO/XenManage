@@ -5,6 +5,14 @@ const SETTINGS_KEY = 'alerts.state';
 const POLICIES_KEY = 'alerts.policies';
 const VALID_SEVERITIES = new Set(['critical', 'warning', 'info', 'notice']);
 const VALID_ACTIONS = new Set(['none', 'inspect', 'monitor', 'review', 'evacuate', 'snapshot', 'lifecycle', 'capacity', 'resilience', 'governance']);
+const ALERT_SUBOBJECT_CLASS_MAP = {
+  vdi: 'VDI',
+  vbd: 'VBD',
+  vif: 'VIF',
+  pif: 'PIF',
+  bond: 'Bond',
+  vlan: 'VLAN',
+};
 
 function getMessageHeadline(message) {
   return message?.name || message?.body || message?.cls || 'Alert';
@@ -39,7 +47,7 @@ function getTargetRoute(cls = '') {
   if (value === 'sr' || value === 'vdi' || value === 'vbd') return '/storage';
   if (value === 'vm') return '/vms';
   if (value === 'pool') return '/pools';
-  if (value === 'network' || value === 'vif' || value === 'pif') return '/networking';
+  if (value === 'network' || value === 'vif' || value === 'pif' || value === 'bond' || value === 'vlan') return '/networking';
   if (value === 'task') return '/activity';
   return '/inventory';
 }
@@ -281,6 +289,73 @@ function listAlerts(messageRecords = {}) {
   return sortAlerts(alerts);
 }
 
+async function enrichAlertRecords(messageRecords = {}, xenApi = null) {
+  const records = { ...(messageRecords || {}) };
+  if (!xenApi?.getAllRecords) return records;
+
+  const classes = [...new Set(
+    Object.values(records)
+      .map((record) => String(record?.cls || '').trim().toLowerCase())
+      .filter((cls) => ALERT_SUBOBJECT_CLASS_MAP[cls])
+  )];
+
+  if (!classes.length) return records;
+
+  const refLookupByClass = {};
+  await Promise.all(classes.map(async (cls) => {
+    const className = ALERT_SUBOBJECT_CLASS_MAP[cls];
+    try {
+      const result = await xenApi.getAllRecords(className);
+      refLookupByClass[cls] = new Map(
+        Object.entries(result || {})
+          .map(([ref, record]) => {
+            const uuid = String(record?.uuid || '').trim().toLowerCase();
+            if (!uuid) return null;
+
+            if (cls === 'bond') {
+              const representativeRef = String(
+                record?.master
+                || (Array.isArray(record?.slaves) ? record.slaves.find(Boolean) : '')
+                || ref
+              ).trim();
+              return representativeRef ? [uuid, representativeRef] : null;
+            }
+
+            if (cls === 'vlan') {
+              const representativeRef = String(record?.tagged_PIF || record?.untagged_PIF || ref).trim();
+              return representativeRef ? [uuid, representativeRef] : null;
+            }
+
+            return [uuid, ref];
+          })
+          .filter(Boolean)
+          .filter(([uuid]) => uuid)
+      );
+    } catch (error) {
+      refLookupByClass[cls] = new Map();
+    }
+  }));
+
+  return Object.fromEntries(
+    Object.entries(records).map(([ref, record]) => {
+      const cls = String(record?.cls || '').trim().toLowerCase();
+      const objectUuid = String(record?.obj_uuid || '').trim();
+      const existingObjectRef = String(record?.object_ref || '').trim();
+
+      if (!ALERT_SUBOBJECT_CLASS_MAP[cls]) {
+        return [ref, record];
+      }
+
+      const resolvedObjectRef = existingObjectRef
+        || (objectUuid.startsWith('OpaqueRef:') ? objectUuid : '')
+        || refLookupByClass[cls]?.get(objectUuid.toLowerCase())
+        || '';
+
+      return [ref, resolvedObjectRef ? { ...record, object_ref: resolvedObjectRef } : record];
+    })
+  );
+}
+
 function saveAlertState(ref, payload, username = '') {
   const stateMap = readAlertStateMap();
   const nextState = normalizeAlertState({
@@ -304,6 +379,7 @@ module.exports = {
   getMessageSeverity,
   getTargetLabel,
   getTargetRoute,
+  enrichAlertRecords,
   listAlerts,
   listAlertPolicies,
   mergeAlertRecord,

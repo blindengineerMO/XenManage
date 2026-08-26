@@ -1,5 +1,10 @@
 const LifecycleView = {
-  components: { FloatingWindow, StatusBadge, 'lifecycle-plan-form': LifecyclePlanForm },
+  components: {
+    FloatingWindow,
+    StatusBadge,
+    'lifecycle-plan-form': LifecyclePlanForm,
+    'host-maintenance-form': HostMaintenanceForm,
+  },
   template: `
     <div class="animate-fade-in">
       <div v-if="loading" class="empty-state">
@@ -283,13 +288,13 @@ const LifecycleView = {
         </floating-window>
 
         <floating-window :show="showPlanner"
-                         title="Lifecycle Plan"
+                         :title="plannerWindowTitle"
                          :width="720"
                          :height="640"
                          @close="closePlanner">
           <div v-if="plannerHost">
             <div class="detail-section" style="margin-top:0">
-              <div class="detail-section-title">Planning Target</div>
+              <div class="detail-section-title">{{ plannerTargetTitle }}</div>
               <div class="stack-item">
                 <div>
                   <strong>{{ plannerHost.name_label || plannerHost.hostname || 'Host' }}</strong>
@@ -301,9 +306,15 @@ const LifecycleView = {
               </div>
             </div>
 
+            <div class="capacity-callout" v-if="plannerLaunchMode === 'maintenance'" style="margin-bottom:12px">
+              <strong>Execution-first handoff active</strong>
+              <p>This seeded flow opens the maintenance execution path immediately while keeping the lifecycle plan editable in the same window.</p>
+            </div>
+
             <lifecycle-plan-form
               :host-record="plannerHost"
               :initial-value="plannerInitialValue"
+              :submit-label="plannerSubmitLabel"
               :saving="planSaving"
               @submit="savePlan">
             </lifecycle-plan-form>
@@ -315,6 +326,42 @@ const LifecycleView = {
               <p>{{ plannerSourceTask.name_label || plannerSourceTask.related_alert_summary || plannerSourceTask.ref }}</p>
               <div class="text-muted mono" style="font-size:11px">
                 {{ plannerSourceTask.template_name || 'manual template' }} · {{ plannerSourceTask.ref || '-' }}
+              </div>
+            </div>
+
+            <div class="detail-section" v-if="plannerCanExecuteMaintenance">
+              <div class="detail-section-title">Execution Handoff</div>
+              <div class="dash-card">
+                <div class="dash-card-label">Host Maintenance</div>
+                <p class="text-muted" style="margin-bottom:12px">
+                  Promote the lifecycle plan into a concrete host maintenance action without re-entering evacuation settings in another workspace.
+                </p>
+                <host-maintenance-form
+                  v-if="!plannerHostMaintenanceMode"
+                  :initial-value="plannerMaintenanceDraft"
+                  :network-options="plannerMaintenanceNetworkOptions"
+                  :saving="plannerActionBusy === 'maintenance-enter'"
+                  submit-label="Enter Maintenance Mode"
+                  @submit="enterPlannerMaintenanceMode">
+                </host-maintenance-form>
+                <div v-else class="stack-list">
+                  <div class="stack-item">
+                    <div>
+                      <strong>Host is already in maintenance mode</strong>
+                      <div class="text-muted mono" style="font-size:11px">
+                        Re-enable this host after patching, validation, or diagnostics are complete.
+                      </div>
+                    </div>
+                    <span class="badge badge-warning">maintenance</span>
+                  </div>
+                  <button class="btn btn-primary btn-sm"
+                          :disabled="Boolean(plannerActionBusy)"
+                          @click="exitPlannerMaintenanceMode">
+                    <span class="mdi mdi-playlist-check"></span>
+                    {{ plannerActionBusy === 'maintenance-exit' ? 'Re-enabling...' : 'Exit Maintenance Mode' }}
+                  </button>
+                </div>
+                <div class="form-error" v-if="plannerActionError" style="text-align:left;margin-top:12px">{{ plannerActionError }}</div>
               </div>
             </div>
 
@@ -352,7 +399,10 @@ const LifecycleView = {
       showPlanner: false,
       planSaving: false,
       planError: null,
+      plannerActionBusy: '',
+      plannerActionError: null,
       plannerSeed: null,
+      plannerLaunchMode: 'plan',
       plannerSourceTask: null,
       lastAppliedFocusKey: '',
     };
@@ -398,6 +448,51 @@ const LifecycleView = {
         ...(this.plannerHost.lifecyclePlan || {}),
         ...this.plannerSeed,
       };
+    },
+    plannerWindowTitle() {
+      return this.plannerLaunchMode === 'maintenance' ? 'Maintenance Handoff' : 'Lifecycle Plan';
+    },
+    plannerTargetTitle() {
+      return this.plannerLaunchMode === 'maintenance' ? 'Maintenance Target' : 'Planning Target';
+    },
+    plannerSubmitLabel() {
+      return this.plannerLaunchMode === 'maintenance' ? 'Save Lifecycle Plan Before Maintenance' : 'Save Lifecycle Plan';
+    },
+    plannerHostPool() {
+      return this.resolvePoolForHost(this.plannerHost);
+    },
+    plannerHostMaintenanceMode() {
+      if (!this.plannerHost) return false;
+      if (this.plannerHost.maintenance_mode === true) return true;
+      return String(this.plannerHost.other_config?.maintenance_mode || '').toLowerCase() === 'true';
+    },
+    plannerMaintenanceNetworkOptions() {
+      if (!this.plannerHost) return [];
+
+      const hostPifRefs = new Set(Array.isArray(this.plannerHost.PIFs) ? this.plannerHost.PIFs : []);
+      const records = this.relatedNetworks.filter((network) =>
+        Array.isArray(network.PIFs) && network.PIFs.some((ref) => hostPifRefs.has(ref))
+      );
+      const ordered = [...records];
+      const poolMigrationRef = this.plannerHostPool?.migration_network || '';
+      if (poolMigrationRef) {
+        const poolMigrationNetwork = this.relatedNetworks.find((network) => network.ref === poolMigrationRef);
+        if (poolMigrationNetwork && !ordered.some((network) => network.ref === poolMigrationNetwork.ref)) {
+          ordered.unshift(poolMigrationNetwork);
+        }
+      }
+      return ordered;
+    },
+    plannerMaintenanceDraft() {
+      return {
+        networkRef: this.plannerHostPool?.migration_network || this.plannerMaintenanceNetworkOptions[0]?.ref || '',
+        poolMigrationNetworkRef: this.plannerHostPool?.migration_network || '',
+        evacuateBatchSize: 0,
+        evacuateRunningVms: this.plannerInitialValue?.evacuationRequired !== false,
+      };
+    },
+    plannerCanExecuteMaintenance() {
+      return Boolean(this.plannerHost && (this.plannerHost.lifecyclePlan || this.plannerSeed || this.plannerSourceTask));
     },
     compliantHosts() {
       return this.hostLifecycleRows.filter((row) => row.lifecycleStatus === 'success');
@@ -838,10 +933,10 @@ const LifecycleView = {
       const task = this.findTaskByFocus(focus);
       if (!task) return;
 
-      if (seedAction === 'lifecycle-plan' && task.lifecycle_plan_seed?.enabled) {
+      if (['lifecycle-plan', 'lifecycle-maintenance'].includes(seedAction) && task.lifecycle_plan_seed?.enabled) {
         const host = this.findHostByTask(task);
         if (!host) return;
-        this.openPlanner(host, task.lifecycle_plan_seed, task);
+        this.openPlanner(host, task.lifecycle_plan_seed, task, seedAction === 'lifecycle-maintenance' ? 'maintenance' : 'plan');
         this.lastAppliedFocusKey = key;
       }
     },
@@ -1027,20 +1122,42 @@ const LifecycleView = {
       this.showInspector = false;
       this.selectedHostRef = null;
     },
-    openPlanner(row, seed = null, sourceTask = null) {
+    openPlanner(row, seed = null, sourceTask = null, launchMode = 'plan') {
       if (!row) return;
       this.plannerHostRef = row.ref;
-       this.plannerSeed = seed ? { ...seed } : null;
+      this.plannerSeed = seed ? { ...seed } : null;
+      this.plannerLaunchMode = launchMode === 'maintenance' ? 'maintenance' : 'plan';
       this.plannerSourceTask = sourceTask || null;
       this.planError = null;
+      this.plannerActionError = null;
       this.showPlanner = true;
     },
     closePlanner() {
       this.showPlanner = false;
       this.plannerHostRef = null;
       this.plannerSeed = null;
+      this.plannerLaunchMode = 'plan';
       this.plannerSourceTask = null;
       this.planError = null;
+      this.plannerActionBusy = '';
+      this.plannerActionError = null;
+    },
+    async syncPlannerSourceTaskStatus(status, result) {
+      if (!this.plannerSourceTask?.ref || !this.isRemediationTask(this.plannerSourceTask)) return;
+
+      const currentStatus = String(this.plannerSourceTask.status || '').trim().toLowerCase();
+      if (['success', 'warning', 'failure', 'cancelled'].includes(currentStatus)) return;
+
+      const updatedTask = await api.updateRemediationTask(this.plannerSourceTask.ref, {
+        status,
+        assignee: this.plannerSourceTask.assignee || store.username || '',
+        dueDate: this.plannerSourceTask.due_date || this.plannerSourceTask.dueDate || '',
+        result,
+        nameDescription: this.plannerSourceTask.name_description || this.plannerSourceTask.nameDescription || '',
+      });
+
+      this.tasks = this.tasks.map((task) => task.ref === updatedTask.ref ? updatedTask : task);
+      this.plannerSourceTask = updatedTask;
     },
     async savePlan(payload) {
       if (!this.plannerHost) return;
@@ -1062,6 +1179,56 @@ const LifecycleView = {
         this.planSaving = false;
       }
     },
+    async enterPlannerMaintenanceMode(payload) {
+      if (!this.plannerHost?.ref) return;
+
+      this.plannerActionBusy = 'maintenance-enter';
+      this.plannerActionError = null;
+
+      let taskSyncError = null;
+      try {
+        await api.enterHostMaintenance(this.plannerHost.ref, payload);
+
+        const hostLabel = this.plannerHost.name_label || this.plannerHost.hostname || this.plannerHost.ref || 'Host';
+        const evacuationLabel = payload.evacuateRunningVms
+          ? 'Workload evacuation is in progress.'
+          : 'No workload evacuation was requested.';
+
+        try {
+          await this.syncPlannerSourceTaskStatus(
+            'in_progress',
+            `Maintenance mode entered for ${hostLabel}. ${evacuationLabel}`
+          );
+        } catch (error) {
+          taskSyncError = error;
+        }
+
+        await this.loadLifecycle();
+        this.plannerSeed = null;
+
+        if (taskSyncError) {
+          this.plannerActionError = 'Maintenance mode was entered, but the source remediation task could not be advanced automatically.';
+        }
+      } catch (error) {
+        this.plannerActionError = error.message || 'Unable to enter maintenance mode from the lifecycle planner.';
+      } finally {
+        this.plannerActionBusy = '';
+      }
+    },
+    async exitPlannerMaintenanceMode() {
+      if (!this.plannerHost?.ref) return;
+
+      this.plannerActionBusy = 'maintenance-exit';
+      this.plannerActionError = null;
+      try {
+        await api.exitHostMaintenance(this.plannerHost.ref);
+        await this.loadLifecycle();
+      } catch (error) {
+        this.plannerActionError = error.message || 'Unable to exit maintenance mode from the lifecycle planner.';
+      } finally {
+        this.plannerActionBusy = '';
+      }
+    },
     async deletePlan(row) {
       const target = row?.ref ? row : this.selectedHost;
       if (!target?.ref) return;
@@ -1069,9 +1236,25 @@ const LifecycleView = {
       this.planSaving = true;
       this.planError = null;
       try {
-        await api.deleteLifecyclePlan(target.ref);
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'lifecycle_plan_delete',
+          entityType: 'host',
+          entityRef: target.ref,
+          entityName: target.name_label || target.hostname || target.address || 'Host lifecycle plan',
+          route: '/lifecycle',
+        });
+        await api.deleteLifecyclePlan(target.ref, approvalId ? { approvalId } : null);
         await this.loadLifecycle();
       } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.planError = 'Governance approval is required before clearing this lifecycle plan.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this lifecycle plan.'
+          );
+          return;
+        }
         this.planError = error.message || 'Unable to clear lifecycle plan';
       } finally {
         this.planSaving = false;

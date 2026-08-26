@@ -4,6 +4,7 @@ const { ensureMutationAllowed } = require('../middleware/governance');
 const auditLogService = require('../services/audit-log');
 const remediationTaskService = require('../services/remediation-tasks');
 const remediationTaskTemplateService = require('../services/remediation-task-templates');
+const templateDeploymentRunService = require('../services/template-deployment-runs');
 
 const router = express.Router();
 
@@ -18,7 +19,8 @@ router.get('/', async (req, res) => {
         return rightDate - leftDate;
       });
     const remediationTasks = remediationTaskService.list();
-    const list = [...remediationTasks, ...xenTasks]
+    const deploymentRuns = templateDeploymentRunService.listTasks();
+    const list = [...deploymentRuns, ...remediationTasks, ...xenTasks]
       .sort((left, right) => {
         const rightDate = new Date(right.finished || right.created || 0).getTime();
         const leftDate = new Date(left.finished || left.created || 0).getTime();
@@ -62,6 +64,7 @@ router.post('/remediation', validate(schemas.remediationTaskCreate), (req, res) 
       completionCriteria: req.body.completionCriteria,
       lifecyclePlanSeed: req.body.lifecyclePlanSeed,
       resilienceRunbookSeed: req.body.resilienceRunbookSeed,
+      vmMigrationSeed: req.body.vmMigrationSeed,
       templateId: template?.id || req.body.templateId,
       templateName: template?.name || req.body.templateName,
       templateLaunchMode: template?.launchMode || req.body.templateLaunchMode,
@@ -193,7 +196,7 @@ router.put('/remediation/templates/:id', validate(schemas.remediationTemplateIdP
 
 router.delete('/remediation/templates/:id', validate(schemas.remediationTemplateIdParam, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'remediation_template_delete', entityType: 'task-template', entityRef: req.params.id })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'remediation_template_delete', entityType: 'task-template', entityRef: req.params.id, destructive: true })) return;
 
     const template = remediationTaskTemplateService.delete(req.params.id);
     auditLogService.record({

@@ -150,6 +150,17 @@ describe('Tasks Routes', () => {
         runbookSteps: ['Validate backup currency', 'Confirm standby host readiness'],
         notes: 'Protect the affected workload pool.',
       },
+      vmMigrationSeed: {
+        enabled: true,
+        mode: 'same-pool',
+        hostRef: 'OpaqueRef:host2',
+        live: true,
+        copy: false,
+        force: false,
+        compress: true,
+        setAsHomeServer: true,
+        notes: 'Move the workload onto the alternate production host.',
+      },
     }, auth.cookie);
 
     expect(create.status).toBe(201);
@@ -167,6 +178,11 @@ describe('Tasks Routes', () => {
       resilience_runbook_seed: expect.objectContaining({
         enabled: true,
         recoveryTier: 'tier-1',
+      }),
+      vm_migration_seed: expect.objectContaining({
+        enabled: true,
+        mode: 'same-pool',
+        hostRef: 'OpaqueRef:host2',
       }),
     }));
 
@@ -252,7 +268,7 @@ describe('Tasks Routes', () => {
       workspaceSummaryTemplate: 'Validate datastore pressure and capture evidence for {summary}.',
       evidenceChecklist: ['Capture current latency evidence.', 'Review affected workloads.'],
       completionCriteria: ['Owner confirmed.', 'Closure note recorded.'],
-      launchMode: 'queue',
+      launchMode: 'resilience-drill',
       recurrenceMode: 'daily',
       recurrenceScope: 'object',
       cooldownDays: 0,
@@ -283,6 +299,17 @@ describe('Tasks Routes', () => {
         runbookSteps: ['Validate backups', 'Confirm standby host'],
         notes: 'Protect storage-adjacent workloads.',
       },
+      vmMigrationSeed: {
+        enabled: true,
+        mode: 'same-pool',
+        hostRef: 'OpaqueRef:host2',
+        live: true,
+        copy: false,
+        force: false,
+        compress: true,
+        setAsHomeServer: true,
+        notes: 'Pre-stage a workload move onto the alternate host.',
+      },
     }, auth.cookie);
 
     expect(create.status).toBe(201);
@@ -290,6 +317,7 @@ describe('Tasks Routes', () => {
       name: 'Storage Capacity Review',
       actionType: 'capacity',
       defaultDueDays: 2,
+      launchMode: 'resilience-drill',
       workspaceSummaryTemplate: 'Validate datastore pressure and capture evidence for {summary}.',
       lifecyclePlanSeed: expect.objectContaining({
         enabled: true,
@@ -298,6 +326,11 @@ describe('Tasks Routes', () => {
       resilienceRunbookSeed: expect.objectContaining({
         enabled: true,
         recoveryTier: 'tier-1',
+      }),
+      vmMigrationSeed: expect.objectContaining({
+        enabled: true,
+        mode: 'same-pool',
+        hostRef: 'OpaqueRef:host2',
       }),
     }));
 
@@ -424,5 +457,69 @@ describe('Tasks Routes', () => {
         ref: first.body.ref,
       }),
     }));
+  });
+
+  it('should require approved destructive tokens before operators delete remediation templates', async () => {
+    const auth = await login();
+
+    const create = await request('POST', '/api/tasks/remediation/templates', {
+      enabled: true,
+      name: 'Delete-Me Template',
+      matchClass: 'sr',
+      matchTargetRoute: '/storage',
+      matchObject: 'sr-uuid-1',
+      matchSeverity: 'warning',
+      matchText: 'storage threshold',
+      textMatchMode: 'all',
+      actionType: 'capacity',
+      taskNameTemplate: 'Capacity Review: {summary}',
+      defaultAssignee: 'Platform Ops',
+      defaultDueDays: 2,
+      defaultTargetRoute: '/capacity',
+      defaultNotes: 'Template created for Monday, August 24, 2026 approval validation.',
+      workspaceSummaryTemplate: 'Collect datastore evidence for {summary}.',
+      evidenceChecklist: ['Capture current latency evidence.'],
+      completionCriteria: ['Closure note recorded.'],
+      launchMode: 'queue',
+      recurrenceMode: 'cooldown',
+      recurrenceScope: 'object',
+      cooldownDays: 3,
+    }, auth.cookie);
+    expect(create.status).toBe(201);
+
+    const lower = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
+    expect(lower.status).toBe(200);
+
+    const blocked = await request('DELETE', `/api/tasks/remediation/templates/${encodeURIComponent(create.body.id)}`, null, auth.cookie);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('APPROVAL_REQUIRED');
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'remediation_template_delete',
+      entityType: 'task-template',
+      entityRef: String(create.body.id),
+      entityName: create.body.name,
+      justification: 'Delete a remediation template during Monday, August 24, 2026 approval validation.',
+      route: '/alerts',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const elevate = await request('PUT', '/api/governance/role', { role: 'admin' }, auth.cookie);
+    expect(elevate.status).toBe(200);
+
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Approved during Monday, August 24, 2026 remediation-template validation.',
+    }, auth.cookie);
+    expect(decision.status).toBe(200);
+
+    const lowerAgain = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
+    expect(lowerAgain.status).toBe(200);
+
+    const removed = await request('DELETE', `/api/tasks/remediation/templates/${encodeURIComponent(create.body.id)}`, {
+      approvalId: approval.body.id,
+    }, auth.cookie);
+    expect(removed.status).toBe(200);
+    expect(removed.body.success).toBe(true);
   });
 });
