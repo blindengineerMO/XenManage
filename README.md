@@ -11,7 +11,7 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
-The default control-plane sign-in is `admin / admin123!` unless you override the bootstrap user in `.env`.
+The initial control-plane sign-in is `admin / <your XENMANGE_BOOTSTRAP_PASSWORD value>` from `.env`.
 
 ## Architecture
 
@@ -237,7 +237,7 @@ XEN_USER=root               # Default username
 XEN_PASS=                   # Default password (optional)
 SESSION_SECRET=change-me    # Session signing secret
 XENMANGE_BOOTSTRAP_USERNAME=admin
-XENMANGE_BOOTSTRAP_PASSWORD=admin123!
+XENMANGE_BOOTSTRAP_PASSWORD=change-this-bootstrap-password
 XENMANGE_BOOTSTRAP_DISPLAY_NAME="Platform Administrator"
 NODE_ENV=development
 PORT=3000

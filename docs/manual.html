@@ -426,7 +426,7 @@ cd XenMange</pre>
   <tr><td><code>SESSION_SECRET</code></td><td><code>xenmange-dev-secret-change-me</code></td><td>Secret used to sign session cookies. <strong>Must</strong> be changed in production.</td></tr>
   <tr><td><code>SESSION_MAX_AGE</code></td><td><code>86400000</code> (24h)</td><td>Session cookie lifetime in milliseconds.</td></tr>
   <tr><td><code>XENMANGE_BOOTSTRAP_USERNAME</code></td><td><code>admin</code></td><td>Username for the initial admin account created on first boot.</td></tr>
-  <tr><td><code>XENMANGE_BOOTSTRAP_PASSWORD</code></td><td><code>admin123!</code></td><td>Password for the initial admin account. <strong>Must</strong> be changed in production.</td></tr>
+  <tr><td><code>XENMANGE_BOOTSTRAP_PASSWORD</code></td><td><code>change-this-bootstrap-password</code></td><td>Password for the initial admin account. Set this explicitly before first public or production use.</td></tr>
   <tr><td><code>XENMANGE_BOOTSTRAP_DISPLAY_NAME</code></td><td><code>Platform Administrator</code></td><td>Display name for the initial admin.</td></tr>
   <tr><td><code>DB_PATH</code></td><td><code>./data/xenmange.db</code></td><td>Path to the main application database.</td></tr>
   <tr><td><code>SECURITY_DB_PATH</code></td><td><code>./data/security.db</code></td><td>Path to the security database (users, sessions, auth events).</td></tr>
@@ -481,7 +481,7 @@ chmod 700 data/</pre>
   <li>Enter the bootstrap credentials:
     <ul>
       <li><strong>Username:</strong> <code>admin</code> (or the value of <code>XENMANGE_BOOTSTRAP_USERNAME</code>)</li>
-      <li><strong>Password:</strong> <code>admin123!</code> (or the value of <code>XENMANGE_BOOTSTRAP_PASSWORD</code>)</li>
+      <li><strong>Password:</strong> the value of <code>XENMANGE_BOOTSTRAP_PASSWORD</code> from your <code>.env</code> file</li>
     </ul>
   </li>
   <li>Click <strong>Sign In</strong>. You will be redirected to the Dashboard.</li>
