@@ -60,4 +60,36 @@ router.put('/:ref/config',
     }
   });
 
+router.post('/:ref/ha',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.poolHaUpdate),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'pool_ha_update', entityType: 'pool', entityRef: req.params.ref })) return;
+      const previousRecord = await safeGetPoolRecord(req.xenApi, req.params.ref);
+      const record = await req.xenApi.updatePoolHaState(req.params.ref, req.body);
+      auditLogService.record({
+        category: 'pools',
+        action: req.body.enabled ? 'pool_ha_enabled' : 'pool_ha_disabled',
+        actionLabel: req.body.enabled ? 'Enabled pool HA' : 'Disabled pool HA',
+        entityType: 'pool',
+        entityRef: req.params.ref,
+        entityName: record.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/pools',
+        status: 'success',
+        before: previousRecord,
+        after: { ref: req.params.ref, ...record },
+        detail: req.body.enabled
+          ? previousRecord?.ha_enabled
+            ? `High availability planner target set to ${req.body.haHostFailuresToTolerate} host failure(s).`
+            : `High availability enabled using ${(req.body.heartbeatSrRefs || []).length} heartbeat storage repository path(s) with a ${req.body.haHostFailuresToTolerate} host-failure target.`
+          : 'High availability disabled for the selected pool.',
+      });
+      res.json({ ref: req.params.ref, ...record });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
 module.exports = router;

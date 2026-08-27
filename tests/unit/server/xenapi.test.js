@@ -751,6 +751,47 @@ describe('XenAPI', () => {
       }));
     });
 
+    it('updateHostConfig should persist the host name, description, and logging map before returning the refreshed record', async () => {
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        name_label: 'alpha-xen-west',
+        name_description: 'Updated operator-facing description for the west production host.',
+        logging: {
+          syslog_destination: '10.0.0.51',
+          syslog_level: 'warning',
+        },
+        address: '10.0.0.11',
+        uuid: 'host-uuid-1',
+        enabled: true,
+      });
+
+      const result = await xenApi.updateHostConfig('OpaqueRef:host1', {
+        nameLabel: 'alpha-xen-west',
+        nameDescription: 'Updated operator-facing description for the west production host.',
+        logging: {
+          syslog_destination: '10.0.0.51',
+          syslog_level: 'warning',
+        },
+      });
+
+      expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'host', 'OpaqueRef:host1', 'name_label', 'alpha-xen-west');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'host', 'OpaqueRef:host1', 'name_description', 'Updated operator-facing description for the west production host.');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'host', 'OpaqueRef:host1', 'logging', {
+        syslog_destination: '10.0.0.51',
+        syslog_level: 'warning',
+      });
+      expect(getRecordSpy).toHaveBeenCalledWith('host', 'OpaqueRef:host1');
+      expect(result).toEqual(expect.objectContaining({
+        name_label: 'alpha-xen-west',
+        name_description: 'Updated operator-facing description for the west production host.',
+        logging: {
+          syslog_destination: '10.0.0.51',
+          syslog_level: 'warning',
+        },
+        uuid: 'host-uuid-1',
+      }));
+    });
+
     it('enterHostMaintenance should disable the host and evacuate workloads', async () => {
       const disableSpy = jest.spyOn(xenApi, 'disableHost').mockResolvedValue(undefined);
       const assertSpy = jest.spyOn(xenApi, 'assertCanEvacuateHost').mockResolvedValue(undefined);
@@ -851,11 +892,21 @@ describe('XenAPI', () => {
       xenApi.sessionRef = 'OpaqueRef:session123';
     });
 
-    it('updatePoolConfig should persist pool name and description before returning the refreshed record', async () => {
+    it('updatePoolConfig should persist pool name, description, default SR, migration compression, WLB enablement, IGMP snooping, tags, and other_config before returning the refreshed record', async () => {
       const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
       const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
         name_label: 'Production Pool West',
         name_description: 'Updated operator-facing pool summary for the west cluster.',
+        default_SR: 'OpaqueRef:sr2',
+        migration_compression: true,
+        wlb_enabled: true,
+        wlb_url: 'https://wlb-west.example.internal',
+        IGMP_snooping_enabled: true,
+        tags: ['prod', 'west', 'governed'],
+        other_config: {
+          owner: 'platform-ops',
+          governance_tier: 'gold',
+        },
         uuid: 'pool-uuid-1',
         master: 'OpaqueRef:host1',
       });
@@ -863,15 +914,143 @@ describe('XenAPI', () => {
       const result = await xenApi.updatePoolConfig('OpaqueRef:pool1', {
         nameLabel: 'Production Pool West',
         nameDescription: 'Updated operator-facing pool summary for the west cluster.',
+        defaultSrRef: 'OpaqueRef:sr2',
+        migrationCompressionEnabled: true,
+        wlbEnabled: true,
+        igmpSnoopingEnabled: true,
+        tags: ['prod', 'west', 'governed'],
+        otherConfig: {
+          owner: 'platform-ops',
+          governance_tier: 'gold',
+        },
       });
 
       expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'pool', 'OpaqueRef:pool1', 'name_label', 'Production Pool West');
       expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'pool', 'OpaqueRef:pool1', 'name_description', 'Updated operator-facing pool summary for the west cluster.');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'pool', 'OpaqueRef:pool1', 'default_SR', 'OpaqueRef:sr2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'pool', 'OpaqueRef:pool1', 'IGMP_snooping_enabled', true);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(5, 'pool', 'OpaqueRef:pool1', 'migration_compression', true);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(6, 'pool', 'OpaqueRef:pool1', 'wlb_enabled', true);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(7, 'pool', 'OpaqueRef:pool1', 'tags', ['prod', 'west', 'governed']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(8, 'pool', 'OpaqueRef:pool1', 'other_config', {
+        owner: 'platform-ops',
+        governance_tier: 'gold',
+      });
       expect(getRecordSpy).toHaveBeenCalledWith('pool', 'OpaqueRef:pool1');
       expect(result).toEqual(expect.objectContaining({
         name_label: 'Production Pool West',
         name_description: 'Updated operator-facing pool summary for the west cluster.',
+        default_SR: 'OpaqueRef:sr2',
+        migration_compression: true,
+        wlb_enabled: true,
+        wlb_url: 'https://wlb-west.example.internal',
+        IGMP_snooping_enabled: true,
+        tags: ['prod', 'west', 'governed'],
+        other_config: {
+          owner: 'platform-ops',
+          governance_tier: 'gold',
+        },
         uuid: 'pool-uuid-1',
+      }));
+    });
+
+    it('updatePoolHaState should enable HA with the selected heartbeat SRs and return the refreshed record', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          ha_enabled: false,
+          ha_configuration: {},
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Production Pool',
+          ha_enabled: true,
+          ha_host_failures_to_tolerate: 2,
+          ha_plan_exists_for: 2,
+          ha_overcommitted: false,
+        });
+
+      const result = await xenApi.updatePoolHaState('OpaqueRef:pool1', {
+        enabled: true,
+        heartbeatSrRefs: ['OpaqueRef:sr2'],
+        haHostFailuresToTolerate: 2,
+        configuration: {},
+      });
+
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'pool', 'OpaqueRef:pool1');
+      expect(callSpy).toHaveBeenCalledWith('pool', 'enable_ha', [['OpaqueRef:sr2'], {}]);
+      expect(setFieldSpy).toHaveBeenCalledWith('pool', 'OpaqueRef:pool1', 'ha_host_failures_to_tolerate', 2);
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'pool', 'OpaqueRef:pool1');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:pool1',
+        requestedEnabled: true,
+        requestedTolerance: 2,
+        heartbeatSrRefs: ['OpaqueRef:sr2'],
+        ha_enabled: true,
+        ha_host_failures_to_tolerate: 2,
+      }));
+    });
+
+    it('updatePoolHaState should disable HA and return the refreshed record', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          ha_enabled: true,
+          ha_configuration: { tolerance: '1' },
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Production Pool',
+          ha_enabled: false,
+          ha_host_failures_to_tolerate: 0,
+          ha_plan_exists_for: 0,
+          ha_overcommitted: false,
+        });
+
+      const result = await xenApi.updatePoolHaState('OpaqueRef:pool1', {
+        enabled: false,
+      });
+
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'pool', 'OpaqueRef:pool1');
+      expect(callSpy).toHaveBeenCalledWith('pool', 'disable_ha', []);
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'pool', 'OpaqueRef:pool1');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:pool1',
+        requestedEnabled: false,
+        ha_enabled: false,
+      }));
+    });
+
+    it('updatePoolHaState should adjust tolerance without re-enabling HA when already active', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          ha_enabled: true,
+          ha_configuration: {},
+          ha_host_failures_to_tolerate: 1,
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Production Pool',
+          ha_enabled: true,
+          ha_host_failures_to_tolerate: 2,
+          ha_plan_exists_for: 2,
+          ha_overcommitted: false,
+        });
+
+      const result = await xenApi.updatePoolHaState('OpaqueRef:pool1', {
+        enabled: true,
+        heartbeatSrRefs: [],
+        haHostFailuresToTolerate: 2,
+        configuration: {},
+      });
+
+      expect(callSpy).not.toHaveBeenCalledWith('pool', 'enable_ha', expect.anything());
+      expect(setFieldSpy).toHaveBeenCalledWith('pool', 'OpaqueRef:pool1', 'ha_host_failures_to_tolerate', 2);
+      expect(result).toEqual(expect.objectContaining({
+        requestedEnabled: true,
+        requestedTolerance: 2,
+        ha_enabled: true,
+        ha_host_failures_to_tolerate: 2,
       }));
     });
   });

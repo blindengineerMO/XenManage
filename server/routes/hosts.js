@@ -41,6 +41,38 @@ router.get('/:ref/metrics', validate(schemas.opaqueRefParam, 'params'), async (r
   }
 });
 
+router.put(
+  '/:ref/config',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.hostConfigUpdate),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'host_config_update', entityType: 'host', entityRef: req.params.ref })) return;
+      const previousRecord = await safeGetHostRecord(req.xenApi, req.params.ref);
+      const record = await req.xenApi.updateHostConfig(req.params.ref, req.body);
+
+      auditLogService.record({
+        category: 'hosts',
+        action: 'host_config_updated',
+        actionLabel: 'Updated host configuration',
+        entityType: 'host',
+        entityRef: req.params.ref,
+        entityName: record.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.appUsername || req.session?.xenUser || 'system',
+        route: '/hosts',
+        status: 'success',
+        before: previousRecord,
+        after: { ref: req.params.ref, ...record },
+        detail: `Host configuration saved as ${record.name_label || req.body.nameLabel || req.params.ref}.`,
+      });
+
+      res.json({ ref: req.params.ref, ...record });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  }
+);
+
 router.post(
   '/:ref/maintenance/enter',
   validate(schemas.opaqueRefParam, 'params'),

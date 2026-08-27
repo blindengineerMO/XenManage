@@ -1,5 +1,5 @@
 const PoolsView = {
-  components: { DataTable, FloatingWindow, PoolRegistrationForm, PoolConfigForm, StatusBadge },
+  components: { DataTable, FloatingWindow, PoolRegistrationForm, PoolConfigForm, PoolHaForm, StatusBadge },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -132,6 +132,9 @@ const PoolsView = {
         <template #cell-tags="{ row }">
           <span class="mono">{{ truncateList(row.tags) }}</span>
         </template>
+        <template #cell-default_SR="{ row }">
+          <span class="mono property-wrap">{{ resolveStorageLabel(row.default_SR) }}</span>
+        </template>
       </data-table>
       <div v-else class="empty-state" style="padding:24px 18px">
         <div v-if="showConnectionGuidance">No live pool topology is available until a Xen target is connected for this session.</div>
@@ -144,12 +147,18 @@ const PoolsView = {
             <span class="text-muted">Name</span><span>{{ selectedPool.name_label || '-' }}</span>
             <span class="text-muted">Description</span><span>{{ selectedPool.name_description || '-' }}</span>
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedPool.uuid || '-' }}</span>
-            <span class="text-muted">Default SR</span><span class="mono property-wrap">{{ selectedPool.default_SR || '-' }}</span>
+            <span class="text-muted">Default SR</span><span class="mono property-wrap">{{ selectedPoolDefaultStorageLabel }}</span>
+            <span class="text-muted">Migration Compression</span><span>{{ selectedPoolMigrationCompressionLabel }}</span>
+            <span class="text-muted">WLB Enabled</span><span>{{ selectedPoolWlbEnabledLabel }}</span>
+            <span class="text-muted">WLB URL</span><span class="mono property-wrap">{{ selectedPoolWlbUrlLabel }}</span>
+            <span class="text-muted">IGMP Snooping</span><span>{{ selectedPoolIgmpSnoopingLabel }}</span>
             <span class="text-muted">Migration Network</span><span class="mono property-wrap">{{ selectedPool.migration_network || '-' }}</span>
             <span class="text-muted">Master Host</span><span class="mono property-wrap">{{ selectedPool.master || '-' }}</span>
             <span class="text-muted">Host Count</span><span>{{ summarizeCount('hosts', selectedPoolHosts.length) }}</span>
+            <span class="text-muted">HA Enabled</span><span>{{ selectedPoolHaEnabledLabel }}</span>
+            <span class="text-muted">HA Tolerance</span><span>{{ selectedPoolHaToleranceLabel }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedPool.tags) }}</span>
-            <span class="text-muted">Other Config</span><span class="mono property-wrap">{{ JSON.stringify(selectedPool.other_config || {}) }}</span>
+            <span class="text-muted">Other Config</span><span class="mono property-wrap">{{ selectedPoolOtherConfigSummary }}</span>
           </div>
 
           <div class="detail-section">
@@ -160,6 +169,7 @@ const PoolsView = {
                 <p class="text-muted" style="margin-bottom:12px">Update the operator-facing pool name and description without leaving the pool detail workspace.</p>
                 <pool-config-form
                   :initial-value="selectedPool"
+                  :storage-options="selectedPoolStorageOptions"
                   :submit-label="'Save Pool Metadata'"
                   :saving="poolConfigSaving"
                   @submit="submitSelectedPoolConfig">
@@ -181,9 +191,36 @@ const PoolsView = {
                   <div class="stack-item">
                     <div>
                       <strong>Default SR</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPool.default_SR || 'not configured' }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolDefaultStorageLabel }}</div>
                     </div>
                     <span class="badge badge-info">sr</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Migration Compression</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolMigrationCompressionDetail }}</div>
+                    </div>
+                    <span class="badge" :class="selectedPool?.migration_compression ? 'badge-success' : 'badge-warning'">
+                      {{ selectedPoolMigrationCompressionLabel }}
+                    </span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Workload Balancing</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolWlbDetail }}</div>
+                    </div>
+                    <span class="badge" :class="selectedPool?.wlb_enabled ? 'badge-success' : 'badge-warning'">
+                      {{ selectedPoolWlbEnabledLabel }}
+                    </span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>IGMP Snooping</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolIgmpSnoopingDetail }}</div>
+                    </div>
+                    <span class="badge" :class="selectedPool?.IGMP_snooping_enabled ? 'badge-success' : 'badge-warning'">
+                      {{ selectedPoolIgmpSnoopingLabel }}
+                    </span>
                   </div>
                   <div class="stack-item">
                     <div>
@@ -192,8 +229,51 @@ const PoolsView = {
                     </div>
                     <span class="badge badge-info">network</span>
                   </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Pool other_config</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolOtherConfigSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">{{ selectedPoolOtherConfigEntries.length }}</span>
+                  </div>
                 </div>
-                <p class="text-muted" style="margin:0">Advanced pool policy controls such as HA, WLB, and controller settings remain follow-on parity work.</p>
+                <p class="text-muted" style="margin:0">Advanced pool policy controls such as controller settings and any deeper WLB enrollment workflows remain follow-on parity work.</p>
+              </div>
+            </div>
+            <div class="dashboard-panels" style="margin-top:16px">
+              <div class="dash-card">
+                <div class="dash-card-label">High Availability</div>
+                <div class="stack-list" style="margin-bottom:12px">
+                  <div class="stack-item">
+                    <div>
+                      <strong>Status</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolHaStatusDetail }}</div>
+                    </div>
+                    <span class="badge" :class="selectedPool?.ha_enabled ? 'badge-success' : 'badge-warning'">
+                      {{ selectedPoolHaEnabledLabel }}
+                    </span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Failover Planner</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolHaPlannerDetail }}</div>
+                    </div>
+                    <span class="badge badge-info">{{ selectedPool?.ha_plan_exists_for || 0 }}</span>
+                  </div>
+                </div>
+                <pool-ha-form
+                  :initial-value="selectedPool"
+                  :storage-options="selectedPoolStorageOptions"
+                  :saving="poolHaSaving"
+                  :submit-label="selectedPool?.ha_enabled ? 'Save HA Settings' : 'Enable HA'"
+                  @submit="submitSelectedPoolHaState">
+                </pool-ha-form>
+              </div>
+            </div>
+            <div class="stack-item" v-if="poolActionMessage" style="margin-top:12px">
+              <div>
+                <strong>Pool operation completed</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ poolActionMessage }}</div>
               </div>
             </div>
             <div class="form-error" v-if="poolActionError" style="text-align:left;margin-top:12px">{{ poolActionError }}</div>
@@ -287,12 +367,15 @@ const PoolsView = {
       loading: true,
       pools: [],
       hosts: [],
+      storage: [],
       connections: [],
       credentials: [],
       selectedPool: null,
       showProps: false,
       poolConfigSaving: false,
+      poolHaSaving: false,
       poolActionError: null,
+      poolActionMessage: '',
       showRegistration: false,
       editingConnectionId: null,
       connectionDraft: null,
@@ -339,6 +422,102 @@ const PoolsView = {
         role: this.isPoolMaster(host, this.selectedPool) ? 'Master' : 'Member',
         residentVmCount: Array.isArray(host.resident_VMs) ? host.resident_VMs.length : 0,
       }));
+    },
+    selectedPoolStorageOptions() {
+      if (!this.selectedPool) return [];
+
+      const poolPbdRefs = new Set(
+        this.selectedPoolHosts
+          .flatMap((host) => (Array.isArray(host.PBDs) ? host.PBDs : []))
+          .filter(Boolean)
+      );
+      const options = this.storage
+        .filter((sr) => {
+          if (!poolPbdRefs.size) return sr.ref === this.selectedPool.default_SR;
+          return (Array.isArray(sr.PBDs) ? sr.PBDs : []).some((ref) => poolPbdRefs.has(ref));
+        })
+        .map((sr) => ({
+          value: sr.ref,
+          label: `${sr.name_label || sr.uuid || sr.ref}${sr.shared ? ' · shared' : ''}`,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label));
+
+      if (this.selectedPool.default_SR && !options.some((entry) => entry.value === this.selectedPool.default_SR)) {
+        options.unshift({
+          value: this.selectedPool.default_SR,
+          label: `${this.resolveStorageLabel(this.selectedPool.default_SR)} · current`,
+        });
+      }
+
+      return options;
+    },
+    selectedPoolDefaultStorageLabel() {
+      return this.resolveStorageLabel(this.selectedPool?.default_SR);
+    },
+    selectedPoolMigrationCompressionLabel() {
+      return this.selectedPool?.migration_compression ? 'Enabled' : 'Disabled';
+    },
+    selectedPoolMigrationCompressionDetail() {
+      return this.selectedPool?.migration_compression
+        ? 'Same-pool migration workflows default to a compressed transfer stream for this pool.'
+        : 'Same-pool migration workflows default to an uncompressed transfer stream for this pool.';
+    },
+    selectedPoolWlbEnabledLabel() {
+      return this.selectedPool?.wlb_enabled ? 'Enabled' : 'Disabled';
+    },
+    selectedPoolWlbUrlLabel() {
+      return String(this.selectedPool?.wlb_url || '').trim() || 'not configured';
+    },
+    selectedPoolWlbDetail() {
+      const endpoint = this.selectedPoolWlbUrlLabel;
+      return this.selectedPool?.wlb_enabled
+        ? `Workload balancing is enabled${endpoint !== 'not configured' ? ` via ${endpoint}` : ', but no endpoint URL was reported in the current pool record.'}`
+        : `Workload balancing is disabled${endpoint !== 'not configured' ? `; current endpoint ${endpoint}` : ' and no WLB endpoint URL is currently reported.'}`;
+    },
+    selectedPoolIgmpSnoopingLabel() {
+      return this.selectedPool?.IGMP_snooping_enabled ? 'Enabled' : 'Disabled';
+    },
+    selectedPoolIgmpSnoopingDetail() {
+      return this.selectedPool?.IGMP_snooping_enabled
+        ? 'Multicast membership tracking is enforced for pool networking.'
+        : 'Pool networking is not currently filtering multicast membership through IGMP snooping.';
+    },
+    selectedPoolHaEnabledLabel() {
+      return this.selectedPool?.ha_enabled ? 'Enabled' : 'Disabled';
+    },
+    selectedPoolHaToleranceLabel() {
+      if (!this.selectedPool?.ha_enabled) return 'Not active';
+      return `${Number(this.selectedPool?.ha_host_failures_to_tolerate || 0)} host failure(s)`;
+    },
+    selectedPoolHaStatusDetail() {
+      if (!this.selectedPool?.ha_enabled) {
+        return 'Automatic failover is currently disabled for this pool.';
+      }
+
+      const status = this.selectedPool?.ha_overcommitted
+        ? 'Enabled but currently overcommitted.'
+        : 'Enabled and currently within failover capacity.';
+      const clusterStack = String(this.selectedPool?.ha_cluster_stack || '').trim();
+      return clusterStack ? `${status} Stack: ${clusterStack}.` : status;
+    },
+    selectedPoolHaPlannerDetail() {
+      if (!this.selectedPool?.ha_enabled) {
+        return 'HA planner coverage will appear here after the pool is enabled.';
+      }
+      return `Plan exists for ${Number(this.selectedPool?.ha_plan_exists_for || 0)} additional host failure(s); tolerance is ${Number(this.selectedPool?.ha_host_failures_to_tolerate || 0)}.`;
+    },
+    selectedPoolOtherConfigEntries() {
+      return Object.entries(this.selectedPool?.other_config || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedPoolOtherConfigSummary() {
+      if (!this.selectedPoolOtherConfigEntries.length) return '-';
+      const summary = this.selectedPoolOtherConfigEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedPoolOtherConfigEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedPoolOtherConfigEntries.length - 2} more`;
     },
   },
   async mounted() {
@@ -387,7 +566,7 @@ const PoolsView = {
       ) || null;
     },
     async loadAll() {
-      await Promise.all([this.loadPools(), this.loadHosts(), this.loadConnections(), this.loadCredentials()]);
+      await Promise.all([this.loadPools(), this.loadHosts(), this.loadStorage(), this.loadConnections(), this.loadCredentials()]);
     },
     async loadPools() {
       this.loading = true;
@@ -422,6 +601,14 @@ const PoolsView = {
         this.connections = [];
       }
     },
+    async loadStorage() {
+      try {
+        const result = await api.getSRs();
+        this.storage = result.data || [];
+      } catch (error) {
+        this.storage = [];
+      }
+    },
     async loadCredentials() {
       try {
         const result = await api.getCredentials();
@@ -431,6 +618,7 @@ const PoolsView = {
       }
     },
     openProperties(row) {
+      this.poolActionMessage = '';
       this.poolActionError = null;
       this.selectedPool = row;
       this.showProps = true;
@@ -438,17 +626,54 @@ const PoolsView = {
     async submitSelectedPoolConfig(payload) {
       if (!this.selectedPool) return;
 
+      this.poolActionMessage = '';
       this.poolActionError = null;
       this.poolConfigSaving = true;
       try {
         const record = await api.updatePoolConfig(this.selectedPool.ref, payload);
         this.selectedPool = { ...this.selectedPool, ...(record || {}) };
         this.pools = this.pools.map((entry) => (entry.ref === this.selectedPool.ref ? { ...entry, ...(record || {}) } : entry));
+        this.poolActionMessage = `${record?.name_label || payload.nameLabel || this.selectedPool.ref} metadata was updated.`;
       } catch (error) {
         this.poolActionError = error.message || 'Unable to save pool metadata';
       } finally {
         this.poolConfigSaving = false;
       }
+    },
+    async submitSelectedPoolHaState(payload) {
+      if (!this.selectedPool) return;
+
+      this.poolActionMessage = '';
+      this.poolActionError = null;
+      this.poolHaSaving = true;
+      try {
+        const wasEnabled = Boolean(this.selectedPool?.ha_enabled);
+        const record = await api.updatePoolHaState(this.selectedPool.ref, {
+          ...payload,
+          configuration: this.selectedPool?.ha_configuration || {},
+        });
+        this.selectedPool = { ...this.selectedPool, ...(record || {}) };
+        this.pools = this.pools.map((entry) => (entry.ref === this.selectedPool.ref ? { ...entry, ...(record || {}) } : entry));
+        if (!payload.enabled) {
+          this.poolActionMessage = `${record?.name_label || this.selectedPool.ref} high availability is now disabled.`;
+        } else if (!wasEnabled) {
+          this.poolActionMessage = `${record?.name_label || this.selectedPool.ref} high availability is now enabled with a ${record?.ha_host_failures_to_tolerate || payload.haHostFailuresToTolerate || 0} host-failure target.`;
+        } else {
+          this.poolActionMessage = `${record?.name_label || this.selectedPool.ref} HA tolerance is now set to ${record?.ha_host_failures_to_tolerate || payload.haHostFailuresToTolerate || 0} host failure(s).`;
+        }
+      } catch (error) {
+        this.poolActionError = error.message || 'Unable to update pool HA state';
+      } finally {
+        this.poolHaSaving = false;
+      }
+    },
+    resolveStorageLabel(ref) {
+      const normalizedRef = String(ref || '').trim();
+      if (!normalizedRef) return 'not configured';
+
+      const match = this.storage.find((entry) => entry.ref === normalizedRef);
+      if (!match) return normalizedRef;
+      return match.name_label || match.uuid || match.ref;
     },
     findPoolByFocus(focus) {
       return this.pools.find((pool) =>

@@ -40,6 +40,18 @@ jest.mock('../../../../server/services/xenapi', () => {
     return { ...(mockState.metrics[ref] || { live: false, memory_total: 0, memory_free: 0 }) };
   });
 
+  actual.XenAPI.prototype.updateHostConfig = jest.fn(async function (ref, payload) {
+    const host = mockState.hosts.find((entry) => entry.ref === ref);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    host.name_label = payload.nameLabel;
+    host.name_description = payload.nameDescription || '';
+    if (payload.logging && typeof payload.logging === 'object') {
+      host.logging = { ...payload.logging };
+    }
+    return { ...host };
+  });
+
   actual.XenAPI.prototype.enterHostMaintenance = jest.fn(async function (ref, payload) {
     const host = mockState.hosts.find((entry) => entry.ref === ref);
     if (!host) throw new Error('HOST_NOT_FOUND');
@@ -129,23 +141,27 @@ describe('Host Routes', () => {
       {
         ref: 'OpaqueRef:host1',
         name_label: 'alpha-xen',
+        name_description: 'Primary compute node in the west pool.',
         address: '10.0.0.11',
         uuid: 'host-uuid-1',
         pool: 'OpaqueRef:pool1',
         enabled: true,
         maintenance_mode: false,
         resident_VMs: ['OpaqueRef:vm1'],
+        logging: { syslog_destination: '10.0.0.50' },
         other_config: {},
       },
       {
         ref: 'OpaqueRef:host2',
         name_label: 'beta-xen',
+        name_description: 'Secondary compute node in the west pool.',
         address: '10.0.0.12',
         uuid: 'host-uuid-2',
         pool: 'OpaqueRef:pool1',
         enabled: true,
         maintenance_mode: false,
         resident_VMs: [],
+        logging: {},
         other_config: {},
       },
     ];
@@ -214,6 +230,31 @@ describe('Host Routes', () => {
     expect(metrics.body).toEqual(expect.objectContaining({
       live: true,
       memory_total: 68719476736,
+    }));
+  });
+
+  it('updates host metadata through the dedicated config endpoint', async () => {
+    const auth = await login();
+
+    const updated = await request('PUT', '/api/hosts/OpaqueRef%3Ahost1/config', {
+      nameLabel: 'alpha-xen-west',
+      nameDescription: 'Updated operator-facing description for the west production host.',
+      logging: {
+        syslog_destination: '10.0.0.51',
+        syslog_level: 'warning',
+      },
+    }, auth.cookie);
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:host1',
+      name_label: 'alpha-xen-west',
+      name_description: 'Updated operator-facing description for the west production host.',
+      address: '10.0.0.11',
+      logging: {
+        syslog_destination: '10.0.0.51',
+        syslog_level: 'warning',
+      },
     }));
   });
 

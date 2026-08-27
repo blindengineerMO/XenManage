@@ -5,6 +5,8 @@ const HostsView = {
     FloatingWindow,
     HostRegistrationForm,
     HostMaintenanceForm,
+    HostConfigForm,
+    HostLoggingForm,
     'metric-trend-card': MetricTrendCard,
   },
   template: `
@@ -135,6 +137,7 @@ const HostsView = {
         <div v-if="selectedHost">
           <div class="property-grid">
             <span class="text-muted">Name</span><span>{{ selectedHost.name_label || '-' }}</span>
+            <span class="text-muted">Description</span><span>{{ selectedHost.name_description || '-' }}</span>
             <span class="text-muted">Address</span><span class="mono">{{ selectedHost.address || '-' }}</span>
             <span class="text-muted">Status</span><status-badge :status="selectedHost.enabled ? 'enabled' : 'disabled'"></status-badge>
             <span class="text-muted">Maintenance Mode</span><status-badge :status="selectedHostMaintenanceMode ? 'warning' : 'enabled'"></status-badge>
@@ -142,13 +145,95 @@ const HostsView = {
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedHost.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedHost.tags) }}</span>
             <span class="text-muted">Hostname</span><span>{{ selectedHost.hostname || '-' }}</span>
+            <span class="text-muted">Logging</span><span class="mono property-wrap">{{ selectedHostLoggingSummary }}</span>
             <span class="text-muted">Resident VMs</span><span>{{ summarizeCount('attached', (selectedHost.resident_VMs || []).length) }}</span>
             <span class="text-muted">Storage Paths</span><span>{{ summarizeCount('repositories', selectedHostStorageRecords.length) }}</span>
             <span class="text-muted">Network Paths</span><span>{{ summarizeCount('networks', selectedHostNetworkRecords.length) }}</span>
             <span class="text-muted">Other Config</span><span class="mono property-wrap">{{ JSON.stringify(selectedHost.other_config || {}) }}</span>
           </div>
 
+          <div class="stack-item" v-if="hostActionMessage" style="margin-top:12px">
+            <div>
+              <strong>Host operation completed</strong>
+              <div class="text-muted mono" style="font-size:11px">{{ hostActionMessage }}</div>
+            </div>
+          </div>
           <div class="form-error" v-if="actionError" style="text-align:left">{{ actionError }}</div>
+
+          <div class="detail-section">
+            <div class="detail-section-title">Host Metadata</div>
+            <div class="dashboard-panels">
+              <div class="dash-card">
+                <div class="dash-card-label">Host Identity</div>
+                <p class="text-muted" style="margin-bottom:12px">
+                  Update the operator-facing host label and description without leaving the host detail workspace.
+                </p>
+                <host-config-form
+                  :initial-value="selectedHost"
+                  :saving="hostConfigSaving"
+                  :submit-label="'Save Host Metadata'"
+                  @submit="submitSelectedHostConfig">
+                </host-config-form>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Host Context</div>
+                <div class="stack-list">
+                  <div class="stack-item">
+                    <div>
+                      <strong>{{ selectedHost.name_label || 'Selected host' }}</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHost.uuid || selectedHost.ref || 'host ref unavailable' }}</div>
+                    </div>
+                    <status-badge :status="selectedHost.enabled ? 'enabled' : 'disabled'"></status-badge>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Address</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHost.address || selectedHost.hostname || 'not reported' }}</div>
+                    </div>
+                    <span class="badge badge-info">network</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Pool Membership</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostPool ? (selectedHostPool.name_label || selectedHostPool.uuid || selectedHostPool.ref) : 'Unknown / standalone' }}</div>
+                    </div>
+                    <span class="badge badge-info">pool</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Operator Description</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHost.name_description || 'No operator-facing host description has been saved yet.' }}</div>
+                    </div>
+                    <span class="badge badge-info">notes</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Logging Overrides</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostLoggingSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">logging</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Host Logging</div>
+                <p class="text-muted" style="margin-bottom:12px">
+                  Keep per-host syslog destinations or verbosity overrides visible beside maintenance and telemetry workflows.
+                </p>
+                <host-logging-form
+                  :initial-value="selectedHost"
+                  :saving="hostConfigSaving"
+                  :submit-label="'Save Host Logging'"
+                  @submit="submitSelectedHostLogging">
+                </host-logging-form>
+                <div class="text-muted mono" style="font-size:11px;margin-top:12px">
+                  {{ selectedHostLoggingSummary }}
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div class="detail-section">
             <div class="detail-section-title">Operations</div>
@@ -347,7 +432,9 @@ const HostsView = {
       targetActionBusyId: null,
       targetActionBusyKind: '',
       actionError: null,
+      hostActionMessage: '',
       hostActionBusy: '',
+      hostConfigSaving: false,
       selectedHostRefs: [],
       bulkHostActionBusy: '',
       bulkError: null,
@@ -425,6 +512,13 @@ const HostsView = {
     hostShutdownReady() {
       if (!this.selectedHost) return false;
       return !this.selectedHost.enabled && this.selectedHostVmRecords.length === 0;
+    },
+    selectedHostLoggingSummary() {
+      const entries = Object.entries(this.selectedHost?.logging || {})
+        .filter(([key]) => String(key || '').trim())
+        .map(([key, value]) => `${String(key).trim()}=${String(value || '').trim()}`);
+
+      return entries.length ? entries.join(' · ') : 'No host-specific logging overrides are currently configured.';
     },
     selectedHostVmRecords() {
       if (!this.selectedHost) return [];
@@ -648,6 +742,7 @@ const HostsView = {
       this.selectedHost = row;
       this.showProps = true;
       this.actionError = null;
+      this.hostActionMessage = '';
       this.hostActionBusy = '';
       this.metricsLoading = true;
       this.metricsError = null;
@@ -709,6 +804,46 @@ const HostsView = {
       const updated = this.hosts.find((host) => host.ref === this.selectedHost.ref);
       if (updated) {
         await this.openProperties(updated);
+      }
+    },
+    applySelectedHostRecord(record) {
+      this.selectedHost = { ...this.selectedHost, ...(record || {}) };
+      this.hosts = this.hosts.map((entry) => (entry.ref === this.selectedHost.ref ? { ...entry, ...(record || {}) } : entry));
+    },
+    async submitSelectedHostConfig(payload) {
+      if (!this.selectedHost?.ref) return;
+
+      this.actionError = null;
+      this.hostActionMessage = '';
+      this.hostConfigSaving = true;
+      try {
+        const record = await api.updateHostConfig(this.selectedHost.ref, payload);
+        this.applySelectedHostRecord(record);
+        this.hostActionMessage = `${record?.name_label || payload.nameLabel || this.selectedHost.ref} metadata was updated.`;
+      } catch (error) {
+        this.actionError = error.message || 'Unable to save host metadata.';
+      } finally {
+        this.hostConfigSaving = false;
+      }
+    },
+    async submitSelectedHostLogging(payload) {
+      if (!this.selectedHost?.ref) return;
+
+      this.actionError = null;
+      this.hostActionMessage = '';
+      this.hostConfigSaving = true;
+      try {
+        const record = await api.updateHostConfig(this.selectedHost.ref, {
+          nameLabel: this.selectedHost.name_label || this.selectedHost.hostname || this.selectedHost.ref,
+          nameDescription: this.selectedHost.name_description || '',
+          logging: payload.logging || {},
+        });
+        this.applySelectedHostRecord(record);
+        this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} logging configuration was updated.`;
+      } catch (error) {
+        this.actionError = error.message || 'Unable to save host logging.';
+      } finally {
+        this.hostConfigSaving = false;
       }
     },
     findHostByFocus(focus) {
@@ -850,6 +985,7 @@ const HostsView = {
       if (!this.selectedHost?.ref) return;
 
       this.actionError = null;
+      this.hostActionMessage = '';
       this.hostActionBusy = 'maintenance-enter';
       try {
         await api.enterHostMaintenance(this.selectedHost.ref, payload);
@@ -864,6 +1000,7 @@ const HostsView = {
       if (!this.selectedHost?.ref) return;
 
       this.actionError = null;
+      this.hostActionMessage = '';
       this.hostActionBusy = 'maintenance-exit';
       try {
         await api.exitHostMaintenance(this.selectedHost.ref);
@@ -878,6 +1015,7 @@ const HostsView = {
       if (!this.selectedHost?.ref) return;
 
       this.actionError = null;
+      this.hostActionMessage = '';
       this.hostActionBusy = action;
       const actionKey = action === 'shutdown' ? 'host_shutdown' : 'host_reboot';
 
