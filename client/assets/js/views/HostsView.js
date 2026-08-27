@@ -6,6 +6,8 @@ const HostsView = {
     HostRegistrationForm,
     HostMaintenanceForm,
     HostConfigForm,
+    HostGuestVcpusParamsForm,
+    HostSchedGranForm,
     HostLoggingForm,
     'metric-trend-card': MetricTrendCard,
   },
@@ -145,6 +147,17 @@ const HostsView = {
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedHost.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedHost.tags) }}</span>
             <span class="text-muted">Hostname</span><span>{{ selectedHost.hostname || '-' }}</span>
+            <span class="text-muted">Edition</span><span>{{ selectedHostEditionLabel }}</span>
+            <span class="text-muted">CPU Topology</span><span>{{ selectedHostCpuSummary }}</span>
+            <span class="text-muted">Software Version</span><span class="mono property-wrap">{{ selectedHostSoftwareVersionSummary }}</span>
+            <span class="text-muted">License Server</span><span class="mono property-wrap">{{ selectedHostLicenseServerSummary }}</span>
+            <span class="text-muted">Supported HW Versions</span><span class="mono property-wrap">{{ selectedHostHardwarePlatformSummary }}</span>
+            <span class="text-muted">External Auth Type</span><span>{{ selectedHostExternalAuthTypeLabel }}</span>
+            <span class="text-muted">External Auth Service</span><span class="mono property-wrap">{{ selectedHostExternalAuthServiceLabel }}</span>
+            <span class="text-muted">Guest VCPU Params</span><span class="mono property-wrap">{{ selectedHostGuestVcpusParamsSummary }}</span>
+            <span class="text-muted">Scheduler Granularity</span><span>{{ selectedHostSchedGranLabel }}</span>
+            <span class="text-muted">Legacy SSL</span><span>{{ selectedHostSslLegacyLabel }}</span>
+            <span class="text-muted">BIOS Strings</span><span class="mono property-wrap">{{ selectedHostBiosStringsSummary }}</span>
             <span class="text-muted">Logging</span><span class="mono property-wrap">{{ selectedHostLoggingSummary }}</span>
             <span class="text-muted">Resident VMs</span><span>{{ summarizeCount('attached', (selectedHost.resident_VMs || []).length) }}</span>
             <span class="text-muted">Storage Paths</span><span>{{ summarizeCount('repositories', selectedHostStorageRecords.length) }}</span>
@@ -230,6 +243,121 @@ const HostsView = {
                 </host-logging-form>
                 <div class="text-muted mono" style="font-size:11px;margin-top:12px">
                   {{ selectedHostLoggingSummary }}
+                </div>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Guest CPU Policy</div>
+                <p class="text-muted" style="margin-bottom:12px">
+                  Keep the host-wide Xen guest VCPU defaults visible and editable beside placement and maintenance workflows.
+                </p>
+                <host-guest-vcpus-params-form
+                  :initial-value="selectedHost"
+                  :saving="hostConfigSaving"
+                  :submit-label="'Save Guest VCPU Policy'"
+                  @submit="submitSelectedHostGuestVcpusParams">
+                </host-guest-vcpus-params-form>
+                <div class="text-muted mono" style="font-size:11px;margin-top:12px">
+                  {{ selectedHostGuestVcpusParamsSummary }}
+                </div>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Scheduler Policy</div>
+                <p class="text-muted" style="margin-bottom:12px">
+                  Align Xen CPU scheduling behavior for this host without leaving the broader operations workspace.
+                </p>
+                <host-sched-gran-form
+                  :initial-value="selectedHost"
+                  :saving="hostConfigSaving"
+                  :submit-label="'Save Scheduler Policy'"
+                  @submit="submitSelectedHostSchedGran">
+                </host-sched-gran-form>
+                <div class="text-muted mono" style="font-size:11px;margin-top:12px">
+                  {{ selectedHostSchedGranLabel }}
+                </div>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Platform & Licensing</div>
+                <div class="stack-list">
+                  <div class="stack-item">
+                    <div>
+                      <strong>Edition</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostEditionLabel }}</div>
+                    </div>
+                    <span class="badge badge-info">license</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>CPU Topology</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostCpuSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">compute</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Software Version</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSoftwareVersionSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">platform</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>License Server</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostLicenseServerSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">support</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Supported HW Versions</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostHardwarePlatformSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">compatibility</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>External Authentication</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostExternalAuthTypeLabel }} · {{ selectedHostExternalAuthServiceLabel }}</div>
+                    </div>
+                    <span class="badge badge-info">identity</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>External Auth Configuration</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostExternalAuthConfigSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">directory</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Guest VCPU Parameters</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostGuestVcpusParamsSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">scheduler</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Scheduler Granularity</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSchedGranLabel }}</div>
+                    </div>
+                    <span class="badge badge-info">cpu policy</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Legacy SSL</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSslLegacyLabel }}</div>
+                    </div>
+                    <span class="badge badge-warning">deprecated</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>BIOS Strings</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostBiosStringsSummary }}</div>
+                    </div>
+                    <span class="badge badge-info">firmware</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -490,6 +618,71 @@ const HostsView = {
     selectedHostMaintenanceMode() {
       return this.resolveHostMaintenanceState(this.selectedHost);
     },
+    selectedHostEditionLabel() {
+      return String(this.selectedHost?.edition || '').trim() || 'No host edition was reported.';
+    },
+    selectedHostCpuSummary() {
+      const cpuInfo = this.selectedHost?.cpu_info || this.selectedHost?.CPU_info || {};
+      const count = Number(cpuInfo.cpu_count || cpuInfo.CPU_count || this.selectedHost?.host_CPUs?.length || 0) || 0;
+      const sockets = Number(cpuInfo.socket_count || cpuInfo.sockets || 0) || 0;
+      const coresPerSocket = Number(cpuInfo.cores_per_socket || cpuInfo.cores || 0) || 0;
+      const threadsPerCore = Number(cpuInfo.threads_per_core || 0) || 0;
+      const model = String(cpuInfo.modelname || cpuInfo.vendor || '').trim();
+
+      const parts = [];
+      if (count) parts.push(`${count} CPUs`);
+      if (sockets) parts.push(`${sockets} sockets`);
+      if (coresPerSocket) parts.push(`${coresPerSocket} cores/socket`);
+      if (threadsPerCore) parts.push(`${threadsPerCore} threads/core`);
+      if (model) parts.push(model);
+
+      return parts.length ? parts.join(' · ') : 'No CPU topology was reported for this host.';
+    },
+    selectedHostSoftwareVersionSummary() {
+      return this.summarizeHostStringMap(this.selectedHost?.software_version, 'No host software version metadata was reported.');
+    },
+    selectedHostLicenseServerSummary() {
+      return this.summarizeHostStringMap(this.selectedHost?.license_server, 'No external license server was reported for this host.');
+    },
+    selectedHostHardwarePlatformSummary() {
+      const versions = Array.isArray(this.selectedHost?.virtual_hardware_platform_versions)
+        ? this.selectedHost.virtual_hardware_platform_versions
+        : [];
+      const normalized = versions
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+
+      return normalized.length
+        ? normalized.join(', ')
+        : 'No supported virtual hardware versions were reported for this host.';
+    },
+    selectedHostExternalAuthTypeLabel() {
+      return String(this.selectedHost?.external_auth_type || '').trim() || 'No external authentication type was reported.';
+    },
+    selectedHostExternalAuthServiceLabel() {
+      return String(this.selectedHost?.external_auth_service_name || '').trim() || 'No external authentication service was configured.';
+    },
+    selectedHostExternalAuthConfigSummary() {
+      return this.summarizeHostStringMap(this.selectedHost?.external_auth_configuration, 'No external authentication configuration details were reported.');
+    },
+    selectedHostGuestVcpusParamsSummary() {
+      return this.summarizeHostStringMap(this.selectedHost?.guest_VCPUs_params, 'No host-wide guest VCPU defaults were reported.');
+    },
+    selectedHostSchedGranLabel() {
+      const value = String(this.selectedHost?.sched_gran || '').trim().toLowerCase();
+      if (value === 'core') return 'Core scheduling';
+      if (value === 'socket') return 'Socket scheduling';
+      if (value === 'cpu') return 'CPU scheduling';
+      return 'No host scheduler granularity was reported.';
+    },
+    selectedHostSslLegacyLabel() {
+      if (this.selectedHost?.ssl_legacy === true) return 'Enabled for legacy compatibility';
+      if (this.selectedHost?.ssl_legacy === false) return 'Disabled';
+      return 'No host SSL legacy posture was reported.';
+    },
+    selectedHostBiosStringsSummary() {
+      return this.summarizeHostStringMap(this.selectedHost?.bios_strings, 'No host BIOS identity strings were reported.');
+    },
     maintenanceNetworkOptions() {
       const poolMigrationRef = this.selectedHostPool?.migration_network || '';
       const ordered = [...this.selectedHostNetworkRecords];
@@ -644,6 +837,13 @@ const HostsView = {
     },
     visibilityLabel(visibility) {
       return visibility === 'shared' ? 'Shared' : 'Private';
+    },
+    summarizeHostStringMap(record, emptyLabel = '-') {
+      const entries = Object.entries(record || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim())
+        .map(([key, value]) => `${String(key).trim()}=${String(value).trim()}`);
+
+      return entries.length ? entries.join(' · ') : emptyLabel;
     },
     ownershipLabel(target) {
       if (target.is_owner) return 'Owned by you';
@@ -842,6 +1042,48 @@ const HostsView = {
         this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} logging configuration was updated.`;
       } catch (error) {
         this.actionError = error.message || 'Unable to save host logging.';
+      } finally {
+        this.hostConfigSaving = false;
+      }
+    },
+    async submitSelectedHostGuestVcpusParams(payload) {
+      if (!this.selectedHost?.ref) return;
+
+      this.actionError = null;
+      this.hostActionMessage = '';
+      this.hostConfigSaving = true;
+      try {
+        const record = await api.updateHostConfig(this.selectedHost.ref, {
+          nameLabel: this.selectedHost.name_label || this.selectedHost.hostname || this.selectedHost.ref,
+          nameDescription: this.selectedHost.name_description || '',
+          tags: Array.isArray(this.selectedHost.tags) ? this.selectedHost.tags : [],
+          guestVcpusParams: payload.guestVcpusParams || {},
+        });
+        this.applySelectedHostRecord(record);
+        this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} guest VCPU policy was updated.`;
+      } catch (error) {
+        this.actionError = error.message || 'Unable to save host guest VCPU parameters.';
+      } finally {
+        this.hostConfigSaving = false;
+      }
+    },
+    async submitSelectedHostSchedGran(payload) {
+      if (!this.selectedHost?.ref) return;
+
+      this.actionError = null;
+      this.hostActionMessage = '';
+      this.hostConfigSaving = true;
+      try {
+        const record = await api.updateHostConfig(this.selectedHost.ref, {
+          nameLabel: this.selectedHost.name_label || this.selectedHost.hostname || this.selectedHost.ref,
+          nameDescription: this.selectedHost.name_description || '',
+          tags: Array.isArray(this.selectedHost.tags) ? this.selectedHost.tags : [],
+          schedGran: payload.schedGran || 'cpu',
+        });
+        this.applySelectedHostRecord(record);
+        this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} scheduler policy was updated.`;
+      } catch (error) {
+        this.actionError = error.message || 'Unable to save host scheduler policy.';
       } finally {
         this.hostConfigSaving = false;
       }

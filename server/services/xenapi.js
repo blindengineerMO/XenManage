@@ -242,10 +242,22 @@ class XenAPI {
   async updateHostConfig(ref, {
     nameLabel,
     nameDescription = '',
+    tags,
+    guestVcpusParams,
+    schedGran,
     logging,
   }) {
     await this.setField('host', ref, 'name_label', nameLabel);
     await this.setField('host', ref, 'name_description', nameDescription);
+    if (Array.isArray(tags)) {
+      await this.setField('host', ref, 'tags', tags);
+    }
+    if (guestVcpusParams && typeof guestVcpusParams === 'object') {
+      await this.setField('host', ref, 'guest_VCPUs_params', normalizeStringMap(guestVcpusParams));
+    }
+    if (String(schedGran || '').trim()) {
+      await this.setField('host', ref, 'sched_gran', String(schedGran).trim());
+    }
     if (logging && typeof logging === 'object') {
       await this.setField('host', ref, 'logging', normalizeStringMap(logging));
     }

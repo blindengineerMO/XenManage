@@ -78,6 +78,8 @@ function buildAppBundle() {
     'assets/js/components/forms/PoolHaForm.js',
     'assets/js/components/forms/HostRegistrationForm.js',
     'assets/js/components/forms/HostConfigForm.js',
+    'assets/js/components/forms/HostGuestVcpusParamsForm.js',
+    'assets/js/components/forms/HostSchedGranForm.js',
     'assets/js/components/forms/HostLoggingForm.js',
     'assets/js/components/forms/HostMaintenanceForm.js',
     'assets/js/components/forms/AlertStateForm.js',

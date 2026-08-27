@@ -751,11 +751,17 @@ describe('XenAPI', () => {
       }));
     });
 
-    it('updateHostConfig should persist the host name, description, and logging map before returning the refreshed record', async () => {
+    it('updateHostConfig should persist the host name, description, tags, guest VCPU params, scheduler granularity, and logging map before returning the refreshed record', async () => {
       const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
       const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
         name_label: 'alpha-xen-west',
         name_description: 'Updated operator-facing description for the west production host.',
+        tags: ['prod', 'west', 'governed'],
+        guest_VCPUs_params: {
+          weight: '384',
+          cap: '0',
+        },
+        sched_gran: 'core',
         logging: {
           syslog_destination: '10.0.0.51',
           syslog_level: 'warning',
@@ -768,6 +774,12 @@ describe('XenAPI', () => {
       const result = await xenApi.updateHostConfig('OpaqueRef:host1', {
         nameLabel: 'alpha-xen-west',
         nameDescription: 'Updated operator-facing description for the west production host.',
+        tags: ['prod', 'west', 'governed'],
+        guestVcpusParams: {
+          weight: '384',
+          cap: '0',
+        },
+        schedGran: 'core',
         logging: {
           syslog_destination: '10.0.0.51',
           syslog_level: 'warning',
@@ -776,7 +788,13 @@ describe('XenAPI', () => {
 
       expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'host', 'OpaqueRef:host1', 'name_label', 'alpha-xen-west');
       expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'host', 'OpaqueRef:host1', 'name_description', 'Updated operator-facing description for the west production host.');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'host', 'OpaqueRef:host1', 'logging', {
+      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'host', 'OpaqueRef:host1', 'tags', ['prod', 'west', 'governed']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'host', 'OpaqueRef:host1', 'guest_VCPUs_params', {
+        weight: '384',
+        cap: '0',
+      });
+      expect(setFieldSpy).toHaveBeenNthCalledWith(5, 'host', 'OpaqueRef:host1', 'sched_gran', 'core');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(6, 'host', 'OpaqueRef:host1', 'logging', {
         syslog_destination: '10.0.0.51',
         syslog_level: 'warning',
       });
@@ -784,6 +802,12 @@ describe('XenAPI', () => {
       expect(result).toEqual(expect.objectContaining({
         name_label: 'alpha-xen-west',
         name_description: 'Updated operator-facing description for the west production host.',
+        tags: ['prod', 'west', 'governed'],
+        guest_VCPUs_params: {
+          weight: '384',
+          cap: '0',
+        },
+        sched_gran: 'core',
         logging: {
           syslog_destination: '10.0.0.51',
           syslog_level: 'warning',

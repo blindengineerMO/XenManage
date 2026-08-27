@@ -66,10 +66,21 @@ const demoDb = {
       enabled: true,
       maintenance_mode: false,
       tags: ['production', 'compute'],
+      edition: 'Enterprise',
+      license_server: { address: '10.42.0.90', port: '27000' },
+      software_version: { product_version: '8.4.0', product_brand: 'XenServer', platform_name: 'xcp-ng-demo-west' },
+      virtual_hardware_platform_versions: ['1', '2', '3', '4'],
+      external_auth_type: 'AD',
+      external_auth_service_name: 'corp.lab.local',
+      external_auth_configuration: { domain: 'corp.lab.local', server: 'ldap01.corp.lab.local' },
+      guest_VCPUs_params: { weight: '256', cap: '0' },
+      sched_gran: 'cpu',
+      ssl_legacy: false,
+      bios_strings: { 'system-manufacturer': 'Dell Inc.', 'system-product-name': 'PowerEdge R750', 'bios-version': '1.12.2' },
       PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-2'],
       PBDs: ['OpaqueRef:pbd-demo-1'],
       resident_VMs: ['OpaqueRef:vm-demo-1', 'OpaqueRef:vm-demo-2'],
-      cpu_info: { cpu_count: '32', socket_count: '2', modelname: 'AMD EPYC 7543P' },
+      cpu_info: { cpu_count: '32', socket_count: '2', cores_per_socket: '8', threads_per_core: '2', modelname: 'AMD EPYC 7543P', vendor: 'AMD' },
       logging: { syslog_destination: '10.42.0.50', syslog_level: 'warning' },
       other_config: { rack: 'R1', profile: 'gpu-ready' },
     },
@@ -84,10 +95,21 @@ const demoDb = {
       enabled: true,
       maintenance_mode: false,
       tags: ['production', 'compute'],
+      edition: 'Standard',
+      license_server: {},
+      software_version: { product_version: '8.4.0', product_brand: 'XenServer', platform_name: 'xcp-ng-demo-west' },
+      virtual_hardware_platform_versions: ['1', '2', '3'],
+      external_auth_type: '',
+      external_auth_service_name: '',
+      external_auth_configuration: {},
+      guest_VCPUs_params: {},
+      sched_gran: 'core',
+      ssl_legacy: false,
+      bios_strings: { 'system-manufacturer': 'Dell Inc.', 'system-product-name': 'PowerEdge R750', 'bios-version': '1.11.0' },
       PIFs: ['OpaqueRef:pif-demo-3', 'OpaqueRef:pif-demo-4'],
       PBDs: ['OpaqueRef:pbd-demo-1'],
       resident_VMs: ['OpaqueRef:vm-demo-3'],
-      cpu_info: { cpu_count: '32', socket_count: '2', modelname: 'AMD EPYC 7543P' },
+      cpu_info: { cpu_count: '32', socket_count: '2', cores_per_socket: '8', threads_per_core: '2', modelname: 'AMD EPYC 7543P', vendor: 'AMD' },
       logging: {},
       other_config: { rack: 'R1', lifecycle: 'patched' },
     },
@@ -102,10 +124,21 @@ const demoDb = {
       enabled: false,
       maintenance_mode: true,
       tags: ['edge', 'maintenance'],
+      edition: 'Free',
+      license_server: { address: '10.43.0.91', port: '27000' },
+      software_version: { product_version: '8.3.1', product_brand: 'XenServer', platform_name: 'xcp-ng-demo-edge' },
+      virtual_hardware_platform_versions: ['1', '2'],
+      external_auth_type: 'LDAP',
+      external_auth_service_name: 'edge-auth.lab.local',
+      external_auth_configuration: { server: 'ldap-edge.lab.local' },
+      guest_VCPUs_params: { weight: '128' },
+      sched_gran: 'socket',
+      ssl_legacy: true,
+      bios_strings: { 'system-manufacturer': 'Supermicro', 'system-product-name': 'SYS-621C-TN12R', 'bios-version': '2.5' },
       PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
       PBDs: ['OpaqueRef:pbd-demo-2'],
       resident_VMs: ['OpaqueRef:vm-demo-4'],
-      cpu_info: { cpu_count: '16', socket_count: '1', modelname: 'Intel Xeon Silver 4310' },
+      cpu_info: { cpu_count: '16', socket_count: '1', cores_per_socket: '8', threads_per_core: '2', modelname: 'Intel Xeon Silver 4310', vendor: 'Intel' },
       logging: { syslog_destination: '10.43.0.60' },
       other_config: { rack: 'R4', maintenance_window: 'Sun 02:00' },
     },
@@ -3838,6 +3871,15 @@ function demoRequest(method, url, body) {
     const previous = clone(host);
     host.name_label = body.nameLabel;
     host.name_description = body.nameDescription || '';
+    if (Array.isArray(body.tags)) {
+      host.tags = [...body.tags];
+    }
+    if (body.guestVcpusParams && typeof body.guestVcpusParams === 'object') {
+      host.guest_VCPUs_params = clone(body.guestVcpusParams);
+    }
+    if (String(body.schedGran || '').trim()) {
+      host.sched_gran = String(body.schedGran).trim();
+    }
     if (body.logging && typeof body.logging === 'object') {
       host.logging = clone(body.logging);
     }
