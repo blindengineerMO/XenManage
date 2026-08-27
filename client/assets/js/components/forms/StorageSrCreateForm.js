@@ -95,8 +95,8 @@ function parseConfigLines(lines = '') {
 }
 
 const StorageSrCreateForm = {
-  props: ['hosts', 'saving', 'submitLabel'],
-  emits: ['submit'],
+  props: ['hosts', 'saving', 'probeSaving', 'submitLabel'],
+  emits: ['submit', 'probe'],
   template: `
     <form @submit.prevent="handleSubmit">
       <div class="vm-inline-form-grid">
@@ -170,12 +170,26 @@ const StorageSrCreateForm = {
                   placeholder="allocation=thin"></textarea>
       </div>
 
+      <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
+        Probe accepts partial device configuration so we can discover existing SRs or missing path details before issuing a create request.
+      </div>
+
       <div class="form-error" v-if="validationError" style="text-align:left;margin-bottom:12px">{{ validationError }}</div>
 
-      <button class="form-btn" type="submit" :disabled="saving || !hostOptions.length">
-        <span class="mdi mdi-harddisk-plus"></span>
-        {{ saving ? 'Submitting...' : submitLabel }}
-      </button>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-sm"
+                type="button"
+                :disabled="saving || probeSaving || !hostOptions.length"
+                @click="handleProbe">
+          <span class="mdi mdi-magnify-scan"></span>
+          {{ probeSaving ? 'Probing...' : 'Probe Existing SRs' }}
+        </button>
+
+        <button class="form-btn" type="submit" :disabled="saving || probeSaving || !hostOptions.length">
+          <span class="mdi mdi-harddisk-plus"></span>
+          {{ saving ? 'Submitting...' : submitLabel }}
+        </button>
+      </div>
     </form>
   `,
   data() {
@@ -199,17 +213,30 @@ const StorageSrCreateForm = {
     },
   },
   methods: {
-    handleSubmit() {
+    collectPayload({
+      requireNameLabel = true,
+      requireCompleteDeviceConfig = true,
+    } = {}) {
       const extraDeviceConfig = parseConfigLines(this.draft.extraDeviceConfig);
       if (extraDeviceConfig.error) {
         this.validationError = extraDeviceConfig.error;
-        return;
+        return null;
       }
 
       const smConfig = parseConfigLines(this.draft.smConfigLines);
       if (smConfig.error) {
         this.validationError = smConfig.error;
-        return;
+        return null;
+      }
+
+      if (!String(this.draft.hostRef || '').trim()) {
+        this.validationError = 'Placement Host is required before submitting this storage action.';
+        return null;
+      }
+
+      if (requireNameLabel && !String(this.draft.nameLabel || '').trim()) {
+        this.validationError = 'Repository Name is required before creating this storage repository.';
+        return null;
       }
 
       const deviceConfig = {
@@ -218,25 +245,48 @@ const StorageSrCreateForm = {
 
       for (const field of this.selectedTypeMeta.fields) {
         const value = String(this.draft[field.key] || '').trim();
-        if (!value) {
+        if (!value && requireCompleteDeviceConfig) {
           this.validationError = `${field.label} is required before creating this storage repository.`;
-          return;
+          return null;
+        }
+        if (!value) {
+          continue;
         }
         deviceConfig[field.key] = value;
       }
 
       this.validationError = '';
-      this.$emit('submit', {
+      return {
         hostRef: this.draft.hostRef,
-        nameLabel: this.draft.nameLabel.trim(),
-        nameDescription: this.draft.nameDescription.trim(),
         type: this.draft.type,
-        contentType: 'user',
-        shared: this.draft.shared,
         deviceConfig,
         smConfig: smConfig.map,
+        ...(requireNameLabel ? {
+          nameLabel: this.draft.nameLabel.trim(),
+          nameDescription: this.draft.nameDescription.trim(),
+          contentType: 'user',
+          shared: this.draft.shared,
+        } : {}),
+      };
+    },
+    handleSubmit() {
+      const payload = this.collectPayload({
+        requireNameLabel: true,
+        requireCompleteDeviceConfig: true,
       });
+      if (!payload) return;
+
+      this.$emit('submit', payload);
       this.draft = buildStorageSrCreateDraft();
+    },
+    handleProbe() {
+      const payload = this.collectPayload({
+        requireNameLabel: false,
+        requireCompleteDeviceConfig: false,
+      });
+      if (!payload) return;
+
+      this.$emit('probe', payload);
     },
   },
 };

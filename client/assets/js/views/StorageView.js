@@ -1,5 +1,5 @@
 const StorageView = {
-  components: { DataTable, FloatingWindow, StatusBadge, StorageSrCreateForm, StorageVdiForm, StorageVdiResizeForm },
+  components: { DataTable, FloatingWindow, StatusBadge, StorageSrCreateForm, StorageSrConfigForm, StorageVdiForm, StorageVdiResizeForm },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -18,14 +18,61 @@ const StorageView = {
 
       <div class="dash-card" style="margin-bottom:16px">
         <div class="dash-card-label">Create Storage Repository</div>
-        <p class="text-muted" style="margin-bottom:12px">Provision a new SR against NFS, iSCSI, local EXT, or local LVM without leaving the Storage workspace.</p>
+        <p class="text-muted" style="margin-bottom:12px">Provision a new SR against NFS, iSCSI, local EXT, or local LVM, or probe an existing target to discover imported repository details before you create.</p>
         <storage-sr-create-form
           :hosts="availableHosts"
           :saving="createSrBusy"
+          :probe-saving="createSrProbeBusy"
           :submit-label="'Create Storage Repository'"
-          @submit="submitStorageRepository">
+          @submit="submitStorageRepository"
+          @probe="probeStorageRepository">
         </storage-sr-create-form>
         <div class="form-error" v-if="createSrError" style="text-align:left;margin-top:12px">{{ createSrError }}</div>
+        <div class="form-error" v-if="createSrProbeError" style="text-align:left;margin-top:12px">{{ createSrProbeError }}</div>
+        <div class="form-error" v-if="createSrImportError" style="text-align:left;margin-top:12px">{{ createSrImportError }}</div>
+        <div class="detail-section" v-if="createSrProbeResult" style="margin-top:16px">
+          <div class="detail-section-title">Probe Discovery</div>
+          <div class="stack-list">
+            <div class="stack-item">
+              <div>
+                <strong>{{ createSrProbeResult.mode === 'probe_ext' ? 'Structured repository probe returned' : 'Legacy repository probe returned' }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ describeSrProbeSummary(createSrProbeResult) }}</div>
+              </div>
+              <span class="badge" :class="createSrProbeResult.mode === 'probe_ext' ? 'badge-running' : 'badge-warning'">
+                {{ createSrProbeResult.mode === 'probe_ext' ? 'structured' : 'legacy xml' }}
+              </span>
+            </div>
+            <div class="stack-item" v-for="(result, index) in createSrProbeResult.results" :key="result.sr?.uuid || result.sr?.name_label || ('probe-' + index)">
+              <div>
+                <strong>{{ result.sr?.name_label || ('Candidate ' + (index + 1)) }}</strong>
+                <div class="text-muted mono" style="font-size:11px">
+                  {{ result.complete ? 'Complete create-ready configuration discovered.' : 'Partial configuration returned. Refine the probe inputs and probe again.' }}
+                </div>
+                <div class="text-muted mono" style="font-size:11px">{{ formatProbeMap(result.configuration) || 'No configuration hints were returned.' }}</div>
+                <div class="text-muted mono" v-if="formatProbeMap(result.extraInfo)" style="font-size:11px">{{ formatProbeMap(result.extraInfo) }}</div>
+                <div class="text-muted mono" v-if="result.sr" style="font-size:11px">{{ formatProbeSrStat(result.sr) }}</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <span class="badge badge-running" v-if="result.complete">complete</span>
+                <span class="badge badge-warning" v-else>partial</span>
+                <span class="badge badge-info" v-if="result.sr?.health">{{ result.sr.health }}</span>
+                <button class="btn btn-sm btn-primary"
+                        type="button"
+                        v-if="canIntroduceProbedSr(result)"
+                        :disabled="Boolean(createSrImportBusyKey)"
+                        @click="introduceProbedSr(result, index)">
+                  <span class="mdi mdi-database-import-outline"></span>
+                  {{ createSrImportBusyKey === buildProbeResultKey(result, index) ? 'Introducing...' : 'Introduce Or Attach' }}
+                </button>
+              </div>
+            </div>
+            <div class="capacity-callout" v-if="createSrProbeResult.rawXml">
+              <strong>Legacy backend probe output</strong>
+              <div class="text-muted mono" style="font-size:11px;margin-top:8px">This Xen host returned backend-specific XML rather than structured probe records. Review it to refine device configuration or identify an imported SR before creating a new repository.</div>
+              <pre class="mono" style="margin-top:10px;white-space:pre-wrap;max-height:220px;overflow:auto">{{ createSrProbeResult.rawXml }}</pre>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="stack-item" v-if="workspaceMessage" style="margin-bottom:16px">
@@ -83,15 +130,18 @@ const StorageView = {
         <div v-if="selectedSR">
           <div class="property-grid">
             <span class="text-muted">Name</span><span>{{ selectedSR.name_label || '-' }}</span>
+            <span class="text-muted">Description</span><span>{{ selectedSR.name_description || '-' }}</span>
             <span class="text-muted">Type</span><span>{{ selectedSR.type || '-' }}</span>
             <span class="text-muted">Physical Size</span><span class="mono">{{ formatBytes(selectedSR.physical_size) }}</span>
             <span class="text-muted">Virtual Allocation</span><span class="mono">{{ formatBytes(selectedSR.virtual_allocation) }}</span>
+            <span class="text-muted">Local Cache</span><span>{{ selectedSR.local_cache_enabled ? 'Enabled' : 'Disabled' }}</span>
             <span class="text-muted">Mapped VDIs</span><span>{{ summarizeCount('disks', vdis.length) }}</span>
             <span class="text-muted">Attachment Paths</span><span>{{ summarizeCount('attachment paths', selectedSrAttachmentPathCount) }}</span>
             <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('workloads', selectedSrWorkloadCount) }}</span>
             <span class="text-muted">Topology</span><span>{{ selectedSrTopologyLabel }}</span>
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedSR.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedSR.tags) }}</span>
+            <span class="text-muted">Other Config</span><span>{{ selectedSrOtherConfigSummary }}</span>
           </div>
 
           <div class="detail-section" v-if="focusedStorageContext">
@@ -105,6 +155,17 @@ const StorageView = {
           <div class="detail-section">
             <div class="detail-section-title">Storage Operations</div>
             <div class="dashboard-panels">
+              <div class="dash-card">
+                <div class="dash-card-label">Repository Identity</div>
+                <p class="text-muted" style="margin-bottom:12px">Update the operator-facing repository name, description, and tag set without leaving the Storage detail workspace.</p>
+                <storage-sr-config-form
+                  :initial-value="selectedSR"
+                  :submit-label="'Save Repository Metadata'"
+                  :saving="detailActionBusy === 'config'"
+                  @submit="submitSelectedSrConfig">
+                </storage-sr-config-form>
+              </div>
+
               <div class="dash-card">
                 <div class="dash-card-label">Repository Actions</div>
                 <p class="text-muted" style="margin-bottom:12px">Refresh the selected SR so new LUNs, scan results, or detached disk records are visible immediately inside this workspace.</p>
@@ -132,6 +193,26 @@ const StorageView = {
                     </div>
                     <span class="badge badge-info">tracked</span>
                   </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Local Cache</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedSrLocalCacheSummary }}</div>
+                    </div>
+                    <span class="badge" :class="selectedSR.local_cache_enabled ? 'badge-running' : 'badge-info'">
+                      {{ selectedSR.local_cache_enabled ? 'enabled' : 'disabled' }}
+                    </span>
+                  </div>
+                </div>
+                <div class="form-group" v-if="selectedSrAccessHosts.length" style="margin-bottom:12px">
+                  <label for="storage-local-cache-host">Cache Host Path</label>
+                  <select id="storage-local-cache-host"
+                          class="form-input"
+                          v-model="localCacheHostRef"
+                          :disabled="Boolean(detailActionBusy) || !selectedSrAccessHosts.length">
+                    <option v-for="host in selectedSrAccessHosts" :key="host.ref" :value="host.ref">
+                      {{ host.name_label || host.address || host.ref }} · {{ host.address || host.uuid || 'no address' }}
+                    </option>
+                  </select>
                 </div>
                 <button class="form-btn"
                         type="button"
@@ -148,6 +229,17 @@ const StorageView = {
                   <span class="mdi mdi-wrench-outline"></span>
                   {{ detailActionBusy === 'repair' ? 'Repairing...' : 'Repair Repository' }}
                 </button>
+                <button class="btn btn-sm"
+                        type="button"
+                        style="margin-top:10px"
+                        :disabled="Boolean(detailActionBusy) || Boolean(selectedSrLocalCacheBlockedReason)"
+                        @click="toggleSelectedSrLocalCache">
+                  <span class="mdi mdi-cached"></span>
+                  {{ detailActionBusy === 'local-cache' ? 'Applying Cache Change...' : (selectedSR.local_cache_enabled ? 'Disable Local Cache' : 'Enable Local Cache') }}
+                </button>
+                <div class="text-muted mono" v-if="selectedSrLocalCacheBlockedReason" style="font-size:11px;margin-top:10px">
+                  {{ selectedSrLocalCacheBlockedReason }}
+                </div>
                 <button class="btn btn-sm"
                         type="button"
                         style="margin-top:10px"
@@ -170,12 +262,13 @@ const StorageView = {
               </div>
 
               <div class="dash-card">
-                <div class="dash-card-label">Create Detached VDI</div>
-                <p class="text-muted" style="margin-bottom:12px">Provision a standalone VDI on this repository so it is ready for a later attachment or workflow handoff.</p>
+                <div class="dash-card-label">Create Or Attach VDI</div>
+                <p class="text-muted" style="margin-bottom:12px">Provision a standalone VDI on this repository or attach new capacity directly to a selected workload without leaving the Storage detail workspace.</p>
                 <storage-vdi-form
                   :sr="selectedSR"
+                  :vm-options="relatedVMs"
                   :saving="detailActionBusy === 'create-vdi'"
-                  :submit-label="'Create Detached VDI'"
+                  :submit-label="'Create VDI'"
                   @submit="submitDetachedVdi">
                 </storage-vdi-form>
               </div>
@@ -307,7 +400,14 @@ const StorageView = {
       detailActionMessage: '',
       createSrBusy: false,
       createSrError: '',
+      createSrProbeBusy: false,
+      createSrProbeError: '',
+      createSrProbeResult: null,
+      createSrProbeRequest: null,
+      createSrImportBusyKey: '',
+      createSrImportError: '',
       workspaceMessage: '',
+      localCacheHostRef: '',
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name' },
@@ -380,6 +480,41 @@ const StorageView = {
     },
     storageVdiAttachmentCounts() {
       return Object.fromEntries(this.vdis.map((vdi) => [vdi.ref, this.getVdiAttachmentCount(vdi)]));
+    },
+    selectedSrAccessHosts() {
+      if (!this.selectedSR?.PBDs?.length || !this.relatedHosts.length) return [];
+      const pbdRefs = new Set(this.selectedSR.PBDs || []);
+      return this.relatedHosts.filter((host) =>
+        Array.isArray(host.PBDs) && host.PBDs.some((pbdRef) => pbdRefs.has(pbdRef))
+      );
+    },
+    selectedSrLocalCacheBlockedReason() {
+      if (!this.selectedSR) return 'No storage repository is selected.';
+      if (this.detailLoading) return 'Storage and host relationship data are still loading before cache controls can be applied.';
+      if (this.selectedSR.shared) return 'Local storage caching only applies to non-shared storage repositories.';
+      if (!this.selectedSrAccessHosts.length) return 'No attached host paths were discovered for this repository.';
+      if (!this.localCacheHostRef) return 'Select a host path before changing the local cache assignment.';
+      return '';
+    },
+    selectedSrLocalCacheSummary() {
+      if (!this.selectedSR) return 'No storage repository is selected.';
+      if (this.selectedSR.shared) return 'Shared repositories are not eligible for host-local caching.';
+      if (!this.selectedSrAccessHosts.length) return 'No attached host paths were discovered for this repository.';
+      const host = this.selectedSrAccessHosts.find((entry) => entry.ref === this.localCacheHostRef) || this.selectedSrAccessHosts[0];
+      if (this.selectedSR.local_cache_enabled) {
+        return `Enabled for ${host?.name_label || host?.address || host?.ref || 'the selected host path'}.`;
+      }
+      return `Available on ${host?.name_label || host?.address || host?.ref || 'the selected host path'} but not currently enabled.`;
+    },
+    selectedSrOtherConfigSummary() {
+      if (!this.selectedSR) return '-';
+      const entries = Object.entries(this.selectedSR.other_config || {})
+        .filter(([key, value]) => !['last_rescan_at', 'last_repair_at'].includes(String(key || '').trim()) && String(key || '').trim() && String(value || '').trim());
+      if (!entries.length) return '-';
+
+      const summary = entries.slice(0, 2).map(([key, value]) => `${key}=${value}`).join(' · ');
+      if (entries.length <= 2) return summary;
+      return `${summary} +${entries.length - 2} more`;
     },
     selectedSrWorkloadCount() {
       return new Set(this.selectedSrAttachmentRows.filter((row) => row.vmRef).map((row) => row.vmRef)).size;
@@ -499,12 +634,16 @@ const StorageView = {
     async submitStorageRepository(payload) {
       this.workspaceMessage = '';
       this.createSrError = '';
+      this.createSrProbeError = '';
+      this.createSrImportError = '';
       this.createSrBusy = true;
 
       try {
         const record = await api.createSR(payload);
         const targetHost = this.availableHosts.find((host) => host.ref === payload.hostRef);
         await this.loadSRs();
+        this.createSrProbeResult = null;
+        this.createSrProbeRequest = null;
         this.workspaceMessage = `${record.name_label || payload.nameLabel} was created on ${targetHost?.name_label || payload.hostRef}.`;
         const created = this.srs.find((entry) => entry.ref === record.ref) || record;
         if (created?.ref) {
@@ -514,6 +653,80 @@ const StorageView = {
         this.createSrError = error.message || 'Unable to create the requested storage repository.';
       } finally {
         this.createSrBusy = false;
+      }
+    },
+    async probeStorageRepository(payload) {
+      this.workspaceMessage = '';
+      this.createSrError = '';
+      this.createSrProbeError = '';
+      this.createSrImportError = '';
+      this.createSrProbeBusy = true;
+
+      try {
+        this.createSrProbeRequest = { ...payload };
+        this.createSrProbeResult = await api.probeSR(payload);
+      } catch (error) {
+        this.createSrProbeRequest = null;
+        this.createSrProbeResult = null;
+        this.createSrProbeError = error.message || 'Unable to probe the requested storage configuration.';
+      } finally {
+        this.createSrProbeBusy = false;
+      }
+    },
+    buildProbeResultKey(result, index) {
+      return result?.sr?.uuid || result?.sr?.name_label || `probe-${index}`;
+    },
+    isSharedStorageType(type) {
+      return ['nfs', 'lvmoiscsi'].includes(String(type || '').trim());
+    },
+    canIntroduceProbedSr(result) {
+      return Boolean(this.createSrProbeRequest?.hostRef && result?.complete && result?.sr?.uuid);
+    },
+    async introduceProbedSr(result, index) {
+      if (!this.canIntroduceProbedSr(result)) {
+        this.createSrImportError = 'Probe results must include a complete discovered SR with a UUID before it can be introduced.';
+        return;
+      }
+
+      const probeRequest = this.createSrProbeRequest || {};
+      const probeKey = this.buildProbeResultKey(result, index);
+      const payload = {
+        hostRef: probeRequest.hostRef,
+        uuid: result.sr.uuid,
+        nameLabel: result.sr.name_label || `Imported ${String(probeRequest.type || 'storage').toUpperCase()} SR`,
+        nameDescription: result.sr.name_description || '',
+        type: probeRequest.type,
+        contentType: 'user',
+        shared: this.isSharedStorageType(probeRequest.type),
+        deviceConfig: Object.keys(result.configuration || {}).length ? result.configuration : (probeRequest.deviceConfig || {}),
+        smConfig: probeRequest.smConfig || {},
+      };
+
+      this.workspaceMessage = '';
+      this.createSrError = '';
+      this.createSrProbeError = '';
+      this.createSrImportError = '';
+      this.createSrImportBusyKey = probeKey;
+
+      try {
+        const record = await api.importSR(payload);
+        const targetHost = this.availableHosts.find((host) => host.ref === payload.hostRef);
+        await this.loadSRs();
+        this.createSrProbeResult = null;
+        this.createSrProbeRequest = null;
+        this.workspaceMessage = record.alreadyAttached
+          ? `${record.name_label || payload.nameLabel} was already attached on ${targetHost?.name_label || payload.hostRef}; the SR inventory was refreshed.`
+          : record.introduced
+            ? `${record.name_label || payload.nameLabel} was introduced from ${payload.uuid} and attached to ${targetHost?.name_label || payload.hostRef}.`
+            : `${record.name_label || payload.nameLabel} was attached to ${targetHost?.name_label || payload.hostRef}.`;
+        const imported = this.srs.find((entry) => entry.ref === record.ref) || record;
+        if (imported?.ref) {
+          await this.openProperties(imported, { hosts: this.availableHosts });
+        }
+      } catch (error) {
+        this.createSrImportError = error.message || 'Unable to introduce the probed storage repository.';
+      } finally {
+        this.createSrImportBusyKey = '';
       }
     },
     clearSelectedStorageDetail() {
@@ -544,6 +757,38 @@ const StorageView = {
       await this.loadSRs();
       const updated = this.srs.find((sr) => sr.ref === selectedRef) || this.selectedSR;
       await this.openProperties(updated, focusOptions);
+    },
+    async submitSelectedSrConfig(payload) {
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = 'No selected storage repository is available for identity updates.';
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'config';
+
+      try {
+        const record = await api.updateSRConfig(this.selectedSR.ref, payload);
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${record.name_label || payload.nameLabel || this.selectedSR.ref} repository metadata was updated.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to save the repository identity for the selected storage repository.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    syncSelectedSrLocalCacheHost() {
+      const hosts = this.selectedSrAccessHosts;
+      if (!hosts.length) {
+        this.localCacheHostRef = '';
+        return;
+      }
+
+      const stillValid = hosts.some((host) => host.ref === this.localCacheHostRef);
+      if (stillValid) return;
+
+      this.localCacheHostRef = hosts[0]?.ref || '';
     },
     async openProperties(row, options = {}) {
       this.selectedSR = row;
@@ -588,6 +833,7 @@ const StorageView = {
         this.detailError = 'Unable to load VDI, VM, and host relationship data.';
       }
 
+      this.syncSelectedSrLocalCacheHost();
       this.detailLoading = false;
     },
     async applyBulkStorageAction(action) {
@@ -654,6 +900,38 @@ const StorageView = {
         this.detailActionError = error.message || (action === 'repair'
           ? 'Unable to continue the storage repair.'
           : 'Unable to continue the storage rescan.');
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
+    async toggleSelectedSrLocalCache() {
+      if (!this.selectedSR?.ref) {
+        this.detailActionError = 'No selected storage repository is available for local cache updates.';
+        return;
+      }
+
+      if (this.selectedSrLocalCacheBlockedReason) {
+        this.detailActionError = this.selectedSrLocalCacheBlockedReason;
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'local-cache';
+
+      try {
+        const nextEnabled = !Boolean(this.selectedSR.local_cache_enabled);
+        const record = await api.setSRLocalCache(this.selectedSR.ref, {
+          hostRef: this.localCacheHostRef,
+          enabled: nextEnabled,
+        });
+        const targetHost = this.selectedSrAccessHosts.find((host) => host.ref === this.localCacheHostRef) || null;
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = nextEnabled
+          ? `${record.name_label || this.selectedSR.ref} is now the local cache SR for ${targetHost?.name_label || this.localCacheHostRef}.`
+          : `${record.name_label || this.selectedSR.ref} local cache assignment was cleared for ${targetHost?.name_label || this.localCacheHostRef}.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to update the local cache assignment for the selected storage repository.';
       } finally {
         this.detailActionBusy = '';
       }
@@ -752,7 +1030,22 @@ const StorageView = {
       this.detailActionBusy = 'create-vdi';
 
       try {
-        const record = await api.createStorageVdi(this.selectedSR.ref, payload);
+        let record = null;
+        if (payload.attachVmRef) {
+          const targetVm = this.relatedVMs.find((vm) => vm.ref === payload.attachVmRef) || null;
+          record = await api.addVMDisk(payload.attachVmRef, {
+            srRef: this.selectedSR.ref,
+            nameLabel: payload.nameLabel,
+            sizeBytes: payload.sizeBytes,
+          });
+          this.focusedVdiRef = record?.vdiRef || '';
+          this.focusedStorageClass = this.focusedVdiRef ? 'vdi' : this.focusedStorageClass;
+          await this.refreshSelectedSrDetail();
+          this.detailActionMessage = `${payload.nameLabel || 'New VDI'} was created on ${this.selectedSR?.name_label || 'the selected repository'} and attached to ${targetVm?.name_label || payload.attachVmRef}.`;
+          return;
+        }
+
+        record = await api.createStorageVdi(this.selectedSR.ref, payload);
         await this.refreshSelectedSrDetail();
         this.detailActionMessage = `${record.name_label || payload.nameLabel || 'Detached VDI'} was created on ${this.selectedSR?.name_label || 'the selected repository'}.`;
       } catch (error) {
@@ -863,6 +1156,47 @@ const StorageView = {
       const attachmentCount = this.getVdiAttachmentCount(vdi);
       if (!attachmentCount) return '';
       return `Delete is limited to detached VDIs. ${attachmentCount} workload attachment${attachmentCount === 1 ? '' : 's'} still map to this disk.`;
+    },
+    describeSrProbeSummary(result) {
+      if (!result) return '';
+
+      if (result.mode === 'probe') {
+        return result.rawXml
+          ? 'The host returned backend-specific XML output rather than structured probe records.'
+          : 'The host did not return structured probe records for this request.';
+      }
+
+      const summary = result.summary || {};
+      const total = Number(summary.totalResults || 0);
+      const existing = Number(summary.existingSrs || 0);
+      const complete = Number(summary.completeResults || 0);
+      return `${total} candidate${total === 1 ? '' : 's'} · ${existing} existing SR${existing === 1 ? '' : 's'} · ${complete} complete configuration${complete === 1 ? '' : 's'}`;
+    },
+    formatProbeMap(record) {
+      const entries = Object.entries(record || {}).filter(([key, value]) =>
+        String(key || '').trim() && String(value || '').trim()
+      );
+      if (!entries.length) return '';
+      return entries.map(([key, value]) => `${key}=${value}`).join(' · ');
+    },
+    formatProbeSrStat(record) {
+      if (!record) return '';
+
+      const parts = [];
+      if (record.uuid) {
+        parts.push(record.uuid);
+      }
+      if (record.health) {
+        parts.push(record.health);
+      }
+      if (Number(record.total_space || 0) > 0) {
+        parts.push(`${this.formatBytes(record.free_space || 0)} free of ${this.formatBytes(record.total_space || 0)}`);
+      }
+      if (record.clustered) {
+        parts.push('clustered');
+      }
+
+      return parts.join(' · ');
     },
     isFocusedVdi(vdi) {
       return recordMatchesRouteFocus(vdi, {

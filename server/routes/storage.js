@@ -81,6 +81,48 @@ router.post('/',
     }
   });
 
+router.post('/probe',
+  validate(schemas.storageSrProbe),
+  async (req, res) => {
+    try {
+      const result = await req.xenApi.probeStorageRepository(req.body);
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.post('/import',
+  validate(schemas.storageSrImport),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_import', entityType: 'host', entityRef: req.body.hostRef })) return;
+      const hostRecord = await safeGetHostRecord(req.xenApi, req.body.hostRef);
+      const record = await req.xenApi.importStorageRepository(req.body);
+      auditLogService.record({
+        category: 'storage',
+        action: record.introduced ? 'sr_introduced' : 'sr_attached',
+        actionLabel: record.introduced ? 'Introduced storage repository' : 'Attached storage repository',
+        entityType: 'sr',
+        entityRef: record.ref,
+        entityName: record.name_label || req.body.nameLabel || req.body.uuid,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: hostRecord,
+        after: record,
+        detail: record.alreadyAttached
+          ? `${record.name_label || req.body.nameLabel || req.body.uuid} was already attached on ${hostRecord?.name_label || req.body.hostRef}; SR.scan refreshed the inventory.`
+          : record.introduced
+            ? `${record.name_label || req.body.nameLabel || req.body.uuid} was introduced by UUID ${req.body.uuid} and attached to ${hostRecord?.name_label || req.body.hostRef}.`
+            : `${record.name_label || req.body.nameLabel || req.body.uuid} was attached to ${hostRecord?.name_label || req.body.hostRef} through a host-specific PBD path.`,
+      });
+      res.status(record.introduced ? 201 : 200).json(record);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
 router.get('/:ref', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
   try {
     const record = await req.xenApi.getRecord('SR', req.params.ref);
@@ -89,6 +131,34 @@ router.get('/:ref', validate(schemas.opaqueRefParam, 'params'), async (req, res)
     res.status(500).json({ error: err.message });
   }
 });
+
+router.put('/:ref/config',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageSrConfigUpdate),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_config_update', entityType: 'sr', entityRef: req.params.ref })) return;
+      const previousRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      const record = await req.xenApi.updateStorageConfig(req.params.ref, req.body);
+      auditLogService.record({
+        category: 'storage',
+        action: 'sr_config_updated',
+        actionLabel: 'Updated storage repository configuration',
+        entityType: 'sr',
+        entityRef: req.params.ref,
+        entityName: record.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: previousRecord,
+        after: { ref: req.params.ref, ...record },
+        detail: `Repository metadata saved as ${record.name_label || req.body.nameLabel || req.params.ref}.`,
+      });
+      res.json({ ref: req.params.ref, ...record });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
 
 router.get('/:ref/vdis', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
   try {
@@ -155,6 +225,37 @@ router.post('/:ref/repair', validate(schemas.opaqueRefParam, 'params'), async (r
     res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
   }
 });
+
+router.post('/:ref/local-cache',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageSrLocalCache),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_local_cache_update', entityType: 'sr', entityRef: req.params.ref })) return;
+      const previousRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      const hostRecord = await safeGetHostRecord(req.xenApi, req.body.hostRef);
+      const record = await req.xenApi.setStorageLocalCache(req.params.ref, req.body);
+      auditLogService.record({
+        category: 'storage',
+        action: req.body.enabled ? 'sr_local_cache_enabled' : 'sr_local_cache_disabled',
+        actionLabel: req.body.enabled ? 'Enabled storage local cache' : 'Disabled storage local cache',
+        entityType: 'sr',
+        entityRef: req.params.ref,
+        entityName: record.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: previousRecord,
+        after: record,
+        detail: req.body.enabled
+          ? `${record.name_label || previousRecord?.name_label || req.params.ref} was assigned as a local cache SR on ${hostRecord?.name_label || req.body.hostRef}.`
+          : `${record.name_label || previousRecord?.name_label || req.params.ref} local cache assignment was cleared on ${hostRecord?.name_label || req.body.hostRef}.`,
+      });
+      res.json(record);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
 
 router.post('/:ref/forget',
   validate(schemas.opaqueRefParam, 'params'),

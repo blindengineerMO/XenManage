@@ -119,6 +119,10 @@ const schemas = {
   opaqueRefParam: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
   }),
+  vmNicParams: Joi.object({
+    ref: Joi.string().required().pattern(/^OpaqueRef:/),
+    vifRef: Joi.string().required().pattern(/^OpaqueRef:/),
+  }),
   vmConsoleParams: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
     consoleRef: Joi.string().required().pattern(/^OpaqueRef:/),
@@ -212,9 +216,47 @@ const schemas = {
   vmConfigUpdate: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
+    userVersion: Joi.number().integer().min(0).max(2147483647).default(0),
+    startDelay: Joi.number().integer().min(0).max(2147483647).default(0),
+    shutdownDelay: Joi.number().integer().min(0).max(2147483647).default(0),
+    order: Joi.number().integer().min(0).max(2147483647).default(0),
     vcpus: Joi.number().integer().min(1).max(128).required(),
     memoryStaticMax: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
+    memoryStaticMin: Joi.number().integer().min(1073741824).max(Joi.ref('memoryStaticMax')).required(),
+    hardwarePlatformVersion: Joi.number().integer().min(0).max(2147483647).default(0),
+    domainType: Joi.string().valid('unspecified', 'hvm', 'pv', 'pvh', 'pv_in_pvh').default('unspecified'),
+    hasVendorDevice: Joi.boolean().default(true),
+    affinity: Joi.alternatives().try(
+      Joi.string().pattern(/^OpaqueRef:/),
+      Joi.string().allow('')
+    ).default(''),
+    applianceRef: Joi.alternatives().try(
+      Joi.string().pattern(/^OpaqueRef:/),
+      Joi.string().allow('')
+    ).default(''),
+    snapshotScheduleRef: Joi.alternatives().try(
+      Joi.string().pattern(/^OpaqueRef:/),
+      Joi.string().allow('')
+    ).default(''),
     tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    blockedOperations: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(40), Joi.string().trim().min(1).max(120))
+      .default({}),
+    vcpusParams: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+    otherConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+    xenstoreData: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(120), Joi.string().allow('').max(1024))
+      .default({}),
+    nvram: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(160), Joi.string().allow('').max(2048))
+      .default({}),
+    platform: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
   }),
   vmDiskCreate: Joi.object({
     srRef: Joi.string().required().pattern(/^OpaqueRef:/),
@@ -256,6 +298,43 @@ const schemas = {
 
     return value;
   }),
+  storageSrProbe: Joi.object({
+    hostRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    type: Joi.string().valid('nfs', 'lvmoiscsi', 'ext', 'lvm').required(),
+    deviceConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+    smConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
+  storageSrImport: Joi.object({
+    hostRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    uuid: Joi.string().trim().required().min(1).max(120),
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    type: Joi.string().valid('nfs', 'lvmoiscsi', 'ext', 'lvm').required(),
+    contentType: Joi.string().valid('user').default('user'),
+    shared: Joi.boolean().default(false),
+    deviceConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .required(),
+    smConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
+  storageSrLocalCache: Joi.object({
+    hostRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    enabled: Joi.boolean().required(),
+  }),
+  storageSrConfigUpdate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    otherConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
   storageVdiResizeParams: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
     vdiRef: Joi.string().required().pattern(/^OpaqueRef:/),
@@ -266,10 +345,54 @@ const schemas = {
   storageMutation: Joi.object({
     approvalId: Joi.string().allow('').max(120).default(''),
   }),
+  networkCreate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    mtu: Joi.number().integer().min(576).max(9216).default(1500),
+    bridge: Joi.string().trim().required().min(1).max(64),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    otherConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
+  networkVlanCreate: Joi.object({
+    networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    pifRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    tag: Joi.number().integer().min(1).max(4094).required(),
+  }),
+  networkBondCreate: Joi.object({
+    networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    pifRefs: Joi.array().items(Joi.string().required().pattern(/^OpaqueRef:/)).min(2).max(8).required(),
+    mode: Joi.string().valid('balance-slb', 'active-backup', 'lacp').default('balance-slb'),
+  }),
+  networkConfigUpdate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    mtu: Joi.number().integer().min(576).max(9216).default(1500),
+    defaultLockingMode: Joi.string().valid('unlocked', 'disabled').default('unlocked'),
+    purpose: Joi.array().items(Joi.string().valid('nbd', 'insecure_nbd')).max(2).default([]),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    otherConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
+  networkMutation: Joi.object({
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
+  poolConfigUpdate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+  }),
   vmNicCreate: Joi.object({
     networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
     deviceLabel: Joi.string().allow('').max(12).default(''),
     mac: Joi.string().allow('').max(64).default(''),
+  }),
+  vmNicDelete: Joi.object({
+    force: Joi.boolean().default(true),
+  }),
+  vmNicDisconnect: Joi.object({
+    force: Joi.boolean().default(true),
   }),
   vmDuplicateCreate: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
