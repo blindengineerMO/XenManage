@@ -92,6 +92,43 @@ jest.mock('../../../../server/services/xenapi', () => {
     };
   });
 
+  actual.XenAPI.prototype.updateStorageConfig = jest.fn(async function (ref, payload) {
+    const sr = mockState.srs.find((entry) => entry.ref === ref);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+
+    const preservedOtherConfig = Object.fromEntries(
+      Object.entries(sr.other_config || {})
+        .filter(([key]) => ['last_rescan_at', 'last_repair_at'].includes(String(key || '').trim()))
+    );
+
+    sr.name_label = payload.nameLabel;
+    sr.name_description = payload.nameDescription || '';
+    sr.tags = Array.isArray(payload.tags) ? [...payload.tags] : [];
+    sr.other_config = {
+      ...preservedOtherConfig,
+      ...(payload.otherConfig || {}),
+    };
+    return { ...sr };
+  });
+
+  actual.XenAPI.prototype.setStorageLocalCache = jest.fn(async function (ref, payload) {
+    const sr = mockState.srs.find((entry) => entry.ref === ref);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+    if (payload?.enabled && sr.shared) throw new Error('LOCAL_CACHE_REQUIRES_LOCAL_SR');
+
+    const matchedPbd = mockState.pbds.find((entry) => entry.SR === ref && entry.host === payload?.hostRef);
+    if (!matchedPbd) throw new Error('LOCAL_CACHE_REQUIRES_ATTACHED_HOST_PATH');
+
+    sr.local_cache_enabled = Boolean(payload?.enabled);
+    return {
+      ...sr,
+      hostRef: payload?.hostRef || '',
+      matchedPbdRef: matchedPbd.ref,
+      requestedEnabled: Boolean(payload?.enabled),
+      local_cache_enabled: Boolean(sr.local_cache_enabled),
+    };
+  });
+
   actual.XenAPI.prototype.forgetSR = jest.fn(async function (ref) {
     const index = mockState.srs.findIndex((entry) => entry.ref === ref);
     if (index === -1) throw new Error('SR_NOT_FOUND');
@@ -137,6 +174,127 @@ jest.mock('../../../../server/services/xenapi', () => {
     mockState.srs.push(record);
     mockState.vdisBySr[record.ref] = [];
     return { ...record };
+  });
+
+  actual.XenAPI.prototype.probeStorageRepository = jest.fn(async function (payload) {
+    const requestedConfiguration = { ...(payload.deviceConfig || {}) };
+    const requiredByType = {
+      nfs: ['server', 'serverpath'],
+      lvmoiscsi: ['target', 'targetIQN', 'SCSIid'],
+      ext: ['device'],
+      lvm: ['device'],
+    };
+    const missingKeys = (requiredByType[payload.type] || []).filter((key) => !String(requestedConfiguration[key] || '').trim());
+
+    if (missingKeys.length) {
+      return {
+        mode: 'probe_ext',
+        requestedConfiguration,
+        rawXml: '',
+        results: [
+          {
+            complete: false,
+            configuration: requestedConfiguration,
+            extraInfo: {
+              hint: `Provide ${missingKeys.join(', ')} to complete discovery.`,
+            },
+            sr: null,
+          },
+        ],
+        summary: {
+          totalResults: 1,
+          completeResults: 0,
+          incompleteResults: 1,
+          existingSrs: 0,
+          legacyXmlAvailable: false,
+        },
+      };
+    }
+
+    return {
+      mode: 'probe_ext',
+      requestedConfiguration,
+      rawXml: '',
+      results: [
+        {
+          complete: true,
+          configuration: requestedConfiguration,
+          extraInfo: {
+            discovery: 'existing-sr',
+          },
+          sr: {
+            uuid: 'imported-nfs-uuid',
+            name_label: 'Imported Archive SR',
+            name_description: 'Existing repository discovered during probe.',
+            health: 'healthy',
+            total_space: 21474836480,
+            free_space: 8589934592,
+            clustered: false,
+          },
+        },
+      ],
+      summary: {
+        totalResults: 1,
+        completeResults: 1,
+        incompleteResults: 0,
+        existingSrs: 1,
+        legacyXmlAvailable: false,
+      },
+    };
+  });
+
+  actual.XenAPI.prototype.importStorageRepository = jest.fn(async function (payload) {
+    const host = mockState.hosts.find((entry) => entry.ref === payload.hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    let sr = mockState.srs.find((entry) => entry.uuid === payload.uuid) || null;
+    let introduced = false;
+    if (!sr) {
+      sr = {
+        ref: 'OpaqueRef:sr3',
+        name_label: payload.nameLabel,
+        name_description: payload.nameDescription || '',
+        type: payload.type,
+        content_type: payload.contentType || 'user',
+        shared: Boolean(payload.shared),
+        physical_size: 21474836480,
+        physical_utilisation: 0,
+        virtual_allocation: 0,
+        uuid: payload.uuid,
+        PBDs: [],
+        VDIs: [],
+        other_config: {},
+        sm_config: { ...(payload.smConfig || {}) },
+        device_config: { ...(payload.deviceConfig || {}) },
+      };
+      mockState.srs.push(sr);
+      mockState.vdisBySr[sr.ref] = [];
+      introduced = true;
+    }
+
+    const existingPbd = mockState.pbds.find((entry) => entry.SR === sr.ref && entry.host === payload.hostRef) || null;
+    const pbdRef = existingPbd?.ref || `OpaqueRef:pbd${mockState.pbds.length + 1}`;
+    if (!existingPbd) {
+      mockState.pbds.push({
+        ref: pbdRef,
+        SR: sr.ref,
+        host: payload.hostRef,
+        currently_attached: true,
+        device_config: { ...(payload.deviceConfig || {}) },
+      });
+      sr.PBDs = [...(sr.PBDs || []), pbdRef];
+    }
+
+    return {
+      ...sr,
+      pbdRef,
+      introduced,
+      createdPbd: !existingPbd,
+      updatedPbdConfig: false,
+      pluggedPbd: !existingPbd,
+      alreadyAttached: false,
+      attachedHostRef: payload.hostRef,
+    };
   });
 
   actual.XenAPI.prototype.createStorageVdi = jest.fn(async function (ref, payload) {
@@ -379,6 +537,56 @@ describe('Storage Routes', () => {
     }));
   });
 
+  it('updates storage repository metadata fields through the config endpoint', async () => {
+    const auth = await login();
+    mockState.srs[0].other_config = {
+      last_rescan_at: '2026-08-26T18:45:00.000Z',
+      owner: 'platform-ops',
+    };
+
+    const updated = await request('PUT', '/api/storage/OpaqueRef%3Asr1/config', {
+      nameLabel: 'Primary SR Renamed',
+      nameDescription: 'Updated operator-facing description for the primary repository.',
+      tags: ['flash', 'tier-2'],
+      otherConfig: {
+        tier: 'gold',
+        owner: 'storage-team',
+      },
+    }, auth.cookie);
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:sr1',
+      name_label: 'Primary SR Renamed',
+      name_description: 'Updated operator-facing description for the primary repository.',
+      tags: ['flash', 'tier-2'],
+      other_config: expect.objectContaining({
+        last_rescan_at: '2026-08-26T18:45:00.000Z',
+        tier: 'gold',
+        owner: 'storage-team',
+      }),
+    }));
+  });
+
+  it('enables local cache for a non-shared repository on an attached host path', async () => {
+    const auth = await login();
+
+    const toggled = await request('POST', '/api/storage/OpaqueRef%3Asr1/local-cache', {
+      hostRef: 'OpaqueRef:host1',
+      enabled: true,
+    }, auth.cookie);
+
+    expect(toggled.status).toBe(200);
+    expect(toggled.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:sr1',
+      name_label: 'Primary SR',
+      hostRef: 'OpaqueRef:host1',
+      matchedPbdRef: 'OpaqueRef:pbd1',
+      requestedEnabled: true,
+      local_cache_enabled: true,
+    }));
+  });
+
   it('creates a detached vdi on the selected storage repository', async () => {
     const auth = await login();
 
@@ -539,6 +747,78 @@ describe('Storage Routes', () => {
     const list = await request('GET', '/api/storage', null, auth.cookie);
     expect(list.status).toBe(200);
     expect(list.body.total).toBe(3);
+  });
+
+  it('probes a storage repository target and returns import discovery details', async () => {
+    const auth = await login();
+
+    const probed = await request('POST', '/api/storage/probe', {
+      hostRef: 'OpaqueRef:host1',
+      type: 'nfs',
+      deviceConfig: {
+        server: '10.42.0.25',
+        serverpath: '/exports/xen/imported',
+      },
+      smConfig: {},
+    }, auth.cookie);
+
+    expect(probed.status).toBe(200);
+    expect(probed.body).toEqual(expect.objectContaining({
+      mode: 'probe_ext',
+      summary: expect.objectContaining({
+        totalResults: 1,
+        completeResults: 1,
+        existingSrs: 1,
+      }),
+    }));
+    expect(probed.body.results[0]).toEqual(expect.objectContaining({
+      complete: true,
+      configuration: expect.objectContaining({
+        server: '10.42.0.25',
+        serverpath: '/exports/xen/imported',
+      }),
+      sr: expect.objectContaining({
+        name_label: 'Imported Archive SR',
+        health: 'healthy',
+      }),
+    }));
+  });
+
+  it('introduces a probed storage repository and attaches it to the selected host', async () => {
+    const auth = await login();
+
+    const imported = await request('POST', '/api/storage/import', {
+      hostRef: 'OpaqueRef:host1',
+      uuid: 'imported-nfs-uuid',
+      nameLabel: 'Imported Archive SR',
+      nameDescription: 'Existing repository discovered during probe.',
+      type: 'nfs',
+      contentType: 'user',
+      shared: true,
+      deviceConfig: {
+        server: '10.42.0.25',
+        serverpath: '/exports/xen/imported',
+      },
+      smConfig: {},
+    }, auth.cookie);
+
+    expect(imported.status).toBe(201);
+    expect(imported.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:sr3',
+      uuid: 'imported-nfs-uuid',
+      name_label: 'Imported Archive SR',
+      introduced: true,
+      createdPbd: true,
+      attachedHostRef: 'OpaqueRef:host1',
+    }));
+
+    const list = await request('GET', '/api/storage', null, auth.cookie);
+    expect(list.status).toBe(200);
+    expect(list.body.total).toBe(3);
+    expect(list.body.data[2]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:sr3',
+      name_label: 'Imported Archive SR',
+    }));
   });
 
   it('forgets an existing storage repository through the dedicated endpoint', async () => {

@@ -503,6 +503,180 @@ describe('XenAPI', () => {
       ]));
     });
 
+    it('updateVMConfig should persist identity, user_version, start_delay, shutdown_delay, order, sizing, memory_static_min, hardware_platform_version, domain_type, has_vendor_device, affinity, appliance, snapshot_schedule, tags, blocked_operations, VCPUs_params, other_config, xenstore_data, NVRAM, and platform before returning the refreshed record', async () => {
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        name_label: 'app-01-renamed',
+        name_description: 'Updated operator-facing VM description.',
+        user_version: 8,
+        start_delay: 45,
+        shutdown_delay: 90,
+        order: 3,
+        VCPUs_at_startup: '4',
+        VCPUs_max: '4',
+        memory_static_min: '4294967296',
+        memory_static_max: '8589934592',
+        memory_dynamic_max: '8589934592',
+        hardware_platform_version: 4,
+        domain_type: 'pvh',
+        has_vendor_device: false,
+        affinity: 'OpaqueRef:host2',
+        appliance: 'OpaqueRef:appliance2',
+        snapshot_schedule: 'OpaqueRef:vmss2',
+        tags: ['prod', 'linux', 'tier-1'],
+        blocked_operations: {
+          start: 'OPERATION_NOT_ALLOWED',
+          pool_migrate: 'OPERATION_NOT_ALLOWED',
+        },
+        VCPUs_params: {
+          weight: '512',
+          cap: '75',
+        },
+        other_config: {
+          owner: 'storage-team',
+          patchWindow: 'sun-0200',
+        },
+        xenstore_data: {
+          'vm-data/cloud-init': 'enabled',
+          'guest/channel': 'ops',
+        },
+        NVRAM: {
+          'EFI/BootOrder': '0003,0004',
+          'EFI/SecureBootMode': 'user',
+        },
+        platform: {
+          secureboot: 'disabled',
+          firmware: 'bios',
+        },
+      });
+
+      const result = await xenApi.updateVMConfig('OpaqueRef:vm1', {
+        nameLabel: 'app-01-renamed',
+        nameDescription: 'Updated operator-facing VM description.',
+        userVersion: 8,
+        startDelay: 45,
+        shutdownDelay: 90,
+        order: 3,
+        vcpus: 4,
+        memoryStaticMin: 4294967296,
+        memoryStaticMax: 8589934592,
+        hardwarePlatformVersion: 4,
+        domainType: 'pvh',
+        hasVendorDevice: false,
+        affinity: 'OpaqueRef:host2',
+        applianceRef: 'OpaqueRef:appliance2',
+        snapshotScheduleRef: 'OpaqueRef:vmss2',
+        tags: ['prod', 'linux', 'tier-1'],
+        blockedOperations: {
+          start: 'OPERATION_NOT_ALLOWED',
+          pool_migrate: 'OPERATION_NOT_ALLOWED',
+        },
+        vcpusParams: {
+          weight: '512',
+          cap: '75',
+        },
+        otherConfig: {
+          owner: 'storage-team',
+          patchWindow: 'sun-0200',
+        },
+        xenstoreData: {
+          'vm-data/cloud-init': 'enabled',
+          'guest/channel': 'ops',
+        },
+        nvram: {
+          'EFI/BootOrder': '0003,0004',
+          'EFI/SecureBootMode': 'user',
+        },
+        platform: {
+          secureboot: 'disabled',
+          firmware: 'bios',
+        },
+      });
+
+      expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'VM', 'OpaqueRef:vm1', 'name_label', 'app-01-renamed');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'VM', 'OpaqueRef:vm1', 'name_description', 'Updated operator-facing VM description.');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'VM', 'OpaqueRef:vm1', 'user_version', 8);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'VM', 'OpaqueRef:vm1', 'start_delay', 45);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(5, 'VM', 'OpaqueRef:vm1', 'shutdown_delay', 90);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(6, 'VM', 'OpaqueRef:vm1', 'order', 3);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(7, 'VM', 'OpaqueRef:vm1', 'VCPUs_max', '4');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(8, 'VM', 'OpaqueRef:vm1', 'VCPUs_at_startup', '4');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(9, 'VM', 'OpaqueRef:vm1', 'memory_static_max', '8589934592');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(10, 'VM', 'OpaqueRef:vm1', 'memory_dynamic_max', '8589934592');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(11, 'VM', 'OpaqueRef:vm1', 'memory_static_min', '4294967296');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(12, 'VM', 'OpaqueRef:vm1', 'hardware_platform_version', 4);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(13, 'VM', 'OpaqueRef:vm1', 'domain_type', 'pvh');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(14, 'VM', 'OpaqueRef:vm1', 'has_vendor_device', false);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(15, 'VM', 'OpaqueRef:vm1', 'affinity', 'OpaqueRef:host2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(16, 'VM', 'OpaqueRef:vm1', 'appliance', 'OpaqueRef:appliance2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(17, 'VM', 'OpaqueRef:vm1', 'snapshot_schedule', 'OpaqueRef:vmss2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(18, 'VM', 'OpaqueRef:vm1', 'tags', ['prod', 'linux', 'tier-1']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(19, 'VM', 'OpaqueRef:vm1', 'blocked_operations', {
+        start: 'OPERATION_NOT_ALLOWED',
+        pool_migrate: 'OPERATION_NOT_ALLOWED',
+      });
+      expect(setFieldSpy).toHaveBeenNthCalledWith(20, 'VM', 'OpaqueRef:vm1', 'VCPUs_params', {
+        weight: '512',
+        cap: '75',
+      });
+      expect(setFieldSpy).toHaveBeenNthCalledWith(21, 'VM', 'OpaqueRef:vm1', 'other_config', {
+        owner: 'storage-team',
+        patchWindow: 'sun-0200',
+      });
+      expect(setFieldSpy).toHaveBeenNthCalledWith(22, 'VM', 'OpaqueRef:vm1', 'xenstore_data', {
+        'vm-data/cloud-init': 'enabled',
+        'guest/channel': 'ops',
+      });
+      expect(setFieldSpy).toHaveBeenNthCalledWith(23, 'VM', 'OpaqueRef:vm1', 'NVRAM', {
+        'EFI/BootOrder': '0003,0004',
+        'EFI/SecureBootMode': 'user',
+      });
+      expect(setFieldSpy).toHaveBeenNthCalledWith(24, 'VM', 'OpaqueRef:vm1', 'platform', {
+        secureboot: 'disabled',
+        firmware: 'bios',
+      });
+      expect(getRecordSpy).toHaveBeenCalledWith('VM', 'OpaqueRef:vm1');
+      expect(result).toEqual(expect.objectContaining({
+        name_label: 'app-01-renamed',
+        user_version: 8,
+        start_delay: 45,
+        shutdown_delay: 90,
+        order: 3,
+        memory_static_min: '4294967296',
+        hardware_platform_version: 4,
+        domain_type: 'pvh',
+        has_vendor_device: false,
+        affinity: 'OpaqueRef:host2',
+        appliance: 'OpaqueRef:appliance2',
+        snapshot_schedule: 'OpaqueRef:vmss2',
+        tags: ['prod', 'linux', 'tier-1'],
+        blocked_operations: {
+          start: 'OPERATION_NOT_ALLOWED',
+          pool_migrate: 'OPERATION_NOT_ALLOWED',
+        },
+        VCPUs_params: {
+          weight: '512',
+          cap: '75',
+        },
+        other_config: {
+          owner: 'storage-team',
+          patchWindow: 'sun-0200',
+        },
+        xenstore_data: {
+          'vm-data/cloud-init': 'enabled',
+          'guest/channel': 'ops',
+        },
+        NVRAM: {
+          'EFI/BootOrder': '0003,0004',
+          'EFI/SecureBootMode': 'user',
+        },
+        platform: {
+          secureboot: 'disabled',
+          firmware: 'bios',
+        },
+      }));
+    });
+
     it('exportVM should stream a full XVA package from the documented HTTP handler', async () => {
       xenApi.sessionRef = 'OpaqueRef:session123';
       mockRequest.mockResolvedValue({
@@ -672,9 +846,212 @@ describe('XenAPI', () => {
     });
   });
 
+  describe('pool methods', () => {
+    beforeEach(() => {
+      xenApi.sessionRef = 'OpaqueRef:session123';
+    });
+
+    it('updatePoolConfig should persist pool name and description before returning the refreshed record', async () => {
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        name_label: 'Production Pool West',
+        name_description: 'Updated operator-facing pool summary for the west cluster.',
+        uuid: 'pool-uuid-1',
+        master: 'OpaqueRef:host1',
+      });
+
+      const result = await xenApi.updatePoolConfig('OpaqueRef:pool1', {
+        nameLabel: 'Production Pool West',
+        nameDescription: 'Updated operator-facing pool summary for the west cluster.',
+      });
+
+      expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'pool', 'OpaqueRef:pool1', 'name_label', 'Production Pool West');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'pool', 'OpaqueRef:pool1', 'name_description', 'Updated operator-facing pool summary for the west cluster.');
+      expect(getRecordSpy).toHaveBeenCalledWith('pool', 'OpaqueRef:pool1');
+      expect(result).toEqual(expect.objectContaining({
+        name_label: 'Production Pool West',
+        name_description: 'Updated operator-facing pool summary for the west cluster.',
+        uuid: 'pool-uuid-1',
+      }));
+    });
+  });
+
   describe('storage methods', () => {
     beforeEach(() => {
       xenApi.sessionRef = 'OpaqueRef:session123';
+    });
+
+    it('probeStorageRepository should prefer structured SR.probe_ext results when available', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValueOnce([
+        {
+          complete: true,
+          configuration: {
+            server: '10.42.0.25',
+            serverpath: '/exports/xen/imported',
+            blank: '   ',
+          },
+          extra_info: {
+            discovery: 'existing-sr',
+          },
+          sr: {
+            uuid: 'imported-nfs-uuid',
+            name_label: 'Imported Archive SR',
+            health: 'healthy',
+            total_space: 21474836480,
+            free_space: 8589934592,
+            clustered: false,
+          },
+        },
+      ]);
+
+      const result = await xenApi.probeStorageRepository({
+        hostRef: 'OpaqueRef:host1',
+        type: 'nfs',
+        deviceConfig: {
+          server: '10.42.0.25',
+          serverpath: '/exports/xen/imported',
+          blank: '   ',
+        },
+        smConfig: {},
+      });
+
+      expect(callSpy).toHaveBeenCalledWith('SR', 'probe_ext', [
+        'OpaqueRef:host1',
+        {
+          server: '10.42.0.25',
+          serverpath: '/exports/xen/imported',
+        },
+        'nfs',
+        {},
+      ]);
+      expect(result).toEqual(expect.objectContaining({
+        mode: 'probe_ext',
+        requestedConfiguration: {
+          server: '10.42.0.25',
+          serverpath: '/exports/xen/imported',
+        },
+        summary: expect.objectContaining({
+          totalResults: 1,
+          completeResults: 1,
+          existingSrs: 1,
+        }),
+      }));
+      expect(result.results[0]).toEqual(expect.objectContaining({
+        complete: true,
+        extraInfo: expect.objectContaining({
+          discovery: 'existing-sr',
+        }),
+        sr: expect.objectContaining({
+          name_label: 'Imported Archive SR',
+          health: 'healthy',
+        }),
+      }));
+    });
+
+    it('probeStorageRepository should fall back to legacy SR.probe output when probe_ext is unavailable', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call')
+        .mockRejectedValueOnce(new Error('MESSAGE_METHOD_UNKNOWN'))
+        .mockResolvedValueOnce('<probe><sr uuid="imported-nfs-uuid" /></probe>');
+
+      const result = await xenApi.probeStorageRepository({
+        hostRef: 'OpaqueRef:host1',
+        type: 'nfs',
+        deviceConfig: {
+          server: '10.42.0.25',
+        },
+        smConfig: {},
+      });
+
+      expect(callSpy).toHaveBeenNthCalledWith(1, 'SR', 'probe_ext', [
+        'OpaqueRef:host1',
+        {
+          server: '10.42.0.25',
+        },
+        'nfs',
+        {},
+      ]);
+      expect(callSpy).toHaveBeenNthCalledWith(2, 'SR', 'probe', [
+        'OpaqueRef:host1',
+        {
+          server: '10.42.0.25',
+        },
+        'nfs',
+        {},
+      ]);
+      expect(result).toEqual(expect.objectContaining({
+        mode: 'probe',
+        rawXml: '<probe><sr uuid="imported-nfs-uuid" /></probe>',
+        results: [],
+        summary: expect.objectContaining({
+          legacyXmlAvailable: true,
+        }),
+      }));
+    });
+
+    it('importStorageRepository should introduce a new SR, create a host PBD, plug it, and rescan', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call')
+        .mockRejectedValueOnce(new Error('UUID_INVALID'))
+        .mockResolvedValueOnce('OpaqueRef:sr9')
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined);
+      const createSpy = jest.spyOn(xenApi, 'create').mockResolvedValue('OpaqueRef:pbd9');
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          name_label: 'Imported Archive SR',
+          PBDs: [],
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Imported Archive SR',
+          uuid: 'imported-nfs-uuid',
+          PBDs: ['OpaqueRef:pbd9'],
+        });
+
+      const result = await xenApi.importStorageRepository({
+        hostRef: 'OpaqueRef:host1',
+        uuid: 'imported-nfs-uuid',
+        nameLabel: 'Imported Archive SR',
+        nameDescription: 'Existing repository discovered during probe.',
+        type: 'nfs',
+        contentType: 'user',
+        shared: true,
+        deviceConfig: {
+          server: '10.42.0.25',
+          serverpath: '/exports/xen/imported',
+        },
+        smConfig: {},
+      });
+
+      expect(callSpy).toHaveBeenNthCalledWith(1, 'SR', 'get_by_uuid', ['imported-nfs-uuid']);
+      expect(callSpy).toHaveBeenNthCalledWith(2, 'SR', 'introduce', [
+        'imported-nfs-uuid',
+        'Imported Archive SR',
+        'Existing repository discovered during probe.',
+        'nfs',
+        'user',
+        true,
+        {},
+      ]);
+      expect(createSpy).toHaveBeenCalledWith('PBD', {
+        host: 'OpaqueRef:host1',
+        SR: 'OpaqueRef:sr9',
+        device_config: {
+          server: '10.42.0.25',
+          serverpath: '/exports/xen/imported',
+        },
+        other_config: {},
+      });
+      expect(callSpy).toHaveBeenNthCalledWith(3, 'PBD', 'plug', ['OpaqueRef:pbd9']);
+      expect(callSpy).toHaveBeenNthCalledWith(4, 'SR', 'scan', ['OpaqueRef:sr9']);
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:sr9',
+        pbdRef: 'OpaqueRef:pbd9',
+        introduced: true,
+        createdPbd: true,
+        pluggedPbd: true,
+        attachedHostRef: 'OpaqueRef:host1',
+      }));
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'SR', 'OpaqueRef:sr9');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'SR', 'OpaqueRef:sr9');
     });
 
     it('repairSR should refresh the SR, replug detached PBDs, and rescan the repository', async () => {
@@ -711,6 +1088,382 @@ describe('XenAPI', () => {
         repairedPbdRefs: ['OpaqueRef:pbd1'],
         reattachedCount: 1,
         name_label: 'Primary SR',
+      }));
+    });
+
+    it('setStorageLocalCache should enable local caching on a host-attached local repository', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          name_label: 'Primary SR',
+          shared: false,
+          PBDs: ['OpaqueRef:pbd1', 'OpaqueRef:pbd2'],
+        })
+        .mockResolvedValueOnce({
+          host: 'OpaqueRef:host1',
+          currently_attached: true,
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Primary SR',
+          shared: false,
+          PBDs: ['OpaqueRef:pbd1', 'OpaqueRef:pbd2'],
+          local_cache_enabled: true,
+        });
+
+      const result = await xenApi.setStorageLocalCache('OpaqueRef:sr1', {
+        hostRef: 'OpaqueRef:host1',
+        enabled: true,
+      });
+
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'SR', 'OpaqueRef:sr1');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'PBD', 'OpaqueRef:pbd1');
+      expect(callSpy).toHaveBeenCalledWith('host', 'enable_local_storage_caching', ['OpaqueRef:host1', 'OpaqueRef:sr1']);
+      expect(getRecordSpy).toHaveBeenNthCalledWith(3, 'SR', 'OpaqueRef:sr1');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:sr1',
+        hostRef: 'OpaqueRef:host1',
+        matchedPbdRef: 'OpaqueRef:pbd1',
+        requestedEnabled: true,
+        local_cache_enabled: true,
+        name_label: 'Primary SR',
+      }));
+    });
+
+    it('updateStorageConfig should persist SR name, description, tags, and editable other_config values before returning the refreshed record', async () => {
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          other_config: {
+            last_rescan_at: '2026-08-26T18:45:00.000Z',
+            owner: 'platform-ops',
+          },
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Primary SR Renamed',
+          name_description: 'Updated operator-facing description for the primary repository.',
+          tags: ['flash', 'tier-2'],
+          other_config: {
+            last_rescan_at: '2026-08-26T18:45:00.000Z',
+            owner: 'storage-team',
+            tier: 'gold',
+          },
+        });
+
+      const result = await xenApi.updateStorageConfig('OpaqueRef:sr1', {
+        nameLabel: 'Primary SR Renamed',
+        nameDescription: 'Updated operator-facing description for the primary repository.',
+        tags: ['flash', 'tier-2'],
+        otherConfig: {
+          owner: 'storage-team',
+          tier: 'gold',
+        },
+      });
+
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'SR', 'OpaqueRef:sr1');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'SR', 'OpaqueRef:sr1', 'name_label', 'Primary SR Renamed');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'SR', 'OpaqueRef:sr1', 'name_description', 'Updated operator-facing description for the primary repository.');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'SR', 'OpaqueRef:sr1', 'tags', ['flash', 'tier-2']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'SR', 'OpaqueRef:sr1', 'other_config', {
+        last_rescan_at: '2026-08-26T18:45:00.000Z',
+        owner: 'storage-team',
+        tier: 'gold',
+      });
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'SR', 'OpaqueRef:sr1');
+      expect(result).toEqual(expect.objectContaining({
+        name_label: 'Primary SR Renamed',
+        name_description: 'Updated operator-facing description for the primary repository.',
+        tags: ['flash', 'tier-2'],
+        other_config: expect.objectContaining({
+          last_rescan_at: '2026-08-26T18:45:00.000Z',
+          owner: 'storage-team',
+          tier: 'gold',
+        }),
+      }));
+    });
+  });
+
+  describe('network methods', () => {
+    beforeEach(() => {
+      xenApi.sessionRef = 'OpaqueRef:session123';
+    });
+
+    it('createNetwork should submit the documented network record constructor and return the refreshed record', async () => {
+      const createSpy = jest.spyOn(xenApi, 'create').mockResolvedValue('OpaqueRef:net9');
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        name_label: 'Replication Transit',
+        name_description: 'Dedicated replication bridge for backup copy traffic.',
+        bridge: 'xenbr10',
+        MTU: 1600,
+        managed: true,
+        tags: ['replication', 'backup'],
+        other_config: { vlan: '330', domain: 'replication' },
+      });
+
+      const result = await xenApi.createNetwork({
+        nameLabel: 'Replication Transit',
+        nameDescription: 'Dedicated replication bridge for backup copy traffic.',
+        mtu: 1600,
+        bridge: 'xenbr10',
+        tags: ['replication', 'backup'],
+        otherConfig: {
+          vlan: '330',
+          domain: 'replication',
+        },
+      });
+
+      expect(createSpy).toHaveBeenCalledWith('network', {
+        name_label: 'Replication Transit',
+        name_description: 'Dedicated replication bridge for backup copy traffic.',
+        MTU: 1600,
+        other_config: {
+          vlan: '330',
+          domain: 'replication',
+        },
+        bridge: 'xenbr10',
+        managed: true,
+        tags: ['replication', 'backup'],
+      });
+      expect(getRecordSpy).toHaveBeenCalledWith('network', 'OpaqueRef:net9');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:net9',
+        name_label: 'Replication Transit',
+        bridge: 'xenbr10',
+        MTU: 1600,
+      }));
+    });
+
+    it('createVlan should call the documented VLAN create message and return the refreshed vlan record plus network context', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue('OpaqueRef:vlan1');
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          tagged_PIF: 'OpaqueRef:pif2',
+          untagged_PIF: 'OpaqueRef:pif9',
+          tag: 330,
+          other_config: {},
+          uuid: 'vlan-uuid-1',
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Backup Network',
+          bridge: 'xenbr1',
+          other_config: { vlan: '330' },
+        });
+
+      const result = await xenApi.createVlan({
+        networkRef: 'OpaqueRef:net2',
+        pifRef: 'OpaqueRef:pif2',
+        tag: 330,
+      });
+
+      expect(callSpy).toHaveBeenCalledWith('VLAN', 'create', ['OpaqueRef:pif2', 330, 'OpaqueRef:net2']);
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'VLAN', 'OpaqueRef:vlan1');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'network', 'OpaqueRef:net2');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:vlan1',
+        networkRef: 'OpaqueRef:net2',
+        taggedPifRef: 'OpaqueRef:pif2',
+        tag: 330,
+        network: expect.objectContaining({
+          ref: 'OpaqueRef:net2',
+          name_label: 'Backup Network',
+        }),
+      }));
+    });
+
+    it('createBond should call the documented Bond create message and return the refreshed bond record plus network context', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue('OpaqueRef:bond1');
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          master: 'OpaqueRef:pif2',
+          slaves: ['OpaqueRef:pif2', 'OpaqueRef:pif4'],
+          primary_slave: 'OpaqueRef:pif2',
+          links_up: 2,
+          mode: 'lacp',
+          other_config: {},
+          properties: {},
+          uuid: 'bond-uuid-1',
+        })
+        .mockResolvedValueOnce({
+          name_label: 'Backup Network',
+          bridge: 'xenbr1',
+          other_config: { bond_mode: 'lacp' },
+        });
+
+      const result = await xenApi.createBond({
+        networkRef: 'OpaqueRef:net2',
+        pifRefs: ['OpaqueRef:pif2', 'OpaqueRef:pif4'],
+        mode: 'lacp',
+      });
+
+      expect(callSpy).toHaveBeenCalledWith('Bond', 'create', ['OpaqueRef:net2', ['OpaqueRef:pif2', 'OpaqueRef:pif4'], '', 'lacp', {}]);
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'Bond', 'OpaqueRef:bond1');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'network', 'OpaqueRef:net2');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:bond1',
+        networkRef: 'OpaqueRef:net2',
+        memberPifRefs: ['OpaqueRef:pif2', 'OpaqueRef:pif4'],
+        mode: 'lacp',
+        network: expect.objectContaining({
+          ref: 'OpaqueRef:net2',
+          name_label: 'Backup Network',
+        }),
+      }));
+    });
+
+    it('updateNetworkConfig should persist network name, description, MTU, tags, and other_config before returning the refreshed record', async () => {
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+        name_label: 'VM Network',
+        name_description: 'Primary east-west traffic segment.',
+        MTU: 1500,
+        default_locking_mode: 'unlocked',
+        purpose: [],
+        tags: ['prod'],
+          other_config: {
+            vlan: '120',
+          },
+        })
+        .mockResolvedValueOnce({
+        name_label: 'Production VM Network',
+        name_description: 'Updated east-west traffic segment.',
+        MTU: 1600,
+        default_locking_mode: 'disabled',
+        purpose: ['nbd'],
+        tags: ['prod', 'east-west'],
+        other_config: {
+          vlan: '130',
+          owner: 'platform-ops',
+        },
+        });
+
+      const result = await xenApi.updateNetworkConfig('OpaqueRef:net1', {
+        nameLabel: 'Production VM Network',
+        nameDescription: 'Updated east-west traffic segment.',
+        mtu: 1600,
+        defaultLockingMode: 'disabled',
+        purpose: ['nbd'],
+        tags: ['prod', 'east-west'],
+        otherConfig: {
+          vlan: '130',
+          owner: 'platform-ops',
+        },
+      });
+
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'network', 'OpaqueRef:net1');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'network', 'OpaqueRef:net1', 'name_label', 'Production VM Network');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'network', 'OpaqueRef:net1', 'name_description', 'Updated east-west traffic segment.');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'network', 'OpaqueRef:net1', 'MTU', 1600);
+      expect(callSpy).toHaveBeenNthCalledWith(1, 'network', 'set_default_locking_mode', ['OpaqueRef:net1', 'disabled']);
+      expect(callSpy).toHaveBeenNthCalledWith(2, 'network', 'add_purpose', ['OpaqueRef:net1', 'nbd']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'network', 'OpaqueRef:net1', 'tags', ['prod', 'east-west']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(5, 'network', 'OpaqueRef:net1', 'other_config', {
+        vlan: '130',
+        owner: 'platform-ops',
+      });
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'network', 'OpaqueRef:net1');
+      expect(result).toEqual(expect.objectContaining({
+        name_label: 'Production VM Network',
+        name_description: 'Updated east-west traffic segment.',
+        MTU: 1600,
+        default_locking_mode: 'disabled',
+        purpose: ['nbd'],
+        tags: ['prod', 'east-west'],
+        other_config: expect.objectContaining({
+          vlan: '130',
+          owner: 'platform-ops',
+        }),
+      }));
+    });
+
+    it('destroyNetwork should call the documented network destroy message and return a success envelope', async () => {
+      const destroySpy = jest.spyOn(xenApi, 'destroy').mockResolvedValue(undefined);
+
+      const result = await xenApi.destroyNetwork('OpaqueRef:net2');
+
+      expect(destroySpy).toHaveBeenCalledWith('network', 'OpaqueRef:net2');
+      expect(result).toEqual({
+        success: true,
+        ref: 'OpaqueRef:net2',
+      });
+    });
+  });
+
+  describe('VM interface methods', () => {
+    beforeEach(() => {
+      xenApi.sessionRef = 'OpaqueRef:session123';
+    });
+
+    it('disconnectVMNic should hot-unplug an attached VIF and return refreshed state', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          VIFs: ['OpaqueRef:vif1'],
+        })
+        .mockResolvedValueOnce({
+          VM: 'OpaqueRef:vm1',
+          network: 'OpaqueRef:net1',
+          device: '0',
+          MAC: '02:16:3e:10:00:01',
+          currently_attached: true,
+        })
+        .mockResolvedValueOnce({
+          VM: 'OpaqueRef:vm1',
+          network: 'OpaqueRef:net1',
+          device: '0',
+          MAC: '02:16:3e:10:00:01',
+          currently_attached: false,
+        });
+
+      const result = await xenApi.disconnectVMNic('OpaqueRef:vm1', 'OpaqueRef:vif1', { force: true });
+
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'VM', 'OpaqueRef:vm1');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'VIF', 'OpaqueRef:vif1');
+      expect(callSpy).toHaveBeenCalledWith('VIF', 'unplug', ['OpaqueRef:vif1']);
+      expect(getRecordSpy).toHaveBeenNthCalledWith(3, 'VIF', 'OpaqueRef:vif1');
+      expect(result).toEqual({
+        success: true,
+        vmRef: 'OpaqueRef:vm1',
+        vifRef: 'OpaqueRef:vif1',
+        networkRef: 'OpaqueRef:net1',
+        alreadyDisconnected: false,
+        currentlyAttached: false,
+        device: '0',
+        mac: '02:16:3e:10:00:01',
+      });
+    });
+
+    it('disconnectVMNic should fall back to unplug_force when a forced hot-unplug is required', async () => {
+      const callSpy = jest.spyOn(xenApi, 'call')
+        .mockRejectedValueOnce(new Error('DEVICE_DETACH_REQUIRES_FORCE'))
+        .mockResolvedValueOnce(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          VIFs: ['OpaqueRef:vif1'],
+        })
+        .mockResolvedValueOnce({
+          VM: 'OpaqueRef:vm1',
+          network: 'OpaqueRef:net1',
+          device: '1',
+          MAC: '02:16:3e:10:00:09',
+          currently_attached: true,
+        })
+        .mockResolvedValueOnce({
+          VM: 'OpaqueRef:vm1',
+          network: 'OpaqueRef:net1',
+          device: '1',
+          MAC: '02:16:3e:10:00:09',
+          currently_attached: false,
+        });
+
+      const result = await xenApi.disconnectVMNic('OpaqueRef:vm1', 'OpaqueRef:vif1', { force: true });
+
+      expect(callSpy).toHaveBeenNthCalledWith(1, 'VIF', 'unplug', ['OpaqueRef:vif1']);
+      expect(callSpy).toHaveBeenNthCalledWith(2, 'VIF', 'unplug_force', ['OpaqueRef:vif1']);
+      expect(result).toEqual(expect.objectContaining({
+        success: true,
+        vifRef: 'OpaqueRef:vif1',
+        currentlyAttached: false,
       }));
     });
   });

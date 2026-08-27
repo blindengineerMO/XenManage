@@ -10,6 +10,61 @@ function createXenApiError(code, message = code, status = 400) {
   return error;
 }
 
+function normalizeStringMap(record = {}) {
+  return Object.fromEntries(
+    Object.entries(record || {})
+      .filter(([key, value]) => String(key || '').trim() && String(value || '').trim())
+      .map(([key, value]) => [String(key).trim(), String(value).trim()])
+  );
+}
+
+function normalizeNullableOpaqueRef(value = '') {
+  const normalized = String(value || '').trim();
+  return normalized === 'OpaqueRef:NULL' ? '' : normalized;
+}
+
+function toNullableOpaqueRef(value = '') {
+  const normalized = normalizeNullableOpaqueRef(value);
+  return normalized || 'OpaqueRef:NULL';
+}
+
+function normalizeProbeSrStat(record = null) {
+  if (!record || typeof record !== 'object') return null;
+
+  return {
+    uuid: record.uuid || '',
+    name_label: record.name_label || '',
+    name_description: record.name_description || '',
+    health: record.health || '',
+    total_space: Number(record.total_space || 0),
+    free_space: Number(record.free_space || 0),
+    clustered: Boolean(record.clustered),
+  };
+}
+
+function normalizeProbeResult(entry = {}) {
+  return {
+    complete: Boolean(entry.complete),
+    configuration: normalizeStringMap(entry.configuration),
+    extraInfo: normalizeStringMap(entry.extra_info || entry.extraInfo),
+    sr: normalizeProbeSrStat(entry.sr),
+  };
+}
+
+function summarizeProbeResults(results = []) {
+  const totalResults = Array.isArray(results) ? results.length : 0;
+  const completeResults = results.filter((entry) => entry.complete).length;
+  const existingSrs = results.filter((entry) => entry.sr?.name_label || entry.sr?.uuid).length;
+
+  return {
+    totalResults,
+    completeResults,
+    incompleteResults: Math.max(0, totalResults - completeResults),
+    existingSrs,
+    legacyXmlAvailable: false,
+  };
+}
+
 class XenAPI {
   constructor(host) {
     this.host = host;
@@ -110,6 +165,15 @@ class XenAPI {
     return this.getClassRecords('pool');
   }
 
+  async updatePoolConfig(ref, {
+    nameLabel,
+    nameDescription = '',
+  }) {
+    await this.setField('pool', ref, 'name_label', nameLabel);
+    await this.setField('pool', ref, 'name_description', nameDescription);
+    return this.getRecord('pool', ref);
+  }
+
   async getHosts() {
     return this.getClassRecords('host');
   }
@@ -183,8 +247,91 @@ class XenAPI {
     return this.getClassRecords('VM');
   }
 
+  async getVMAppliances() {
+    return this.getClassRecords('VM_appliance');
+  }
+
+  async getVMSnapshotSchedules() {
+    return this.getClassRecords('VMSS');
+  }
+
   async getSRs() {
     return this.getClassRecords('SR');
+  }
+
+  async setStorageLocalCache(ref, {
+    hostRef,
+    enabled,
+  } = {}) {
+    const currentRecord = await this.getRecord('SR', ref);
+    if (!currentRecord) {
+      throw createXenApiError('SR_NOT_FOUND', 'The selected storage repository could not be found.', 404);
+    }
+
+    if (Boolean(enabled) && currentRecord.shared) {
+      throw createXenApiError(
+        'LOCAL_CACHE_REQUIRES_LOCAL_SR',
+        'Local storage caching only applies to non-shared storage repositories attached to a specific host.',
+        409
+      );
+    }
+
+    const pbdRefs = Array.isArray(currentRecord?.PBDs) ? currentRecord.PBDs : [];
+    let matchedPbdRef = '';
+
+    for (const pbdRef of pbdRefs) {
+      const pbdRecord = await this.getRecord('PBD', pbdRef);
+      if (pbdRecord?.host === hostRef) {
+        matchedPbdRef = pbdRef;
+        break;
+      }
+    }
+
+    if (!matchedPbdRef) {
+      throw createXenApiError(
+        'LOCAL_CACHE_REQUIRES_ATTACHED_HOST_PATH',
+        'The selected host does not currently expose an attached path to this storage repository.',
+        409
+      );
+    }
+
+    if (Boolean(enabled)) {
+      await this.call('host', 'enable_local_storage_caching', [hostRef, ref]);
+    } else {
+      await this.call('host', 'disable_local_storage_caching', [hostRef]);
+    }
+
+    const record = await this.getRecord('SR', ref);
+    return {
+      ref,
+      hostRef,
+      matchedPbdRef,
+      requestedEnabled: Boolean(enabled),
+      local_cache_enabled: Boolean(record?.local_cache_enabled),
+      ...record,
+    };
+  }
+
+  async updateStorageConfig(ref, {
+    nameLabel,
+    nameDescription = '',
+    tags = [],
+    otherConfig = {},
+  } = {}) {
+    const currentRecord = await this.getRecord('SR', ref);
+    const preservedOtherConfig = Object.fromEntries(
+      Object.entries(currentRecord?.other_config || {})
+        .filter(([key]) => ['last_rescan_at', 'last_repair_at'].includes(String(key || '').trim()))
+    );
+
+    await this.setField('SR', ref, 'name_label', String(nameLabel || '').trim());
+    await this.setField('SR', ref, 'name_description', String(nameDescription || '').trim());
+    await this.setField('SR', ref, 'tags', Array.isArray(tags) ? tags : []);
+    await this.setField('SR', ref, 'other_config', {
+      ...preservedOtherConfig,
+      ...normalizeStringMap(otherConfig),
+    });
+    return this.getRecord('SR', ref);
   }
 
   async rescanSR(ref) {
@@ -248,22 +395,16 @@ class XenAPI {
     deviceConfig = {},
     smConfig = {},
   } = {}) {
-    const normalizeMap = (record = {}) => Object.fromEntries(
-      Object.entries(record || {})
-        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim())
-        .map(([key, value]) => [String(key).trim(), String(value).trim()])
-    );
-
     const srRef = await this.call('SR', 'create', [
       hostRef,
-      normalizeMap(deviceConfig),
+      normalizeStringMap(deviceConfig),
       0,
       String(nameLabel || '').trim(),
       String(nameDescription || '').trim(),
       String(type || '').trim(),
       String(contentType || 'user').trim(),
       Boolean(shared),
-      normalizeMap(smConfig),
+      normalizeStringMap(smConfig),
     ]);
 
     const record = await this.getRecord('SR', srRef);
@@ -271,6 +412,144 @@ class XenAPI {
       ref: srRef,
       ...record,
     };
+  }
+
+  async importStorageRepository({
+    hostRef,
+    uuid,
+    nameLabel,
+    nameDescription = '',
+    type,
+    contentType = 'user',
+    shared = false,
+    deviceConfig = {},
+    smConfig = {},
+  } = {}) {
+    const normalizedDeviceConfig = normalizeStringMap(deviceConfig);
+    const normalizedSmConfig = normalizeStringMap(smConfig);
+    const normalizedUuid = String(uuid || '').trim();
+    let srRef = '';
+    let introduced = false;
+
+    try {
+      srRef = await this.call('SR', 'get_by_uuid', [normalizedUuid]);
+    } catch (_error) {
+      srRef = '';
+    }
+
+    if (!srRef) {
+      srRef = await this.call('SR', 'introduce', [
+        normalizedUuid,
+        String(nameLabel || '').trim(),
+        String(nameDescription || '').trim(),
+        String(type || '').trim(),
+        String(contentType || 'user').trim(),
+        Boolean(shared),
+        normalizedSmConfig,
+      ]);
+      introduced = true;
+    }
+
+    const currentRecord = await this.getRecord('SR', srRef);
+    const pbdRefs = Array.isArray(currentRecord?.PBDs) ? currentRecord.PBDs : [];
+    let targetPbdRef = '';
+    let createdPbd = false;
+    let updatedPbdConfig = false;
+    let pluggedPbd = false;
+    let alreadyAttached = false;
+
+    for (const pbdRef of pbdRefs) {
+      const pbdRecord = await this.getRecord('PBD', pbdRef);
+      if (pbdRecord?.host !== hostRef) continue;
+
+      targetPbdRef = pbdRef;
+      alreadyAttached = Boolean(pbdRecord?.currently_attached);
+      if (!alreadyAttached && Object.keys(normalizedDeviceConfig).length) {
+        await this.call('PBD', 'set_device_config', [pbdRef, normalizedDeviceConfig]);
+        updatedPbdConfig = true;
+      }
+      if (!alreadyAttached) {
+        await this.call('PBD', 'plug', [pbdRef]);
+        pluggedPbd = true;
+      }
+      break;
+    }
+
+    if (!targetPbdRef) {
+      targetPbdRef = await this.create('PBD', {
+        host: hostRef,
+        SR: srRef,
+        device_config: normalizedDeviceConfig,
+        other_config: {},
+      });
+      createdPbd = true;
+      await this.call('PBD', 'plug', [targetPbdRef]);
+      pluggedPbd = true;
+    }
+
+    await this.call('SR', 'scan', [srRef]);
+    const record = await this.getRecord('SR', srRef);
+    return {
+      ref: srRef,
+      pbdRef: targetPbdRef,
+      introduced,
+      createdPbd,
+      updatedPbdConfig,
+      pluggedPbd,
+      alreadyAttached,
+      attachedHostRef: hostRef,
+      ...record,
+    };
+  }
+
+  async probeStorageRepository({
+    hostRef,
+    type,
+    deviceConfig = {},
+    smConfig = {},
+  } = {}) {
+    const normalizedDeviceConfig = normalizeStringMap(deviceConfig);
+    const normalizedSmConfig = normalizeStringMap(smConfig);
+    const probeType = String(type || '').trim();
+
+    try {
+      const results = await this.call('SR', 'probe_ext', [
+        hostRef,
+        normalizedDeviceConfig,
+        probeType,
+        normalizedSmConfig,
+      ]);
+      const normalizedResults = Array.isArray(results) ? results.map(normalizeProbeResult) : [];
+
+      return {
+        mode: 'probe_ext',
+        requestedConfiguration: normalizedDeviceConfig,
+        rawXml: '',
+        results: normalizedResults,
+        summary: summarizeProbeResults(normalizedResults),
+      };
+    } catch (_probeExtError) {
+      const rawXml = await this.call('SR', 'probe', [
+        hostRef,
+        normalizedDeviceConfig,
+        probeType,
+        normalizedSmConfig,
+      ]);
+
+      return {
+        mode: 'probe',
+        requestedConfiguration: normalizedDeviceConfig,
+        rawXml: String(rawXml || ''),
+        results: [],
+        summary: {
+          totalResults: 0,
+          completeResults: 0,
+          incompleteResults: 0,
+          existingSrs: 0,
+          legacyXmlAvailable: Boolean(String(rawXml || '').trim()),
+        },
+      };
+    }
   }
 
   async createStorageVdi(ref, {
@@ -318,6 +597,138 @@ class XenAPI {
 
   async getNetworks() {
     return this.getClassRecords('network');
+  }
+
+  async getVIFs() {
+    return this.getClassRecords('VIF');
+  }
+
+  async createNetwork({
+    nameLabel,
+    nameDescription = '',
+    mtu = 1500,
+    bridge,
+    tags = [],
+    otherConfig = {},
+  } = {}) {
+    const networkRef = await this.create('network', {
+      name_label: String(nameLabel || '').trim(),
+      name_description: String(nameDescription || '').trim(),
+      MTU: Number(mtu || 1500),
+      other_config: normalizeStringMap(otherConfig),
+      bridge: String(bridge || '').trim(),
+      managed: true,
+      tags: Array.isArray(tags) ? tags : [],
+    });
+
+    const record = await this.getRecord('network', networkRef);
+    return { ref: networkRef, ...record };
+  }
+
+  async createVlan({
+    networkRef,
+    pifRef,
+    tag,
+  } = {}) {
+    const vlanRef = await this.call('VLAN', 'create', [
+      String(pifRef || '').trim(),
+      Number(tag || 0),
+      String(networkRef || '').trim(),
+    ]);
+
+    const vlanRecord = await this.getRecord('VLAN', vlanRef);
+    let networkRecord = null;
+    try {
+      networkRecord = await this.getRecord('network', String(networkRef || '').trim());
+    } catch (error) {
+      networkRecord = null;
+    }
+
+    return {
+      ref: vlanRef,
+      networkRef: String(networkRef || '').trim(),
+      taggedPifRef: String(pifRef || '').trim(),
+      tag: Number(tag || 0),
+      ...vlanRecord,
+      network: networkRecord ? { ref: String(networkRef || '').trim(), ...networkRecord } : null,
+    };
+  }
+
+  async createBond({
+    networkRef,
+    pifRefs = [],
+    mode = 'balance-slb',
+  } = {}) {
+    const bondRef = await this.call('Bond', 'create', [
+      String(networkRef || '').trim(),
+      Array.isArray(pifRefs) ? pifRefs.map((ref) => String(ref || '').trim()).filter(Boolean) : [],
+      '',
+      String(mode || 'balance-slb').trim(),
+      {},
+    ]);
+
+    const bondRecord = await this.getRecord('Bond', bondRef);
+    let networkRecord = null;
+    try {
+      networkRecord = await this.getRecord('network', String(networkRef || '').trim());
+    } catch (error) {
+      networkRecord = null;
+    }
+
+    return {
+      ref: bondRef,
+      networkRef: String(networkRef || '').trim(),
+      memberPifRefs: Array.isArray(pifRefs) ? pifRefs.map((ref) => String(ref || '').trim()).filter(Boolean) : [],
+      mode: String(mode || 'balance-slb').trim(),
+      ...bondRecord,
+      network: networkRecord ? { ref: String(networkRef || '').trim(), ...networkRecord } : null,
+    };
+  }
+
+  async updateNetworkConfig(ref, {
+    nameLabel,
+    nameDescription = '',
+    mtu = 1500,
+    defaultLockingMode = 'unlocked',
+    purpose = [],
+    tags = [],
+    otherConfig = {},
+  } = {}) {
+    const currentRecord = await this.getRecord('network', ref);
+    await this.setField('network', ref, 'name_label', String(nameLabel || '').trim());
+    await this.setField('network', ref, 'name_description', String(nameDescription || '').trim());
+    await this.setField('network', ref, 'MTU', Number(mtu || 1500));
+    await this.call('network', 'set_default_locking_mode', [
+      ref,
+      String(defaultLockingMode || currentRecord?.default_locking_mode || 'unlocked').trim(),
+    ]);
+
+    const currentPurpose = new Set(Array.isArray(currentRecord?.purpose) ? currentRecord.purpose.map((value) => String(value || '').trim()).filter(Boolean) : []);
+    const requestedPurpose = new Set(Array.isArray(purpose) ? purpose.map((value) => String(value || '').trim()).filter(Boolean) : []);
+
+    for (const value of currentPurpose) {
+      if (!requestedPurpose.has(value)) {
+        await this.call('network', 'remove_purpose', [ref, value]);
+      }
+    }
+
+    for (const value of requestedPurpose) {
+      if (!currentPurpose.has(value)) {
+        await this.call('network', 'add_purpose', [ref, value]);
+      }
+    }
+
+    await this.setField('network', ref, 'tags', Array.isArray(tags) ? tags : []);
+    await this.setField('network', ref, 'other_config', normalizeStringMap(otherConfig));
+    return this.getRecord('network', ref);
+  }
+
+  async destroyNetwork(ref) {
+    await this.destroy('network', ref);
+    return {
+      success: true,
+      ref,
+    };
   }
 
   // VM lifecycle
@@ -896,15 +1307,44 @@ class XenAPI {
     return this.getRecord('VM_metrics', metricsRef);
   }
 
-  async updateVMConfig(ref, { nameLabel, nameDescription = '', vcpus, memoryStaticMax, tags = [] }) {
+  async updateVMConfig(ref, { nameLabel, nameDescription = '', userVersion = 0, startDelay = 0, shutdownDelay = 0, order = 0, vcpus, memoryStaticMax, memoryStaticMin, hardwarePlatformVersion = 0, domainType = 'unspecified', hasVendorDevice = true, affinity = '', applianceRef = '', snapshotScheduleRef = '', tags = [], blockedOperations = {}, vcpusParams = {}, otherConfig = {}, xenstoreData = {}, nvram = {}, platform = {} }) {
+    const normalizedMemoryStaticMax = Number(memoryStaticMax || 0);
+    const normalizedMemoryStaticMin = Math.min(
+      normalizedMemoryStaticMax,
+      Math.max(0, Number(memoryStaticMin || normalizedMemoryStaticMax || 0))
+    );
+
     await this.setField('VM', ref, 'name_label', nameLabel);
     await this.setField('VM', ref, 'name_description', nameDescription);
+    await this.setField('VM', ref, 'user_version', Number(userVersion || 0));
+    await this.setField('VM', ref, 'start_delay', Number(startDelay || 0));
+    await this.setField('VM', ref, 'shutdown_delay', Number(shutdownDelay || 0));
+    await this.setField('VM', ref, 'order', Number(order || 0));
     await this.setField('VM', ref, 'VCPUs_max', String(vcpus));
     await this.setField('VM', ref, 'VCPUs_at_startup', String(vcpus));
-    await this.setField('VM', ref, 'memory_static_max', String(memoryStaticMax));
-    await this.setField('VM', ref, 'memory_dynamic_max', String(memoryStaticMax));
+    await this.setField('VM', ref, 'memory_static_max', String(normalizedMemoryStaticMax));
+    await this.setField('VM', ref, 'memory_dynamic_max', String(normalizedMemoryStaticMax));
+    await this.setField('VM', ref, 'memory_static_min', String(normalizedMemoryStaticMin));
+    await this.setField('VM', ref, 'hardware_platform_version', Number(hardwarePlatformVersion || 0));
+    await this.setField('VM', ref, 'domain_type', String(domainType || 'unspecified').trim() || 'unspecified');
+    await this.setField('VM', ref, 'has_vendor_device', Boolean(hasVendorDevice));
+    await this.setField('VM', ref, 'affinity', toNullableOpaqueRef(affinity));
+    await this.setField('VM', ref, 'appliance', toNullableOpaqueRef(applianceRef));
+    await this.setField('VM', ref, 'snapshot_schedule', toNullableOpaqueRef(snapshotScheduleRef));
     await this.setField('VM', ref, 'tags', tags);
-    return this.getRecord('VM', ref);
+    await this.setField('VM', ref, 'blocked_operations', normalizeStringMap(blockedOperations));
+    await this.setField('VM', ref, 'VCPUs_params', normalizeStringMap(vcpusParams));
+    await this.setField('VM', ref, 'other_config', normalizeStringMap(otherConfig));
+    await this.setField('VM', ref, 'xenstore_data', normalizeStringMap(xenstoreData));
+    await this.setField('VM', ref, 'NVRAM', normalizeStringMap(nvram));
+    await this.setField('VM', ref, 'platform', normalizeStringMap(platform));
+    const record = await this.getRecord('VM', ref);
+    return {
+      ...record,
+      affinity: normalizeNullableOpaqueRef(record?.affinity),
+      appliance: normalizeNullableOpaqueRef(record?.appliance),
+      snapshot_schedule: normalizeNullableOpaqueRef(record?.snapshot_schedule),
+    };
   }
 
   async addVMDisk(ref, { srRef, nameLabel, sizeBytes }) {
@@ -971,6 +1411,66 @@ class XenAPI {
     }
 
     return { success: true, vifRef };
+  }
+
+  async disconnectVMNic(ref, vifRef, { force = true } = {}) {
+    const vm = await this.getRecord('VM', ref);
+    const vifRefs = Array.isArray(vm?.VIFs) ? vm.VIFs : [];
+    if (!vifRefs.includes(vifRef)) {
+      throw createXenApiError(
+        'VM_NIC_NOT_FOUND',
+        'The selected workload interface is no longer attached to this virtual machine.',
+        404
+      );
+    }
+
+    const vif = await this.getRecord('VIF', vifRef);
+    if (vif?.VM && vif.VM !== ref) {
+      throw createXenApiError(
+        'VM_NIC_NOT_FOUND',
+        'The selected workload interface is no longer attached to this virtual machine.',
+        404
+      );
+    }
+
+    const wasAttached = Boolean(vif?.currently_attached);
+    if (wasAttached) {
+      try {
+        await this.call('VIF', 'unplug', [vifRef]);
+      } catch (error) {
+        if (!force) throw error;
+        await this.call('VIF', 'unplug_force', [vifRef]);
+      }
+    }
+
+    let refreshed = null;
+    try {
+      refreshed = await this.getRecord('VIF', vifRef);
+    } catch (error) {
+      refreshed = null;
+    }
+
+    return {
+      success: true,
+      vmRef: ref,
+      vifRef,
+      networkRef: refreshed?.network || vif?.network || '',
+      alreadyDisconnected: !wasAttached,
+      currentlyAttached: Boolean(refreshed?.currently_attached),
+      device: String(refreshed?.device || vif?.device || ''),
+      mac: String(refreshed?.MAC || vif?.MAC || ''),
+    };
+  }
+
+  async removeVMNic(ref, vifRef, { force = true } = {}) {
+    const disconnectResult = await this.disconnectVMNic(ref, vifRef, { force });
+    await this.destroy('VIF', vifRef);
+    return {
+      success: true,
+      vmRef: ref,
+      vifRef,
+      networkRef: disconnectResult.networkRef || '',
+    };
   }
 
   async getVMSnapshots(ref) {

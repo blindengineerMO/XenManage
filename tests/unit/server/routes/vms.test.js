@@ -8,6 +8,8 @@ process.env.DB_PATH = TEST_DB;
 const mockState = {
   vmRecord: {},
   vmRecords: [],
+  vmAppliances: [],
+  vmSnapshotSchedules: [],
   snapshots: [],
   duplicates: [],
   consoles: [],
@@ -61,6 +63,28 @@ jest.mock('../../../../server/services/xenapi', () => {
   actual.XenAPI.prototype.getVMSnapshots = jest.fn(async function (ref) {
     if (ref !== mockState.vmRecord.ref) return [];
     return mockState.snapshots.map((entry) => ({ ...entry }));
+  });
+
+  actual.XenAPI.prototype.getVMAppliances = jest.fn(async function () {
+    return {
+      records: Object.fromEntries(
+        mockState.vmAppliances.map((entry) => {
+          const { ref, ...record } = entry;
+          return [ref, { ...record }];
+        })
+      ),
+    };
+  });
+
+  actual.XenAPI.prototype.getVMSnapshotSchedules = jest.fn(async function () {
+    return {
+      records: Object.fromEntries(
+        mockState.vmSnapshotSchedules.map((entry) => {
+          const { ref, ...record } = entry;
+          return [ref, { ...record }];
+        })
+      ),
+    };
   });
 
   actual.XenAPI.prototype.createVMSnapshot = jest.fn(async function (ref, payload) {
@@ -172,6 +196,44 @@ jest.mock('../../../../server/services/xenapi', () => {
     return { status: 200, data: 'ok', imported };
   });
 
+  actual.XenAPI.prototype.updateVMConfig = jest.fn(async function (ref, payload) {
+    if (ref !== mockState.vmRecord.ref) {
+      const error = new Error('VM_NOT_FOUND');
+      error.status = 404;
+      throw error;
+    }
+
+    mockState.vmRecord = {
+      ...mockState.vmRecord,
+      name_label: payload.nameLabel,
+      name_description: payload.nameDescription || '',
+      user_version: Number(payload.userVersion || 0),
+      start_delay: Number(payload.startDelay || 0),
+      shutdown_delay: Number(payload.shutdownDelay || 0),
+      order: Number(payload.order || 0),
+      VCPUs_at_startup: payload.vcpus,
+      VCPUs_max: payload.vcpus,
+      memory_static_min: payload.memoryStaticMin,
+      memory_static_max: payload.memoryStaticMax,
+      memory_dynamic_max: payload.memoryStaticMax,
+      hardware_platform_version: Number(payload.hardwarePlatformVersion || 0),
+      domain_type: String(payload.domainType || 'unspecified').trim() || 'unspecified',
+      has_vendor_device: Boolean(payload.hasVendorDevice),
+      affinity: payload.affinity || '',
+      appliance: payload.applianceRef || '',
+      snapshot_schedule: payload.snapshotScheduleRef || '',
+      tags: Array.isArray(payload.tags) ? [...payload.tags] : [],
+      blocked_operations: payload.blockedOperations || {},
+      VCPUs_params: payload.vcpusParams || {},
+      other_config: payload.otherConfig || {},
+      xenstore_data: payload.xenstoreData || {},
+      NVRAM: payload.nvram || {},
+      platform: payload.platform || {},
+    };
+    mockState.vmRecords = mockState.vmRecords.map((entry) => (entry.ref === ref ? { ...mockState.vmRecord } : entry));
+    return { ...mockState.vmRecord };
+  });
+
   actual.XenAPI.prototype.rpc = jest.fn(async function () {
     return {};
   });
@@ -231,6 +293,56 @@ jest.mock('../../../../server/services/xenapi', () => {
       .map((entry) => ({ ...entry }));
   });
 
+  actual.XenAPI.prototype.removeVMNic = jest.fn(async function (ref, vifRef) {
+    if (ref !== mockState.vmRecord.ref) {
+      const error = new Error('VM_NOT_FOUND');
+      error.status = 404;
+      throw error;
+    }
+
+    if (!(mockState.vmRecord.VIFs || []).includes(vifRef)) {
+      const error = new Error('VM_NIC_NOT_FOUND');
+      error.code = 'VM_NIC_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    mockState.vmRecord.VIFs = (mockState.vmRecord.VIFs || []).filter((entry) => entry !== vifRef);
+    mockState.vmRecords = mockState.vmRecords.map((entry) => (entry.ref === ref ? { ...entry, VIFs: [...mockState.vmRecord.VIFs] } : entry));
+    return {
+      success: true,
+      vmRef: ref,
+      vifRef,
+      networkRef: 'OpaqueRef:net1',
+    };
+  });
+
+  actual.XenAPI.prototype.disconnectVMNic = jest.fn(async function (ref, vifRef) {
+    if (ref !== mockState.vmRecord.ref) {
+      const error = new Error('VM_NOT_FOUND');
+      error.status = 404;
+      throw error;
+    }
+
+    if (!(mockState.vmRecord.VIFs || []).includes(vifRef)) {
+      const error = new Error('VM_NIC_NOT_FOUND');
+      error.code = 'VM_NIC_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    return {
+      success: true,
+      vmRef: ref,
+      vifRef,
+      networkRef: 'OpaqueRef:net1',
+      alreadyDisconnected: false,
+      currentlyAttached: false,
+      device: '0',
+      mac: '02:16:3e:10:00:01',
+    };
+  });
+
   actual.XenAPI.prototype.buildConsoleLocationUrl = jest.fn(function (location) {
     return new URL(String(location || '').startsWith('http')
       ? String(location)
@@ -265,12 +377,91 @@ describe('VM Routes', () => {
     mockState.vmRecord = {
       ref: 'OpaqueRef:vm1',
       name_label: 'app-01',
+      name_description: 'Primary application workload.',
       power_state: 'Running',
+      user_version: 4,
+      start_delay: 15,
+      shutdown_delay: 20,
+      order: 2,
       uuid: 'vm-uuid-1',
       resident_on: 'OpaqueRef:host1',
       affinity: 'OpaqueRef:host1',
+      appliance: 'OpaqueRef:appliance1',
+      snapshot_schedule: 'OpaqueRef:vmss1',
+      VCPUs_at_startup: 2,
+      VCPUs_max: 2,
+      memory_static_min: 2147483648,
+      memory_static_max: 4294967296,
+      memory_dynamic_max: 4294967296,
+      hardware_platform_version: 3,
+      domain_type: 'hvm',
+      has_vendor_device: true,
+      tags: ['prod'],
+      blocked_operations: {
+        pool_migrate: 'OPERATION_NOT_ALLOWED',
+      },
+      VCPUs_params: {
+        weight: '256',
+        cap: '0',
+      },
+      other_config: {
+        owner: 'platform-ops',
+      },
+      xenstore_data: {
+        'vm-data/cloud-init': 'disabled',
+      },
+      NVRAM: {
+        'EFI/BootOrder': '0001,0002',
+      },
+      platform: {
+        secureboot: 'enabled',
+        firmware: 'uefi',
+      },
+      VIFs: ['OpaqueRef:vif1'],
     };
     mockState.vmRecords = [{ ...mockState.vmRecord }];
+    mockState.vmAppliances = [
+      {
+        ref: 'OpaqueRef:appliance1',
+        uuid: 'appliance-uuid-1',
+        name_label: 'Billing Stack',
+        name_description: 'Coordinates the billing service tier.',
+        VMs: ['OpaqueRef:vm1'],
+      },
+      {
+        ref: 'OpaqueRef:appliance2',
+        uuid: 'appliance-uuid-2',
+        name_label: 'Analytics Tier',
+        name_description: 'Coordinates the analytics workloads.',
+        VMs: [],
+      },
+    ];
+    mockState.vmSnapshotSchedules = [
+      {
+        ref: 'OpaqueRef:vmss1',
+        uuid: 'vmss-uuid-1',
+        name_label: 'Nightly Billing Recovery',
+        name_description: 'Nightly recovery snapshots for the billing tier.',
+        enabled: true,
+        type: 'snapshot',
+        frequency: 'daily',
+        retained_snapshots: 7,
+        schedule: { hour: '02', min: '30', days: '1,2,3,4,5' },
+        VMs: ['OpaqueRef:vm1'],
+      },
+      {
+        ref: 'OpaqueRef:vmss2',
+        uuid: 'vmss-uuid-2',
+        name_label: 'Weekly Analytics Checkpoint',
+        name_description: 'Weekly checkpoint coverage for analytics workloads.',
+        enabled: true,
+        type: 'checkpoint',
+        frequency: 'weekly',
+        retained_snapshots: 4,
+        schedule: { hour: '03', min: '15', days: '0' },
+        VMs: [],
+      },
+    ];
     mockState.duplicates = [];
     mockState.snapshots = [
       {
@@ -383,6 +574,121 @@ describe('VM Routes', () => {
     expect(mockState.snapshots).toHaveLength(2);
   });
 
+  it('lists VM appliance assignment options', async () => {
+    const auth = await login();
+    const res = await request('GET', '/api/vms/appliances', null, auth.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:appliance1',
+      name_label: 'Billing Stack',
+    }));
+  });
+
+  it('lists VM snapshot schedule assignment options', async () => {
+    const auth = await login();
+    const res = await request('GET', '/api/vms/snapshot-schedules', null, auth.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:vmss1',
+      name_label: 'Nightly Billing Recovery',
+    }));
+  });
+
+  it('updates VM config metadata including user_version, start_delay, shutdown_delay, order, memory_static_min, hardware_platform_version, domain_type, has_vendor_device, appliance, snapshot_schedule, tags, blocked_operations, vcpus_params, other_config, xenstore_data, nvram, and platform through the config endpoint', async () => {
+    const auth = await login();
+    const res = await request('PUT', '/api/vms/OpaqueRef%3Avm1/config', {
+      nameLabel: 'app-01-renamed',
+      nameDescription: 'Updated operator-facing VM description.',
+      userVersion: 8,
+      startDelay: 45,
+      shutdownDelay: 90,
+      order: 3,
+      vcpus: 4,
+      memoryStaticMin: 4294967296,
+      memoryStaticMax: 8589934592,
+      hardwarePlatformVersion: 4,
+      domainType: 'pvh',
+      hasVendorDevice: false,
+      affinity: 'OpaqueRef:host2',
+      applianceRef: 'OpaqueRef:appliance2',
+      snapshotScheduleRef: 'OpaqueRef:vmss2',
+      tags: ['prod', 'linux', 'tier-1'],
+      blockedOperations: {
+        start: 'OPERATION_NOT_ALLOWED',
+        pool_migrate: 'OPERATION_NOT_ALLOWED',
+      },
+      vcpusParams: {
+        weight: '512',
+        cap: '75',
+      },
+      otherConfig: {
+        owner: 'storage-team',
+        patchWindow: 'sun-0200',
+      },
+      xenstoreData: {
+        'vm-data/cloud-init': 'enabled',
+        'guest/channel': 'ops',
+      },
+      nvram: {
+        'EFI/BootOrder': '0003,0004',
+        'EFI/SecureBootMode': 'user',
+      },
+      platform: {
+        secureboot: 'disabled',
+        firmware: 'bios',
+      },
+    }, auth.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:vm1',
+      name_label: 'app-01-renamed',
+      name_description: 'Updated operator-facing VM description.',
+      user_version: 8,
+      start_delay: 45,
+      shutdown_delay: 90,
+      order: 3,
+      VCPUs_at_startup: 4,
+      memory_static_min: 4294967296,
+      memory_static_max: 8589934592,
+      hardware_platform_version: 4,
+      domain_type: 'pvh',
+      has_vendor_device: false,
+      affinity: 'OpaqueRef:host2',
+      appliance: 'OpaqueRef:appliance2',
+      snapshot_schedule: 'OpaqueRef:vmss2',
+      tags: ['prod', 'linux', 'tier-1'],
+      blocked_operations: {
+        start: 'OPERATION_NOT_ALLOWED',
+        pool_migrate: 'OPERATION_NOT_ALLOWED',
+      },
+      VCPUs_params: {
+        weight: '512',
+        cap: '75',
+      },
+      other_config: {
+        owner: 'storage-team',
+        patchWindow: 'sun-0200',
+      },
+      xenstore_data: {
+        'vm-data/cloud-init': 'enabled',
+        'guest/channel': 'ops',
+      },
+      NVRAM: {
+        'EFI/BootOrder': '0003,0004',
+        'EFI/SecureBootMode': 'user',
+      },
+      platform: {
+        secureboot: 'disabled',
+        firmware: 'bios',
+      },
+    }));
+  });
+
   it('reverts and deletes VM snapshots', async () => {
     const auth = await login();
 
@@ -437,6 +743,50 @@ describe('VM Routes', () => {
       power_state: 'Running',
     }));
     expect(mockState.duplicates).toHaveLength(2);
+  });
+
+  it('removes a VM network interface attachment', async () => {
+    const auth = await login();
+
+    const res = await request(
+      'DELETE',
+      '/api/vms/OpaqueRef%3Avm1/nics/OpaqueRef%3Avif1',
+      { force: true },
+      auth.cookie
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      vmRef: 'OpaqueRef:vm1',
+      vifRef: 'OpaqueRef:vif1',
+      networkRef: 'OpaqueRef:net1',
+    });
+    expect(mockState.vmRecord.VIFs).toEqual([]);
+  });
+
+  it('hot-unplugs a VM network interface without deleting it', async () => {
+    const auth = await login();
+
+    const res = await request(
+      'POST',
+      '/api/vms/OpaqueRef%3Avm1/nics/OpaqueRef%3Avif1/disconnect',
+      { force: true },
+      auth.cookie
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      vmRef: 'OpaqueRef:vm1',
+      vifRef: 'OpaqueRef:vif1',
+      networkRef: 'OpaqueRef:net1',
+      alreadyDisconnected: false,
+      currentlyAttached: false,
+      device: '0',
+      mac: '02:16:3e:10:00:01',
+    });
+    expect(mockState.vmRecord.VIFs).toEqual(['OpaqueRef:vif1']);
   });
 
   it('migrates a VM and updates its placement metadata', async () => {

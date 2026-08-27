@@ -1,5 +1,7 @@
 # XenMange
 
+![XenManage Image](client/assets/images/XenManageGitImage.png)
+
 A modern, futuristic web interface for administering XenServer pools, hosts, VMs, storage, and networking, with a CSP-safe local Vue runtime, server-rendered app bootstrap, and automated UI coverage.
 
 ## Quick Start
@@ -285,3 +287,8 @@ VAULT_ENCRYPTION_KEY_PREVIOUS=
 - Host property windows now pull live metric records so operators can inspect memory state without leaving the app.
 - The login surface can reuse locally saved connection targets from the SQLite-backed connection store, the Pools workspace can attach those saved targets in-place after a control-plane sign-in, pool/host registrations can bind to saved vault credentials, and the Settings workspace now gives operators one place to manage those encrypted secrets.
 - Jest coverage now includes 224 passing tests, and Playwright E2E coverage includes 9 passing browser flows spanning control-plane sign-in, local user and local group administration, ownership-aware target/workspace flows, multi-target attachment/detach handling, dashboard hydration, VM lifecycle actions, VM compatibility and console access, VM import/export, same-pool plus cross-pool VM migration, template governance/promotion, host maintenance operations, and the inventory/activity/settings workbenches with mocked API responses.
+
+
+## Created By 
+Matthew Puckett - Puckett Software Group LLC
+![Matthews Image](client/assets/images/head_small.png)

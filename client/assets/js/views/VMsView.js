@@ -204,12 +204,31 @@ const VMsView = {
                 <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedVM.uuid || '-' }}</span>
                 <span class="text-muted">Resident Host</span><span>{{ selectedVmHost ? (selectedVmHost.name_label || selectedVmHost.address || selectedVmHost.ref) : '-' }}</span>
                 <span class="text-muted">Pool</span><span>{{ selectedVmPool ? (selectedVmPool.name_label || selectedVmPool.uuid || selectedVmPool.ref) : 'Standalone / unknown' }}</span>
+                <span class="text-muted">User Version</span><span class="mono">{{ selectedVM.user_version ?? 0 }}</span>
+                <span class="text-muted">Start Delay</span><span class="mono">{{ selectedVM.start_delay ?? 0 }}s</span>
+                <span class="text-muted">Shutdown Delay</span><span class="mono">{{ selectedVM.shutdown_delay ?? 0 }}s</span>
+                <span class="text-muted">Boot Order</span><span class="mono">{{ selectedVM.order ?? 0 }}</span>
+                <span class="text-muted">Virtual Hardware Platform</span><span class="mono">{{ selectedVmHardwarePlatformSummary }}</span>
+                <span class="text-muted">Domain Type</span><span>{{ selectedVmDomainTypeSummary }}</span>
+                <span class="text-muted">Secure Boot</span><span>{{ selectedVmSecureBootSummary }}</span>
+                <span class="text-muted">Video RAM</span><span class="mono">{{ selectedVmVideoRamSummary }}</span>
+                <span class="text-muted">IGD Passthrough</span><span>{{ selectedVmIgdPassthroughSummary }}</span>
+                <span class="text-muted">Vendor Device</span><span>{{ selectedVmVendorDeviceSummary }}</span>
                 <span class="text-muted">vCPUs</span><span class="mono">{{ selectedVM.VCPUs_at_startup || 0 }}</span>
+                <span class="text-muted">Memory Static Min</span><span class="mono">{{ formatBytes(selectedVM.memory_static_min || selectedVM.memory_static_max) }}</span>
                 <span class="text-muted">Memory</span><span class="mono">{{ formatBytes(selectedVM.memory_static_max) }}</span>
                 <span class="text-muted">Boot Policy</span><span>{{ selectedVM.HVM_boot_policy || selectedVM.PV_bootloader || 'Default' }}</span>
-                <span class="text-muted">Affinity</span><span class="mono property-wrap">{{ selectedVM.affinity || '-' }}</span>
+                <span class="text-muted">Affinity</span><span class="mono property-wrap">{{ selectedVmAffinityLabel }}</span>
+                <span class="text-muted">Appliance</span><span class="mono property-wrap">{{ selectedVmApplianceSummary }}</span>
+                <span class="text-muted">Snapshot Schedule</span><span class="mono property-wrap">{{ selectedVmSnapshotScheduleSummary }}</span>
+                <span class="text-muted">Protection Policy</span><span class="mono property-wrap">{{ selectedVmProtectionPolicySummary }}</span>
                 <span class="text-muted">Tags</span><span>{{ truncateList(selectedVM.tags) }}</span>
-                <span class="text-muted">Platform</span><span class="mono property-wrap">{{ JSON.stringify(selectedVM.platform || {}) }}</span>
+                <span class="text-muted">Blocked Operations</span><span class="mono property-wrap">{{ selectedVmBlockedOperationsSummary }}</span>
+                <span class="text-muted">VCPU Params</span><span class="mono property-wrap">{{ selectedVmVcpusParamsSummary }}</span>
+                <span class="text-muted">Other Config</span><span class="mono property-wrap">{{ selectedVmOtherConfigSummary }}</span>
+                <span class="text-muted">XenStore Data</span><span class="mono property-wrap">{{ selectedVmXenstoreDataSummary }}</span>
+                <span class="text-muted">NVRAM</span><span class="mono property-wrap">{{ selectedVmNvramSummary }}</span>
+                <span class="text-muted">Platform</span><span class="mono property-wrap">{{ selectedVmPlatformSummary }}</span>
               </div>
 
               <div class="vm-resource-grid">
@@ -766,10 +785,13 @@ const VMsView = {
                 <div class="dash-card">
                   <div class="dash-card-label">Config Editor</div>
                   <p class="text-muted" style="margin-bottom:12px">
-                    Update the visible workload identity and core sizing here. For live environments, XenAPI may require the guest to be halted before some CPU or memory changes apply.
+                    Update the visible workload identity, preferred home server, core sizing, and advanced metadata here. For live environments, XenAPI may require the guest to be halted before some CPU or memory changes apply.
                   </p>
                   <vm-config-form
                     :initial-value="selectedVM"
+                    :host-options="vmConfigHostOptions"
+                    :appliance-options="relatedAppliances"
+                    :snapshot-schedule-options="relatedSnapshotSchedules"
                     :submit-label="'Save VM Config'"
                     :saving="configSaving"
                     @submit="submitVmConfig">
@@ -788,6 +810,13 @@ const VMsView = {
                     </div>
                     <div class="stack-item">
                       <div>
+                        <strong>Static Min Memory</strong>
+                        <div class="text-muted mono" style="font-size:11px">Floor {{ selectedVmMemoryStaticMinGiB }} GiB at boot time.</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmMemoryStaticMinGiB }} GiB</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
                         <strong>Identity</strong>
                         <div class="text-muted mono" style="font-size:11px">{{ selectedVM.uuid || selectedVM.ref }}</div>
                       </div>
@@ -795,10 +824,166 @@ const VMsView = {
                     </div>
                     <div class="stack-item">
                       <div>
+                        <strong>Version Tag</strong>
+                        <div class="text-muted mono" style="font-size:11px">Revision {{ selectedVM.user_version ?? 0 }}</div>
+                      </div>
+                      <span class="badge badge-info">rev</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Start Delay</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVM.start_delay ?? 0 }} seconds before staged startup continues.</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVM.start_delay ?? 0 }}s</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Shutdown Delay</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVM.shutdown_delay ?? 0 }} seconds before staged shutdown continues.</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVM.shutdown_delay ?? 0 }}s</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Boot Order</strong>
+                        <div class="text-muted mono" style="font-size:11px">Sequence {{ selectedVM.order ?? 0 }} in pool-managed startup and shutdown ordering.</div>
+                      </div>
+                      <span class="badge badge-info">#{{ selectedVM.order ?? 0 }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Virtual Hardware Platform</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmHardwarePlatformDetail }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmHardwarePlatformBadge }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Domain Type</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmDomainTypeDetail }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmDomainTypeBadge }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Secure Boot</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmSecureBootDetail }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmSecureBootEnabled ? 'badge-running' : 'badge-info'">
+                        {{ selectedVmSecureBootEnabled ? 'enabled' : 'disabled' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Video RAM</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmVideoRamDetail }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmVideoRamBadge }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>IGD Passthrough</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmIgdPassthroughDetail }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmIgdPassthroughEnabled ? 'badge-running' : 'badge-info'">
+                        {{ selectedVmIgdPassthroughEnabled ? 'enabled' : 'disabled' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Vendor Device Emulation</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmVendorDeviceDetail }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmVendorDeviceEnabled ? 'badge-running' : 'badge-info'">
+                        {{ selectedVmVendorDeviceEnabled ? 'enabled' : 'disabled' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Affinity Preference</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmAffinityLabel }}</div>
+                      </div>
+                      <span class="badge" :class="normalizeVmAffinity(selectedVM.affinity) ? 'badge-running' : 'badge-info'">
+                        {{ normalizeVmAffinity(selectedVM.affinity) ? 'pinned' : 'auto' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>VM Appliance</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmApplianceDetail }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmAppliance ? 'badge-running' : 'badge-info'">
+                        {{ selectedVmAppliance ? `${selectedVmApplianceVmCount} VMs` : 'none' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Snapshot Schedule</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmSnapshotScheduleDetail }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmSnapshotSchedule ? (selectedVmSnapshotScheduleEnabled ? 'badge-running' : 'badge-warning') : 'badge-info'">
+                        {{ selectedVmSnapshotSchedule ? (selectedVmSnapshotScheduleEnabled ? 'enabled' : 'disabled') : 'none' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Protection Policy</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmProtectionPolicyDetail }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmProtectionPolicy ? 'badge-warning' : 'badge-info'">
+                        {{ selectedVmProtectionPolicy ? 'legacy' : 'none' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
                         <strong>Tag Set</strong>
                         <div class="text-muted mono" style="font-size:11px">{{ truncateList(selectedVM.tags) }}</div>
                       </div>
                       <span class="badge badge-info">{{ (selectedVM.tags || []).length || 0 }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>Blocked Operations</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmBlockedOperationsSummary }}</div>
+                      </div>
+                      <span class="badge" :class="selectedVmBlockedOperationsCount ? 'badge-warning' : 'badge-info'">
+                        {{ selectedVmBlockedOperationsCount || 'none' }}
+                      </span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>VM VCPUs_params</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmVcpusParamsSummary }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmVcpusParamsCount }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>VM other_config</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmOtherConfigSummary }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmOtherConfigCount }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>VM xenstore_data</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmXenstoreDataSummary }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmXenstoreDataCount }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>VM NVRAM</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmNvramDetail }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmNvramCount }}</span>
+                    </div>
+                    <div class="stack-item">
+                      <div>
+                        <strong>VM platform</strong>
+                        <div class="text-muted mono" style="font-size:11px">{{ selectedVmPlatformSummary }}</div>
+                      </div>
+                      <span class="badge badge-info">{{ selectedVmPlatformCount }}</span>
                     </div>
                   </div>
                 </div>
@@ -900,6 +1085,8 @@ const VMsView = {
       bulkError: null,
       relatedHosts: [],
       relatedPools: [],
+      relatedAppliances: [],
+      relatedSnapshotSchedules: [],
       relatedStorage: [],
       relatedNetworks: [],
       relatedVdis: [],
@@ -991,7 +1178,7 @@ const VMsView = {
     selectedVmHost() {
       if (!this.selectedVM) return null;
 
-      const refs = [this.selectedVM.resident_on, this.selectedVM.affinity]
+      const refs = [this.selectedVM.resident_on, this.normalizeVmAffinity(this.selectedVM.affinity)]
         .filter(Boolean)
         .map((value) => String(value).toLowerCase());
 
@@ -1001,6 +1188,283 @@ const VMsView = {
           .map((value) => String(value).toLowerCase())
           .some((value) => refs.includes(value))
       ) || null;
+    },
+    selectedVmAffinityHost() {
+      const affinityRef = this.normalizeVmAffinity(this.selectedVM?.affinity);
+      if (!affinityRef) return null;
+      return this.relatedHosts.find((host) => String(host?.ref || '').trim() === affinityRef) || null;
+    },
+    selectedVmAffinityLabel() {
+      const affinityRef = this.normalizeVmAffinity(this.selectedVM?.affinity);
+      if (!affinityRef) return 'Automatic / no preference';
+      return this.selectedVmAffinityHost
+        ? `${this.selectedVmAffinityHost.name_label || this.selectedVmAffinityHost.address || this.selectedVmAffinityHost.ref} (${affinityRef})`
+        : affinityRef;
+    },
+    selectedVmAppliance() {
+      const applianceRef = String(this.selectedVM?.appliance || '').trim();
+      if (!applianceRef || applianceRef === 'OpaqueRef:NULL') return null;
+      return this.relatedAppliances.find((appliance) => String(appliance?.ref || '').trim() === applianceRef) || {
+        ref: applianceRef,
+        name_label: applianceRef,
+        VMs: [],
+      };
+    },
+    selectedVmApplianceVmCount() {
+      return Array.isArray(this.selectedVmAppliance?.VMs) ? this.selectedVmAppliance.VMs.length : 0;
+    },
+    selectedVmApplianceSummary() {
+      return this.selectedVmAppliance?.name_label || this.selectedVmAppliance?.uuid || this.selectedVmAppliance?.ref || 'None';
+    },
+    selectedVmApplianceDetail() {
+      if (!this.selectedVmAppliance) {
+        return 'No VM appliance grouping is pinned for this workload.';
+      }
+      return `${this.selectedVmApplianceSummary} coordinates grouped startup and shutdown sequencing across ${this.selectedVmApplianceVmCount} VM${this.selectedVmApplianceVmCount === 1 ? '' : 's'} in this appliance.`;
+    },
+    selectedVmSnapshotSchedule() {
+      const snapshotScheduleRef = String(this.selectedVM?.snapshot_schedule || '').trim();
+      if (!snapshotScheduleRef || snapshotScheduleRef === 'OpaqueRef:NULL') return null;
+      return this.relatedSnapshotSchedules.find((schedule) => String(schedule?.ref || '').trim() === snapshotScheduleRef) || {
+        ref: snapshotScheduleRef,
+        name_label: snapshotScheduleRef,
+        VMs: [],
+      };
+    },
+    selectedVmSnapshotScheduleEnabled() {
+      return Boolean(this.selectedVmSnapshotSchedule?.enabled);
+    },
+    selectedVmSnapshotScheduleVmCount() {
+      return Array.isArray(this.selectedVmSnapshotSchedule?.VMs) ? this.selectedVmSnapshotSchedule.VMs.length : 0;
+    },
+    selectedVmSnapshotScheduleSummary() {
+      return this.selectedVmSnapshotSchedule?.name_label || this.selectedVmSnapshotSchedule?.uuid || this.selectedVmSnapshotSchedule?.ref || 'None';
+    },
+    selectedVmSnapshotScheduleDetail() {
+      if (!this.selectedVmSnapshotSchedule) {
+        return 'No automatic snapshot schedule is pinned for this workload.';
+      }
+      const cadence = String(this.selectedVmSnapshotSchedule.frequency || 'custom').replace(/_/g, ' ');
+      const retainedSnapshots = Math.max(0, Number(this.selectedVmSnapshotSchedule.retained_snapshots || 0) || 0);
+      const timeWindowParts = [];
+      if (this.selectedVmSnapshotSchedule.schedule?.hour !== undefined || this.selectedVmSnapshotSchedule.schedule?.min !== undefined) {
+        const hour = String(this.selectedVmSnapshotSchedule.schedule?.hour ?? '00').padStart(2, '0');
+        const minute = String(this.selectedVmSnapshotSchedule.schedule?.min ?? '00').padStart(2, '0');
+        timeWindowParts.push(`${hour}:${minute} local`);
+      }
+      if (String(this.selectedVmSnapshotSchedule.schedule?.days || '').trim()) {
+        timeWindowParts.push(`days ${this.selectedVmSnapshotSchedule.schedule.days}`);
+      }
+      const timeWindow = timeWindowParts.length ? ` Window ${timeWindowParts.join(' · ')}.` : '';
+      return `${this.selectedVmSnapshotScheduleSummary} is ${this.selectedVmSnapshotScheduleEnabled ? 'enabled' : 'disabled'} on a ${cadence} cadence, retains ${retainedSnapshots} snapshot${retainedSnapshots === 1 ? '' : 's'}, and currently covers ${this.selectedVmSnapshotScheduleVmCount} VM${this.selectedVmSnapshotScheduleVmCount === 1 ? '' : 's'}.${timeWindow}`;
+    },
+    selectedVmProtectionPolicy() {
+      const protectionPolicyRef = String(this.selectedVM?.protection_policy || '').trim();
+      if (!protectionPolicyRef || protectionPolicyRef === 'OpaqueRef:NULL') return '';
+      return protectionPolicyRef;
+    },
+    selectedVmProtectionPolicySummary() {
+      return this.selectedVmProtectionPolicy || 'None / not reported';
+    },
+    selectedVmProtectionPolicyDetail() {
+      if (!this.selectedVmProtectionPolicy) {
+        return 'No legacy VMPP protection policy reference is reported for this workload.';
+      }
+      return `${this.selectedVmProtectionPolicy} is a legacy VMPP reference. Upstream XAPI deprecated VMPP in XenServer 6.2 and marked the class removed in XenServer 6.2, so XenMange surfaces this field as read-only guidance instead of an editable policy assignment.`;
+    },
+    selectedVmOtherConfigEntries() {
+      return Object.entries(this.selectedVM?.other_config || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedVmVcpusParamsEntries() {
+      return Object.entries(this.selectedVM?.VCPUs_params || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedVmVcpusParamsCount() {
+      return this.selectedVmVcpusParamsEntries.length;
+    },
+    selectedVmVcpusParamsSummary() {
+      if (!this.selectedVmVcpusParamsEntries.length) return '-';
+      const summary = this.selectedVmVcpusParamsEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedVmVcpusParamsEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedVmVcpusParamsEntries.length - 2} more`;
+    },
+    selectedVmMemoryStaticMinGiB() {
+      return Math.max(0, Math.round(Number(this.selectedVM?.memory_static_min || this.selectedVM?.memory_static_max || 0) / (1024 ** 3)) || 0);
+    },
+    selectedVmHardwarePlatformVersion() {
+      return Math.max(0, Number(this.selectedVM?.hardware_platform_version || 0) || 0);
+    },
+    selectedVmHardwarePlatformSummary() {
+      return this.selectedVmHardwarePlatformVersion ? `v${this.selectedVmHardwarePlatformVersion}` : 'Auto / default';
+    },
+    selectedVmHardwarePlatformDetail() {
+      if (!this.selectedVmHardwarePlatformVersion) {
+        return 'No explicit virtual hardware platform override is pinned for this workload.';
+      }
+      return `Pinned to virtual hardware platform version ${this.selectedVmHardwarePlatformVersion} for host compatibility checks.`;
+    },
+    selectedVmHardwarePlatformBadge() {
+      return this.selectedVmHardwarePlatformVersion ? `v${this.selectedVmHardwarePlatformVersion}` : 'auto';
+    },
+    selectedVmDomainTypeValue() {
+      const explicit = String(this.selectedVM?.domain_type || '').trim().toLowerCase();
+      if (explicit) return explicit;
+      if (String(this.selectedVM?.HVM_boot_policy || '').trim()) return 'hvm';
+      if (String(this.selectedVM?.PV_bootloader || this.selectedVM?.PV_kernel || '').trim()) return 'pv';
+      return 'unspecified';
+    },
+    selectedVmDomainTypeSummary() {
+      return {
+        unspecified: 'Automatic / Unspecified',
+        hvm: 'HVM',
+        pv: 'PV',
+        pvh: 'PVH',
+        pv_in_pvh: 'PV in PVH',
+      }[this.selectedVmDomainTypeValue] || 'Automatic / Unspecified';
+    },
+    selectedVmDomainTypeDetail() {
+      return `${this.selectedVmDomainTypeSummary} takes effect on the next VM boot and supersedes legacy HVM boot-policy tuning.`;
+    },
+    selectedVmDomainTypeBadge() {
+      return this.selectedVmDomainTypeValue === 'unspecified' ? 'auto' : this.selectedVmDomainTypeSummary;
+    },
+    selectedVmSecureBootEnabled() {
+      const normalized = String(this.selectedVM?.platform?.secureboot || '').trim().toLowerCase();
+      return ['1', 'true', 'enabled', 'on', 'yes', 'required'].includes(normalized);
+    },
+    selectedVmSecureBootSummary() {
+      return this.selectedVmSecureBootEnabled ? 'Enabled' : 'Disabled';
+    },
+    selectedVmSecureBootDetail() {
+      return this.selectedVmSecureBootEnabled
+        ? 'Secure Boot is enabled for platform-mediated guest boot validation.'
+        : 'Secure Boot is disabled for this workload platform profile.';
+    },
+    selectedVmVideoRamMiB() {
+      const normalized = Number(this.selectedVM?.platform?.videoram || 0);
+      if (!Number.isFinite(normalized)) return 0;
+      return Math.max(0, Math.round(normalized));
+    },
+    selectedVmVideoRamSummary() {
+      return this.selectedVmVideoRamMiB ? `${this.selectedVmVideoRamMiB} MiB` : 'Auto / default';
+    },
+    selectedVmVideoRamDetail() {
+      if (!this.selectedVmVideoRamMiB) {
+        return 'No explicit virtual display memory override is pinned for this workload.';
+      }
+      return `Pinned to ${this.selectedVmVideoRamMiB} MiB of virtual display memory for the guest graphics adapter on the next VM boot.`;
+    },
+    selectedVmVideoRamBadge() {
+      return this.selectedVmVideoRamMiB ? `${this.selectedVmVideoRamMiB} MiB` : 'auto';
+    },
+    selectedVmIgdPassthroughEnabled() {
+      const normalized = String(this.selectedVM?.platform?.igd_passthrough || '').trim().toLowerCase();
+      return ['1', 'true', 'enabled', 'on', 'yes', 'required'].includes(normalized);
+    },
+    selectedVmIgdPassthroughSummary() {
+      return this.selectedVmIgdPassthroughEnabled ? 'Enabled' : 'Disabled';
+    },
+    selectedVmIgdPassthroughDetail() {
+      return this.selectedVmIgdPassthroughEnabled
+        ? 'The Intel integrated graphics passthrough hint is enabled for the next VM boot and requires compatible host GPU support.'
+        : 'The Intel integrated graphics passthrough hint is disabled for this workload platform profile.';
+    },
+    selectedVmVendorDeviceEnabled() {
+      return Boolean(this.selectedVM?.has_vendor_device);
+    },
+    selectedVmVendorDeviceSummary() {
+      return this.selectedVmVendorDeviceEnabled ? 'Enabled' : 'Disabled';
+    },
+    selectedVmVendorDeviceDetail() {
+      return this.selectedVmVendorDeviceEnabled
+        ? 'The HVM vendor-device PCI hint is enabled for Windows PV-driver discovery on next boot.'
+        : 'The HVM vendor-device PCI hint is disabled for this workload profile.';
+    },
+    selectedVmBlockedOperationsEntries() {
+      return Object.entries(this.selectedVM?.blocked_operations || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedVmBlockedOperationsCount() {
+      return this.selectedVmBlockedOperationsEntries.length;
+    },
+    selectedVmBlockedOperationsSummary() {
+      if (!this.selectedVmBlockedOperationsEntries.length) return '-';
+      const summary = this.selectedVmBlockedOperationsEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedVmBlockedOperationsEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedVmBlockedOperationsEntries.length - 2} more`;
+    },
+    selectedVmOtherConfigCount() {
+      return this.selectedVmOtherConfigEntries.length;
+    },
+    selectedVmOtherConfigSummary() {
+      if (!this.selectedVmOtherConfigEntries.length) return '-';
+      const summary = this.selectedVmOtherConfigEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedVmOtherConfigEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedVmOtherConfigEntries.length - 2} more`;
+    },
+    selectedVmXenstoreDataEntries() {
+      return Object.entries(this.selectedVM?.xenstore_data || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedVmXenstoreDataCount() {
+      return this.selectedVmXenstoreDataEntries.length;
+    },
+    selectedVmXenstoreDataSummary() {
+      if (!this.selectedVmXenstoreDataEntries.length) return '-';
+      const summary = this.selectedVmXenstoreDataEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedVmXenstoreDataEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedVmXenstoreDataEntries.length - 2} more`;
+    },
+    selectedVmNvramEntries() {
+      return Object.entries(this.selectedVM?.NVRAM || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedVmNvramCount() {
+      return this.selectedVmNvramEntries.length;
+    },
+    selectedVmNvramSummary() {
+      if (!this.selectedVmNvramEntries.length) return '-';
+      const summary = this.selectedVmNvramEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedVmNvramEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedVmNvramEntries.length - 2} more`;
+    },
+    selectedVmNvramDetail() {
+      if (!this.selectedVmNvramEntries.length) {
+        return 'No explicit guest NVRAM overrides are pinned for this workload.';
+      }
+      return `${this.selectedVmNvramSummary} Xen only applies NVRAM updates while the VM is halted.`;
+    },
+    selectedVmPlatformEntries() {
+      return Object.entries(this.selectedVM?.platform || {})
+        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+    },
+    selectedVmPlatformCount() {
+      return this.selectedVmPlatformEntries.length;
+    },
+    selectedVmPlatformSummary() {
+      if (!this.selectedVmPlatformEntries.length) return '-';
+      const summary = this.selectedVmPlatformEntries
+        .slice(0, 2)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' · ');
+      if (this.selectedVmPlatformEntries.length <= 2) return summary;
+      return `${summary} +${this.selectedVmPlatformEntries.length - 2} more`;
     },
     selectedVmPool() {
       if (this.selectedVmHost) {
@@ -1048,7 +1512,7 @@ const VMsView = {
         }));
     },
     migrationHostOptions() {
-      const currentHostRef = this.selectedVmHost?.ref || this.selectedVM?.resident_on || this.selectedVM?.affinity || '';
+      const currentHostRef = this.selectedVmHost?.ref || this.selectedVM?.resident_on || this.normalizeVmAffinity(this.selectedVM?.affinity) || '';
       return this.relatedHosts
         .filter((host) => host.ref !== currentHostRef)
         .filter((host) => this.hostBelongsToSelectedPool(host))
@@ -1056,6 +1520,17 @@ const VMsView = {
           if (Boolean(left.enabled) !== Boolean(right.enabled)) {
             return left.enabled ? -1 : 1;
           }
+          return String(left.name_label || left.address || left.ref).localeCompare(String(right.name_label || right.address || right.ref));
+        });
+    },
+    vmConfigHostOptions() {
+      return this.relatedHosts
+        .filter((host) => this.hostBelongsToSelectedPool(host))
+        .sort((left, right) => {
+          const leftPinned = left.ref === this.normalizeVmAffinity(this.selectedVM?.affinity);
+          const rightPinned = right.ref === this.normalizeVmAffinity(this.selectedVM?.affinity);
+          if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+          if (Boolean(left.enabled) !== Boolean(right.enabled)) return left.enabled ? -1 : 1;
           return String(left.name_label || left.address || left.ref).localeCompare(String(right.name_label || right.address || right.ref));
         });
     },
@@ -1088,8 +1563,8 @@ const VMsView = {
         {
           key: 'boot',
           label: 'Boot Profile',
-          value: this.selectedVM.HVM_boot_policy || this.selectedVM.PV_bootloader || 'Default',
-          detail: `Affinity ${this.selectedVM.affinity || 'not pinned'} · ${(this.selectedVM.tags || []).length || 0} tags`,
+          value: this.selectedVmDomainTypeSummary,
+          detail: `${this.selectedVmSecureBootSummary} secure boot · ${this.selectedVmVendorDeviceSummary} vendor device`,
           valueClass: 'text-amber',
         },
       ];
@@ -1140,6 +1615,10 @@ const VMsView = {
     formatThroughput,
     formatDateTime,
     truncateList,
+    normalizeVmAffinity(value = '') {
+      const normalized = String(value || '').trim();
+      return normalized === 'OpaqueRef:NULL' ? '' : normalized;
+    },
     downloadBlob(content, type, filename) {
       const blob = content instanceof Blob ? content : new Blob([content], { type });
       const url = window.URL.createObjectURL(blob);
@@ -1344,10 +1823,12 @@ const VMsView = {
       this.vmCompatibility = { hosts: [], lastBootCpuFlags: {}, possibleHostRefs: [], hardwarePlatformVersion: 0, maskingApiAvailable: false };
       this.vmConsoles = [];
       try {
-        const [vm, hosts, pools, storage, networks, metricHistory, snapshots, compatibility, consoles] = await Promise.all([
+        const [vm, hosts, pools, appliances, snapshotSchedules, storage, networks, metricHistory, snapshots, compatibility, consoles] = await Promise.all([
           api.getVM(ref),
           api.getHosts().catch(() => ({ data: [] })),
           api.getPools().catch(() => ({ data: [] })),
+          api.getVMAppliances().catch(() => ({ data: [] })),
+          api.getVMSnapshotSchedules().catch(() => ({ data: [] })),
           api.getSRs().catch(() => ({ data: [] })),
           api.getNetworks().catch(() => ({ data: [] })),
           api.getVmMetricHistory(ref).catch(() => ({ metrics: [] })),
@@ -1359,6 +1840,8 @@ const VMsView = {
         this.selectedVM = { ...(this.selectedVM || {}), ...(vm || {}) };
         this.relatedHosts = hosts.data || [];
         this.relatedPools = pools.data || [];
+        this.relatedAppliances = appliances.data || [];
+        this.relatedSnapshotSchedules = snapshotSchedules.data || [];
         this.relatedStorage = storage.data || [];
         this.relatedNetworks = networks.data || [];
         this.vmMetricHistory = metricHistory || { metrics: [] };

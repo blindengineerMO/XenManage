@@ -1,0 +1,27 @@
+services:
+  xenmange:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: xenmange:local
+    container_name: xenmange
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Overridden here because the container's data dir is a named volume,
+      # not the host-relative paths used in .env for local `npm run dev`.
+      DB_PATH: /app/data/xenmange.db
+      SECURITY_DB_PATH: /app/data/security.db
+      VAULT_DB_PATH: /app/data/vault.db
+      PERF_DB_PATH: /app/data/perf.db
+    volumes:
+      - xenmange-data:/app/data
+
+volumes:
+  xenmange-data:

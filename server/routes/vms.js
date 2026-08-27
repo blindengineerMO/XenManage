@@ -147,6 +147,28 @@ router.get('/templates', async (req, res) => {
   }
 });
 
+router.get('/appliances', async (req, res) => {
+  try {
+    const result = await req.xenApi.getVMAppliances();
+    const appliances = Object.entries(result.records || {})
+      .map(([ref, record]) => ({ ref, ...record }));
+    res.json({ total: appliances.length, data: appliances });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/snapshot-schedules', async (req, res) => {
+  try {
+    const result = await req.xenApi.getVMSnapshotSchedules();
+    const snapshotSchedules = Object.entries(result.records || {})
+      .map(([ref, record]) => ({ ref, ...record }));
+    res.json({ total: snapshotSchedules.length, data: snapshotSchedules });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/templates/governance', async (_req, res) => {
   try {
     const records = templateGovernanceService.listGovernance();
@@ -856,6 +878,70 @@ router.post('/:ref/nics', validate(schemas.opaqueRefParam, 'params'), validate(s
     res.status(500).json({ error: err.message });
   }
 });
+
+router.post(
+  '/:ref/nics/:vifRef/disconnect',
+  validate(schemas.vmNicParams, 'params'),
+  validate(schemas.vmNicDisconnect),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'vm_nic_disconnect', entityType: 'vm', entityRef: req.params.ref })) return;
+      const previousRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
+      const result = await req.xenApi.disconnectVMNic(req.params.ref, req.params.vifRef, req.body);
+      const nextRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
+      auditLogService.record({
+        category: 'vms',
+        action: 'vm_nic_disconnected',
+        actionLabel: 'Disconnected VM network interface from',
+        entityType: 'vm',
+        entityRef: req.params.ref,
+        entityName: nextRecord?.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/vms',
+        status: 'success',
+        before: previousRecord,
+        after: nextRecord || result,
+        detail: result.alreadyDisconnected
+          ? `${req.params.vifRef} was already detached from live traffic on ${result.networkRef || 'the selected network fabric'}.`
+          : `${req.params.vifRef} was hot-unplugged from ${result.networkRef || 'the selected network fabric'}.`,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message });
+    }
+  }
+);
+
+router.delete(
+  '/:ref/nics/:vifRef',
+  validate(schemas.vmNicParams, 'params'),
+  validate(schemas.vmNicDelete),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'vm_nic_remove', entityType: 'vm', entityRef: req.params.ref })) return;
+      const previousRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
+      const result = await req.xenApi.removeVMNic(req.params.ref, req.params.vifRef, req.body);
+      const nextRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
+      auditLogService.record({
+        category: 'vms',
+        action: 'vm_nic_removed',
+        actionLabel: 'Removed VM network interface from',
+        entityType: 'vm',
+        entityRef: req.params.ref,
+        entityName: nextRecord?.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/vms',
+        status: 'success',
+        before: previousRecord,
+        after: nextRecord || result,
+        detail: `${req.params.vifRef} was removed from ${result.networkRef || 'the selected network fabric'}.`,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message });
+    }
+  }
+);
 
 router.post('/start', validate(schemas.vmLifecycle), async (req, res) => {
   try {

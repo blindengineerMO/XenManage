@@ -82,93 +82,191 @@ const demoDb = {
       other_config: { rack: 'R4', maintenance_window: 'Sun 02:00' },
     },
   ],
+  vmAppliances: [
+    {
+      ref: 'OpaqueRef:appliance-demo-1',
+      name_label: 'Billing Stack',
+      name_description: 'Groups the billing API and worker workloads for coordinated startup ordering.',
+      uuid: 'appliance-demo-uuid-1',
+      VMs: ['OpaqueRef:vm-demo-1', 'OpaqueRef:vm-demo-2'],
+      start_delay: 15,
+      shutdown_delay: 20,
+    },
+    {
+      ref: 'OpaqueRef:appliance-demo-2',
+      name_label: 'Analytics Tier',
+      name_description: 'Analytics frontend workloads staged behind shared platform dependencies.',
+      uuid: 'appliance-demo-uuid-2',
+      VMs: ['OpaqueRef:vm-demo-3'],
+      start_delay: 0,
+      shutdown_delay: 0,
+    },
+  ],
+  vmSnapshotSchedules: [
+    {
+      ref: 'OpaqueRef:vmss-demo-1',
+      name_label: 'Nightly Billing Recovery',
+      name_description: 'Nightly app-tier recovery snapshots for the billing stack.',
+      uuid: 'vmss-demo-uuid-1',
+      enabled: true,
+      type: 'snapshot',
+      frequency: 'daily',
+      retained_snapshots: 7,
+      schedule: { hour: '02', min: '30', days: '1,2,3,4,5' },
+      VMs: ['OpaqueRef:vm-demo-1', 'OpaqueRef:vm-demo-2'],
+    },
+    {
+      ref: 'OpaqueRef:vmss-demo-2',
+      name_label: 'Weekly Analytics Checkpoint',
+      name_description: 'Weekly weekend checkpoint cadence for analytics workloads.',
+      uuid: 'vmss-demo-uuid-2',
+      enabled: true,
+      type: 'checkpoint',
+      frequency: 'weekly',
+      retained_snapshots: 4,
+      schedule: { hour: '03', min: '15', days: '0' },
+      VMs: ['OpaqueRef:vm-demo-3'],
+    },
+  ],
   vms: [
     {
       ref: 'OpaqueRef:vm-demo-1',
       name_label: 'billing-api-01',
       name_description: 'Primary billing API node',
+      user_version: 7,
+      start_delay: 15,
+      shutdown_delay: 20,
+      order: 1,
       power_state: 'Running',
       VCPUs_at_startup: 4,
       VCPUs_max: 4,
+      memory_static_min: 4294967296,
       memory_static_max: 8589934592,
       memory_dynamic_max: 8589934592,
       uuid: 'vm-demo-uuid-1',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-1',
       affinity: 'OpaqueRef:host-demo-1',
+      appliance: 'OpaqueRef:appliance-demo-1',
+      snapshot_schedule: 'OpaqueRef:vmss-demo-1',
+      protection_policy: 'OpaqueRef:vmpp-demo-legacy-1',
       VBDs: ['OpaqueRef:vbd-demo-1'],
       VIFs: ['OpaqueRef:vif-demo-1'],
       consoles: ['OpaqueRef:console-demo-1'],
       HVM_boot_policy: 'BIOS order',
+      domain_type: 'hvm',
       hardware_platform_version: 3,
+      has_vendor_device: true,
       last_boot_CPU_flags: { aes: 'true', avx: 'true', sse4_2: 'true', vmx: 'true' },
-      platform: { secureboot: 'enabled', firmware: 'uefi' },
+      NVRAM: { 'EFI/BootOrder': '0001,0002', 'EFI/SecureBootMode': 'user' },
+      platform: { secureboot: 'enabled', firmware: 'uefi', videoram: '16', igd_passthrough: 'false' },
+      blocked_operations: {},
+      VCPUs_params: { weight: '256', cap: '0' },
       tags: ['prod', 'api'],
     },
     {
       ref: 'OpaqueRef:vm-demo-2',
       name_label: 'billing-worker-01',
       name_description: 'Queue worker',
+      user_version: 3,
+      start_delay: 30,
+      shutdown_delay: 45,
+      order: 2,
       power_state: 'Running',
       VCPUs_at_startup: 2,
       VCPUs_max: 2,
+      memory_static_min: 2147483648,
       memory_static_max: 4294967296,
       memory_dynamic_max: 4294967296,
       uuid: 'vm-demo-uuid-2',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-1',
       affinity: 'OpaqueRef:host-demo-1',
+      appliance: 'OpaqueRef:appliance-demo-1',
+      snapshot_schedule: 'OpaqueRef:vmss-demo-1',
+      protection_policy: '',
       VBDs: ['OpaqueRef:vbd-demo-2'],
       VIFs: ['OpaqueRef:vif-demo-2'],
       consoles: ['OpaqueRef:console-demo-2'],
       HVM_boot_policy: 'BIOS order',
+      domain_type: 'hvm',
       hardware_platform_version: 3,
+      has_vendor_device: true,
       last_boot_CPU_flags: { aes: 'true', avx: 'true', sse4_2: 'true' },
-      platform: { secureboot: 'enabled' },
+      NVRAM: { 'EFI/BootOrder': '0001', 'EFI/SecureBootMode': 'user' },
+      platform: { secureboot: 'enabled', videoram: '8', igd_passthrough: 'false' },
+      blocked_operations: { pool_migrate: 'OPERATION_NOT_ALLOWED' },
+      VCPUs_params: { weight: '128', cap: '0' },
       tags: ['prod', 'worker'],
     },
     {
       ref: 'OpaqueRef:vm-demo-3',
       name_label: 'analytics-web-01',
       name_description: 'Analytics frontend',
+      user_version: 12,
+      start_delay: 0,
+      shutdown_delay: 0,
+      order: 5,
       power_state: 'Halted',
       VCPUs_at_startup: 4,
       VCPUs_max: 4,
+      memory_static_min: 4294967296,
       memory_static_max: 12884901888,
       memory_dynamic_max: 12884901888,
       uuid: 'vm-demo-uuid-3',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-2',
       affinity: 'OpaqueRef:host-demo-2',
+      appliance: 'OpaqueRef:appliance-demo-2',
+      snapshot_schedule: 'OpaqueRef:vmss-demo-2',
+      protection_policy: '',
       VBDs: ['OpaqueRef:vbd-demo-3'],
       VIFs: ['OpaqueRef:vif-demo-3'],
       consoles: ['OpaqueRef:console-demo-3'],
       HVM_boot_policy: 'UEFI',
+      domain_type: 'pvh',
       hardware_platform_version: 2,
+      has_vendor_device: false,
       last_boot_CPU_flags: { aes: 'true', sse4_2: 'true', vmx: 'true' },
-      platform: { secureboot: 'disabled' },
+      NVRAM: { 'EFI/BootOrder': '0003', 'EFI/SecureBootMode': 'setup' },
+      platform: { secureboot: 'disabled', videoram: '32', igd_passthrough: 'true' },
+      blocked_operations: {},
+      VCPUs_params: { weight: '64', cap: '0' },
       tags: ['staging', 'web'],
     },
     {
       ref: 'OpaqueRef:vm-demo-4',
       name_label: 'branch-cache-01',
       name_description: 'Edge cache appliance',
+      user_version: 2,
+      start_delay: 90,
+      shutdown_delay: 120,
+      order: 7,
       power_state: 'Suspended',
       VCPUs_at_startup: 2,
       VCPUs_max: 2,
+      memory_static_min: 1073741824,
       memory_static_max: 2147483648,
       memory_dynamic_max: 2147483648,
       uuid: 'vm-demo-uuid-4',
       is_a_template: false,
       resident_on: 'OpaqueRef:host-demo-3',
       affinity: 'OpaqueRef:host-demo-3',
+      appliance: '',
+      snapshot_schedule: '',
+      protection_policy: '',
       VBDs: ['OpaqueRef:vbd-demo-4'],
       VIFs: ['OpaqueRef:vif-demo-4'],
       consoles: ['OpaqueRef:console-demo-4'],
       HVM_boot_policy: 'BIOS order',
+      domain_type: 'hvm',
       hardware_platform_version: 1,
+      has_vendor_device: false,
       last_boot_CPU_flags: { aes: 'true', sse4_2: 'true' },
+      NVRAM: {},
       platform: { firmware: 'legacy' },
+      blocked_operations: { start: 'OPERATION_NOT_ALLOWED', pool_migrate: 'OPERATION_NOT_ALLOWED' },
+      VCPUs_params: { weight: '32', cap: '50' },
       tags: ['edge', 'cache'],
     },
     {
@@ -278,6 +376,8 @@ const demoDb = {
       virtual_allocation: 901943132160,
       uuid: 'sr-demo-uuid-1',
       PBDs: ['OpaqueRef:pbd-demo-1'],
+      shared: false,
+      local_cache_enabled: false,
       tags: ['flash', 'performance'],
     },
     {
@@ -288,6 +388,8 @@ const demoDb = {
       virtual_allocation: 188978561024,
       uuid: 'sr-demo-uuid-2',
       PBDs: ['OpaqueRef:pbd-demo-2'],
+      shared: true,
+      local_cache_enabled: false,
       tags: ['archive', 'edge'],
     },
   ],
@@ -306,27 +408,37 @@ const demoDb = {
       ref: 'OpaqueRef:net-demo-1',
       name_label: 'VMLAN Production',
       bridge: 'xenbr0',
+      MTU: 1500,
       managed: true,
       uuid: 'net-demo-uuid-1',
       PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-3'],
       VIFs: ['OpaqueRef:vif-demo-1', 'OpaqueRef:vif-demo-2', 'OpaqueRef:vif-demo-3'],
+      purpose: [],
       tags: ['prod', 'management'],
-      default_locking_mode: 'network_default',
+      default_locking_mode: 'unlocked',
       other_config: { vlan: '120' },
     },
     {
       ref: 'OpaqueRef:net-demo-2',
       name_label: 'Storage Replication',
       bridge: 'xenbr2',
+      MTU: 9000,
       managed: true,
       uuid: 'net-demo-uuid-2',
       PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
       VIFs: ['OpaqueRef:vif-demo-4'],
+      purpose: ['nbd'],
       tags: ['storage', 'replication'],
-      default_locking_mode: 'locked',
+      default_locking_mode: 'disabled',
       other_config: { vlan: '240' },
     },
   ],
+  vifStates: {
+    'OpaqueRef:vif-demo-1': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:01', MTU: 1500, locking_mode: 'network_default' },
+    'OpaqueRef:vif-demo-2': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:02', MTU: 1500, locking_mode: 'network_default' },
+    'OpaqueRef:vif-demo-3': { currently_attached: false, device: '0', MAC: '02:16:3e:10:00:03', MTU: 1500, locking_mode: 'network_default' },
+    'OpaqueRef:vif-demo-4': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:04', MTU: 1500, locking_mode: 'network_default' },
+  },
   hostMetrics: {
     'OpaqueRef:host-demo-1': { live: true, memory_total: 137438953472, memory_free: 42949672960 },
     'OpaqueRef:host-demo-2': { live: true, memory_total: 137438953472, memory_free: 60129542144 },
@@ -1351,6 +1463,47 @@ let demoOpaqueCounter = 100;
 function nextDemoOpaqueRef(prefix) {
   demoOpaqueCounter += 1;
   return `OpaqueRef:${prefix}-demo-${demoOpaqueCounter}`;
+}
+
+function registerDemoVifState(vifRef, {
+  device = '0',
+  MAC = '',
+  currently_attached = true,
+  MTU = 1500,
+  locking_mode = 'network_default',
+} = {}) {
+  demoDb.vifStates[vifRef] = {
+    currently_attached: Boolean(currently_attached),
+    device: String(device || '0'),
+    MAC: String(MAC || ''),
+    MTU: Number(MTU || 1500),
+    locking_mode: String(locking_mode || 'network_default'),
+  };
+}
+
+function unregisterDemoVifState(vifRef) {
+  delete demoDb.vifStates[vifRef];
+}
+
+function buildDemoVifInventory() {
+  return demoDb.vms.flatMap((vm) =>
+    (Array.isArray(vm.VIFs) ? vm.VIFs : []).map((vifRef, index) => {
+      const network = demoDb.networks.find((entry) => Array.isArray(entry.VIFs) && entry.VIFs.includes(vifRef)) || null;
+      const state = demoDb.vifStates[vifRef] || {};
+      return {
+        ref: vifRef,
+        uuid: `${String(vifRef).replace('OpaqueRef:', '')}-uuid`,
+        VM: vm.ref,
+        network: network?.ref || '',
+        device: String(state.device || index),
+        MAC: String(state.MAC || ''),
+        MTU: Number(state.MTU || 1500),
+        locking_mode: String(state.locking_mode || 'network_default'),
+        currently_attached: Boolean(state.currently_attached),
+        allowed_operations: Boolean(state.currently_attached) ? ['unplug', 'destroy'] : ['plug', 'destroy'],
+      };
+    })
+  );
 }
 
 function getDemoChangedFields(before = null, after = null) {
@@ -3572,6 +3725,20 @@ function demoRequest(method, url, body) {
     return { total: scope.pools.length, data: clone(scope.pools) };
   }
 
+  if (method === 'PUT' && path.startsWith('/api/pools/') && path.endsWith('/config')) {
+    const poolRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'pool_config_update', entityType: 'pool', entityRef: poolRef });
+    const pool = demoDb.pools.find((entry) => entry.ref === poolRef);
+    if (!pool) throw new Error('POOL_NOT_FOUND');
+
+    Object.assign(pool, {
+      name_label: body.nameLabel,
+      name_description: body.nameDescription || '',
+    });
+
+    return clone(pool);
+  }
+
   if (method === 'GET' && path === '/api/hosts') {
     return { total: scope.hosts.length, data: clone(scope.hosts) };
   }
@@ -3733,6 +3900,20 @@ function demoRequest(method, url, body) {
   if (method === 'GET' && path === '/api/vms/templates') {
     const templates = buildDemoVmInventory(targetKey).filter((vm) => vm.is_a_template);
     return { total: templates.length, data: clone(templates) };
+  }
+
+  if (method === 'GET' && path === '/api/vms/appliances') {
+    return {
+      total: demoDb.vmAppliances.length,
+      data: clone(demoDb.vmAppliances),
+    };
+  }
+
+  if (method === 'GET' && path === '/api/vms/snapshot-schedules') {
+    return {
+      total: demoDb.vmSnapshotSchedules.length,
+      data: clone(demoDb.vmSnapshotSchedules),
+    };
   }
 
   if (method === 'GET' && path === '/api/vms/templates/governance') {
@@ -4083,6 +4264,11 @@ function demoRequest(method, url, body) {
 
     if (network && vifRef) {
       network.VIFs = [...(network.VIFs || []), vifRef];
+      registerDemoVifState(vifRef, {
+        device: '0',
+        MAC: '',
+        currently_attached: body.startAfter !== false,
+      });
     }
     const governance = demoDb.templateGovernance.find((entry) => entry.templateRef === templateRef);
     const deploymentAudit = {
@@ -4275,6 +4461,11 @@ function demoRequest(method, url, body) {
       const vifRef = nextDemoOpaqueRef('vif');
       nextVm.VIFs = [vifRef];
       targetNetwork.VIFs = [...(targetNetwork.VIFs || []), vifRef];
+      registerDemoVifState(vifRef, {
+        device: '0',
+        MAC: '',
+        currently_attached: false,
+      });
     }
 
     demoDb.vms.push(nextVm);
@@ -4355,6 +4546,11 @@ function demoRequest(method, url, body) {
       const nextVifRef = nextDemoOpaqueRef('vif');
       nextVm.VIFs.push(nextVifRef);
       targetNetwork.VIFs = [...(targetNetwork.VIFs || []), nextVifRef];
+      registerDemoVifState(nextVifRef, {
+        device: String(nextVm.VIFs.length - 1),
+        MAC: '',
+        currently_attached: body.startAfter === true,
+      });
     }
 
     demoDb.vms.push(nextVm);
@@ -4422,6 +4618,11 @@ function demoRequest(method, url, body) {
           if (!destinationNetwork) continue;
           nextVm.VIFs.push(nextVifRef);
           destinationNetwork.VIFs = [...(destinationNetwork.VIFs || []), nextVifRef];
+          registerDemoVifState(nextVifRef, {
+            device: String(nextVm.VIFs.length - 1),
+            MAC: '',
+            currently_attached: false,
+          });
         }
 
         demoDb.vms.push(nextVm);
@@ -4702,12 +4903,49 @@ function demoRequest(method, url, body) {
     Object.assign(vm, {
       name_label: body.nameLabel,
       name_description: body.nameDescription || '',
+      user_version: Number(body.userVersion || 0),
+      start_delay: Number(body.startDelay || 0),
+      shutdown_delay: Number(body.shutdownDelay || 0),
+      order: Number(body.order || 0),
       VCPUs_at_startup: Number(body.vcpus || 1),
       VCPUs_max: Number(body.vcpus || 1),
+      memory_static_min: Number(body.memoryStaticMin || body.memoryStaticMax || 0),
       memory_static_max: Number(body.memoryStaticMax || 0),
       memory_dynamic_max: Number(body.memoryStaticMax || 0),
+      hardware_platform_version: Number(body.hardwarePlatformVersion || 0),
+      domain_type: String(body.domainType || 'unspecified').trim() || 'unspecified',
+      has_vendor_device: Boolean(body.hasVendorDevice),
+      affinity: String(body.affinity || '').trim(),
+      appliance: String(body.applianceRef || '').trim(),
+      snapshot_schedule: String(body.snapshotScheduleRef || '').trim(),
       tags: Array.isArray(body.tags) ? body.tags : [],
+      blocked_operations: clone(body.blockedOperations || {}),
+      VCPUs_params: clone(body.vcpusParams || {}),
+      other_config: clone(body.otherConfig || {}),
+      xenstore_data: clone(body.xenstoreData || {}),
+      NVRAM: clone(body.nvram || {}),
+      platform: clone(body.platform || {}),
     });
+
+    demoDb.vmAppliances.forEach((appliance) => {
+      appliance.VMs = (appliance.VMs || []).filter((vmRef) => vmRef !== ref);
+    });
+    if (vm.appliance) {
+      const applianceRecord = demoDb.vmAppliances.find((entry) => entry.ref === vm.appliance);
+      if (applianceRecord) {
+        applianceRecord.VMs = [...new Set([...(applianceRecord.VMs || []), ref])];
+      }
+    }
+
+    demoDb.vmSnapshotSchedules.forEach((schedule) => {
+      schedule.VMs = (schedule.VMs || []).filter((vmRef) => vmRef !== ref);
+    });
+    if (vm.snapshot_schedule) {
+      const snapshotScheduleRecord = demoDb.vmSnapshotSchedules.find((entry) => entry.ref === vm.snapshot_schedule);
+      if (snapshotScheduleRecord) {
+        snapshotScheduleRecord.VMs = [...new Set([...(snapshotScheduleRecord.VMs || []), ref])];
+      }
+    }
 
     return clone(vm);
   }
@@ -4752,7 +4990,57 @@ function demoRequest(method, url, body) {
     const vifRef = nextDemoOpaqueRef('vif');
     vm.VIFs = [...(vm.VIFs || []), vifRef];
     network.VIFs = [...(network.VIFs || []), vifRef];
+    registerDemoVifState(vifRef, {
+      device: body.deviceLabel || String(Math.max(0, (vm.VIFs || []).length - 1)),
+      MAC: body.mac || '',
+      currently_attached: String(vm.power_state || '').toLowerCase() === 'running',
+    });
     return { success: true, vifRef };
+  }
+
+  if (method === 'POST' && /\/api\/vms\/.+\/nics\/.+\/disconnect$/.test(path)) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vifRef = decodeURIComponent(path.split('/')[5] || '');
+    ensureDemoMutationAllowed({ actionKey: 'vm_nic_disconnect', entityType: 'vm', entityRef: ref });
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    if (!(vm.VIFs || []).includes(vifRef)) throw new Error('VM_NIC_NOT_FOUND');
+
+    const current = demoDb.vifStates[vifRef] || {};
+    const alreadyDisconnected = !Boolean(current.currently_attached);
+    registerDemoVifState(vifRef, {
+      ...current,
+      currently_attached: false,
+    });
+
+    const network = demoDb.networks.find((entry) => Array.isArray(entry.VIFs) && entry.VIFs.includes(vifRef));
+    return {
+      success: true,
+      vmRef: ref,
+      vifRef,
+      networkRef: network?.ref || '',
+      alreadyDisconnected,
+      currentlyAttached: false,
+      device: String((demoDb.vifStates[vifRef] || {}).device || ''),
+      mac: String((demoDb.vifStates[vifRef] || {}).MAC || ''),
+    };
+  }
+
+  if (method === 'DELETE' && /\/api\/vms\/.+\/nics\/.+$/.test(path)) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vifRef = decodeURIComponent(path.split('/')[5] || '');
+    ensureDemoMutationAllowed({ actionKey: 'vm_nic_remove', entityType: 'vm', entityRef: ref });
+    const vm = demoDb.vms.find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    if (!(vm.VIFs || []).includes(vifRef)) throw new Error('VM_NIC_NOT_FOUND');
+
+    vm.VIFs = (vm.VIFs || []).filter((entry) => entry !== vifRef);
+    demoDb.networks.forEach((network) => {
+      network.VIFs = (network.VIFs || []).filter((entry) => entry !== vifRef);
+    });
+    unregisterDemoVifState(vifRef);
+
+    return { success: true, vmRef: ref, vifRef };
   }
 
   if (method === 'POST' && path.startsWith('/api/vms/')) {
@@ -4778,6 +5066,11 @@ function demoRequest(method, url, body) {
 
   if (method === 'GET' && path === '/api/storage') {
     return { total: scope.srs.length, data: clone(scope.srs) };
+  }
+
+  if (method === 'GET' && path === '/api/networks/interfaces') {
+    const vifs = buildDemoVifInventory();
+    return { total: vifs.length, data: clone(vifs) };
   }
 
   if (method === 'POST' && path === '/api/storage') {
@@ -4812,6 +5105,196 @@ function demoRequest(method, url, body) {
     }
 
     return clone(record);
+  }
+
+  if (method === 'POST' && path === '/api/storage/probe') {
+    const requiredByType = {
+      nfs: ['server', 'serverpath'],
+      lvmoiscsi: ['target', 'targetIQN', 'SCSIid'],
+      ext: ['device'],
+      lvm: ['device'],
+    };
+    const requestedConfiguration = clone(body?.deviceConfig || {});
+    const requiredKeys = requiredByType[body?.type] || [];
+    const missingKeys = requiredKeys.filter((key) => !String(requestedConfiguration[key] || '').trim());
+
+    if (missingKeys.length) {
+      return {
+        mode: 'probe_ext',
+        requestedConfiguration,
+        rawXml: '',
+        results: [
+          {
+            complete: false,
+            configuration: requestedConfiguration,
+            extraInfo: {
+              hint: `Provide ${missingKeys.join(', ')} to complete discovery for this ${body?.type || 'storage'} target.`,
+            },
+            sr: null,
+          },
+        ],
+        summary: {
+          totalResults: 1,
+          completeResults: 0,
+          incompleteResults: 1,
+          existingSrs: 0,
+          legacyXmlAvailable: false,
+        },
+      };
+    }
+
+    const nameByType = {
+      nfs: 'Imported Archive SR',
+      lvmoiscsi: 'Imported iSCSI SR',
+      ext: 'Imported Local EXT SR',
+      lvm: 'Imported Local LVM SR',
+    };
+
+    return {
+      mode: 'probe_ext',
+      requestedConfiguration,
+      rawXml: '',
+      results: [
+        {
+          complete: true,
+          configuration: requestedConfiguration,
+          extraInfo: {
+            transport: body?.type || 'storage',
+            discovery: 'existing-sr',
+          },
+          sr: {
+            uuid: `imported-${body?.type || 'sr'}-uuid`,
+            name_label: nameByType[body?.type] || 'Imported Storage Repository',
+            name_description: 'Existing storage repository discovered during probe.',
+            health: 'healthy',
+            total_space: 21474836480,
+            free_space: 8589934592,
+            clustered: false,
+          },
+        },
+      ],
+      summary: {
+        totalResults: 1,
+        completeResults: 1,
+        incompleteResults: 0,
+        existingSrs: 1,
+        legacyXmlAvailable: false,
+      },
+    };
+  }
+
+  if (method === 'POST' && path === '/api/storage/import') {
+    ensureDemoMutationAllowed({ actionKey: 'sr_import', entityType: 'host', entityRef: body?.hostRef || '' });
+    const host = demoDb.hosts.find((entry) => entry.ref === body?.hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    let sr = demoDb.srs.find((entry) => entry.uuid === body?.uuid) || null;
+    let introduced = false;
+    if (!sr) {
+      const srRef = nextDemoOpaqueRef('sr');
+      sr = {
+        ref: srRef,
+        uuid: body?.uuid || `${srRef.replace('OpaqueRef:', '')}-uuid`,
+        name_label: body?.nameLabel,
+        name_description: body?.nameDescription || '',
+        type: body?.type || 'nfs',
+        content_type: body?.contentType || 'user',
+        shared: Boolean(body?.shared),
+        physical_size: 21474836480,
+        physical_utilisation: 0,
+        virtual_allocation: 0,
+        tags: [],
+        sm_config: clone(body?.smConfig || {}),
+        other_config: {},
+        PBDs: [],
+        VDIs: [],
+        resident_on: body?.hostRef || '',
+        device_config: clone(body?.deviceConfig || {}),
+      };
+      demoDb.srs.push(sr);
+      if (!demoDb.vdis[sr.ref]) {
+        demoDb.vdis[sr.ref] = [];
+      }
+      introduced = true;
+    }
+
+    const existingPbdRef = Array.isArray(sr.PBDs)
+      ? sr.PBDs.find((pbdRef) => Array.isArray(host.PBDs) && host.PBDs.includes(pbdRef))
+      : '';
+    const alreadyAttached = Boolean(existingPbdRef);
+    let pbdRef = existingPbdRef || '';
+    let createdPbd = false;
+
+    if (!pbdRef) {
+      pbdRef = nextDemoOpaqueRef('pbd');
+      sr.PBDs = [...(sr.PBDs || []), pbdRef];
+      host.PBDs = [...(host.PBDs || []), pbdRef];
+      createdPbd = true;
+    }
+
+    sr.device_config = clone(body?.deviceConfig || sr.device_config || {});
+    sr.sm_config = clone(body?.smConfig || sr.sm_config || {});
+
+    return clone({
+      ...sr,
+      pbdRef,
+      introduced,
+      createdPbd,
+      updatedPbdConfig: !alreadyAttached && !createdPbd,
+      pluggedPbd: !alreadyAttached,
+      alreadyAttached,
+      attachedHostRef: body?.hostRef || '',
+    });
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/local-cache')) {
+    ensureDemoMutationAllowed({ actionKey: 'sr_local_cache_update', entityType: 'sr', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === ref);
+    const host = demoDb.hosts.find((entry) => entry.ref === body?.hostRef);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+    if (!host) throw new Error('HOST_NOT_FOUND');
+    if (sr.shared) {
+      const error = new Error('Local storage caching only applies to non-shared storage repositories attached to a specific host.');
+      error.code = 'LOCAL_CACHE_REQUIRES_LOCAL_SR';
+      throw error;
+    }
+
+    const hasPath = Array.isArray(sr.PBDs) && Array.isArray(host.PBDs) && sr.PBDs.some((pbdRef) => host.PBDs.includes(pbdRef));
+    if (!hasPath) {
+      const error = new Error('The selected host does not currently expose an attached path to this storage repository.');
+      error.code = 'LOCAL_CACHE_REQUIRES_ATTACHED_HOST_PATH';
+      throw error;
+    }
+
+    sr.local_cache_enabled = Boolean(body?.enabled);
+    return clone({
+      ...sr,
+      hostRef: body?.hostRef || '',
+      requestedEnabled: Boolean(body?.enabled),
+    });
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/storage/') && path.endsWith('/config')) {
+    ensureDemoMutationAllowed({ actionKey: 'sr_config_update', entityType: 'sr', entityRef: decodeURIComponent(path.split('/')[3] || '') });
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const sr = demoDb.srs.find((entry) => entry.ref === ref);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+
+    const preservedOtherConfig = Object.fromEntries(
+      Object.entries(sr.other_config || {})
+        .filter(([key]) => ['last_rescan_at', 'last_repair_at'].includes(String(key || '').trim()))
+    );
+
+    sr.name_label = String(body?.nameLabel || sr.name_label || '').trim();
+    sr.name_description = String(body?.nameDescription || '').trim();
+    sr.tags = Array.isArray(body?.tags) ? clone(body.tags) : [];
+    sr.other_config = {
+      ...preservedOtherConfig,
+      ...clone(body?.otherConfig || {}),
+    };
+
+    return clone(sr);
   }
 
   if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/repair')) {
@@ -4964,6 +5447,132 @@ function demoRequest(method, url, body) {
     const ref = decodeURIComponent(path.split('/')[3] || '');
     const vdis = demoDb.vdis[ref] || [];
     return { total: vdis.length, data: clone(vdis) };
+  }
+
+  if (method === 'POST' && path === '/api/networks') {
+    ensureDemoMutationAllowed({ actionKey: 'network_create', entityType: 'network', entityRef: body?.bridge || '' });
+    const networkRef = nextDemoOpaqueRef('net');
+    const record = {
+      ref: networkRef,
+      uuid: `${networkRef.replace('OpaqueRef:', '')}-uuid`,
+      name_label: body?.nameLabel,
+      name_description: body?.nameDescription || '',
+      bridge: body?.bridge || '',
+      MTU: Number(body?.mtu || 1500),
+      managed: true,
+      VIFs: [],
+      PIFs: [],
+      tags: Array.isArray(body?.tags) ? clone(body.tags) : [],
+      other_config: clone(body?.otherConfig || {}),
+      default_locking_mode: 'unlocked',
+      purpose: [],
+    };
+    demoDb.networks.push(record);
+    return clone(record);
+  }
+
+  if (method === 'POST' && path === '/api/networks/vlans') {
+    ensureDemoMutationAllowed({ actionKey: 'network_vlan_create', entityType: 'network', entityRef: body?.networkRef || '' });
+    const network = demoDb.networks.find((entry) => entry.ref === body?.networkRef);
+    if (!network) throw new Error('NETWORK_NOT_FOUND');
+
+    const vlanRef = nextDemoOpaqueRef('vlan');
+    const record = {
+      ref: vlanRef,
+      uuid: `${vlanRef.replace('OpaqueRef:', '')}-uuid`,
+      tagged_PIF: body?.pifRef || '',
+      untagged_PIF: `OpaqueRef:generated-pif-${String(body?.tag || '0')}`,
+      tag: Number(body?.tag || 0),
+      other_config: {},
+      networkRef: body?.networkRef || '',
+    };
+
+    network.other_config = {
+      ...(network.other_config || {}),
+      vlan: String(body?.tag || ''),
+    };
+
+    return {
+      ...clone(record),
+      network: clone(network),
+      taggedPifRef: body?.pifRef || '',
+    };
+  }
+
+  if (method === 'POST' && path === '/api/networks/bonds') {
+    ensureDemoMutationAllowed({ actionKey: 'network_bond_create', entityType: 'network', entityRef: body?.networkRef || '' });
+    const network = demoDb.networks.find((entry) => entry.ref === body?.networkRef);
+    if (!network) throw new Error('NETWORK_NOT_FOUND');
+
+    const members = Array.isArray(body?.pifRefs) ? body.pifRefs.map((ref) => String(ref || '').trim()).filter(Boolean) : [];
+    network.PIFs = Array.from(new Set([...(Array.isArray(network.PIFs) ? network.PIFs : []), ...members]));
+    network.other_config = {
+      ...(network.other_config || {}),
+      bond_mode: String(body?.mode || 'balance-slb'),
+    };
+
+    const bondRef = nextDemoOpaqueRef('bond');
+    return {
+      ref: bondRef,
+      uuid: `${bondRef.replace('OpaqueRef:', '')}-uuid`,
+      master: members[0] || '',
+      slaves: clone(members),
+      primary_slave: members[0] || '',
+      links_up: members.length,
+      mode: String(body?.mode || 'balance-slb'),
+      other_config: {},
+      properties: {},
+      auto_update_mac: true,
+      networkRef: body?.networkRef || '',
+      memberPifRefs: clone(members),
+      network: clone(network),
+    };
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/networks/') && path.endsWith('/config')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'network_config_update', entityType: 'network', entityRef: ref });
+    const network = demoDb.networks.find((entry) => entry.ref === ref);
+    if (!network) throw new Error('NETWORK_NOT_FOUND');
+
+    network.name_label = body?.nameLabel || network.name_label;
+    network.name_description = body?.nameDescription || '';
+    network.MTU = Number(body?.mtu || network.MTU || 1500);
+    network.default_locking_mode = String(body?.defaultLockingMode || network.default_locking_mode || 'unlocked');
+    network.purpose = Array.isArray(body?.purpose) ? clone(body.purpose) : [];
+    network.tags = Array.isArray(body?.tags) ? clone(body.tags) : [];
+    network.other_config = clone(body?.otherConfig || {});
+    return clone(network);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/networks/') && path.endsWith('/destroy')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const network = demoDb.networks.find((entry) => entry.ref === ref);
+    if (!network) throw new Error('NETWORK_NOT_FOUND');
+
+    const pifCount = Array.isArray(network.PIFs) ? network.PIFs.length : 0;
+    const vifCount = Array.isArray(network.VIFs) ? network.VIFs.length : 0;
+    if (pifCount || vifCount) {
+      const segments = [];
+      if (pifCount) segments.push(`${pifCount} host uplink${pifCount === 1 ? '' : 's'}`);
+      if (vifCount) segments.push(`${vifCount} workload interface${vifCount === 1 ? '' : 's'}`);
+      const error = new Error(`Destroy requires a detached managed network. ${segments.join(' and ')} still map to this network.`);
+      error.code = 'NETWORK_DESTROY_REQUIRES_DETACHED_ATTACHMENTS';
+      throw error;
+    }
+
+    ensureDemoMutationAllowed({
+      actionKey: 'network_destroy',
+      entityType: 'network',
+      entityRef: ref,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+
+    const index = demoDb.networks.findIndex((entry) => entry.ref === ref);
+    if (index === -1) throw new Error('NETWORK_NOT_FOUND');
+    demoDb.networks.splice(index, 1);
+    return { success: true, ref };
   }
 
   if (method === 'GET' && path === '/api/networks') {

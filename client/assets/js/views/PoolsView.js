@@ -1,5 +1,5 @@
 const PoolsView = {
-  components: { DataTable, FloatingWindow, PoolRegistrationForm, StatusBadge },
+  components: { DataTable, FloatingWindow, PoolRegistrationForm, PoolConfigForm, StatusBadge },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -153,6 +153,53 @@ const PoolsView = {
           </div>
 
           <div class="detail-section">
+            <div class="detail-section-title">Pool Metadata</div>
+            <div class="dashboard-panels">
+              <div class="dash-card">
+                <div class="dash-card-label">Pool Identity</div>
+                <p class="text-muted" style="margin-bottom:12px">Update the operator-facing pool name and description without leaving the pool detail workspace.</p>
+                <pool-config-form
+                  :initial-value="selectedPool"
+                  :submit-label="'Save Pool Metadata'"
+                  :saving="poolConfigSaving"
+                  @submit="submitSelectedPoolConfig">
+                </pool-config-form>
+              </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Pool Context</div>
+                <div class="stack-list">
+                  <div class="stack-item">
+                    <div>
+                      <strong>{{ selectedPool.name_label || 'Selected pool' }}</strong>
+                      <div class="text-muted mono" style="font-size:11px">
+                        {{ selectedPool.uuid || selectedPool.ref || 'pool ref unavailable' }}
+                      </div>
+                    </div>
+                    <span class="badge badge-info">{{ summarizeCount('hosts', selectedPoolHosts.length) }}</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Default SR</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPool.default_SR || 'not configured' }}</div>
+                    </div>
+                    <span class="badge badge-info">sr</span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
+                      <strong>Migration Network</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPool.migration_network || 'not configured' }}</div>
+                    </div>
+                    <span class="badge badge-info">network</span>
+                  </div>
+                </div>
+                <p class="text-muted" style="margin:0">Advanced pool policy controls such as HA, WLB, and controller settings remain follow-on parity work.</p>
+              </div>
+            </div>
+            <div class="form-error" v-if="poolActionError" style="text-align:left;margin-top:12px">{{ poolActionError }}</div>
+          </div>
+
+          <div class="detail-section">
             <div class="detail-section-title">Associated Hosts</div>
             <data-table :columns="poolHostColumns" :data="selectedPoolHosts" :loading="loading" :searchable="false">
               <template #cell-name_label="{ row }">
@@ -244,6 +291,8 @@ const PoolsView = {
       credentials: [],
       selectedPool: null,
       showProps: false,
+      poolConfigSaving: false,
+      poolActionError: null,
       showRegistration: false,
       editingConnectionId: null,
       connectionDraft: null,
@@ -382,8 +431,24 @@ const PoolsView = {
       }
     },
     openProperties(row) {
+      this.poolActionError = null;
       this.selectedPool = row;
       this.showProps = true;
+    },
+    async submitSelectedPoolConfig(payload) {
+      if (!this.selectedPool) return;
+
+      this.poolActionError = null;
+      this.poolConfigSaving = true;
+      try {
+        const record = await api.updatePoolConfig(this.selectedPool.ref, payload);
+        this.selectedPool = { ...this.selectedPool, ...(record || {}) };
+        this.pools = this.pools.map((entry) => (entry.ref === this.selectedPool.ref ? { ...entry, ...(record || {}) } : entry));
+      } catch (error) {
+        this.poolActionError = error.message || 'Unable to save pool metadata';
+      } finally {
+        this.poolConfigSaving = false;
+      }
     },
     findPoolByFocus(focus) {
       return this.pools.find((pool) =>
