@@ -11,3 +11,5 @@ Thumbs.db
 test-results/
 output/
 .playwright-cli/
+plan.md
+PROJECT.md
