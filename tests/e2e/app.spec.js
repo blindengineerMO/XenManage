@@ -71,9 +71,20 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       enabled: true,
       maintenance_mode: false,
       tags: ['prod'],
+      edition: 'Enterprise',
+      license_server: { address: '10.0.0.90', port: '27000' },
+      software_version: { product_version: '8.4.0', product_brand: 'XenServer', platform_name: 'west-cluster-master' },
+      virtual_hardware_platform_versions: ['1', '2', '3', '4'],
+      external_auth_type: 'AD',
+      external_auth_service_name: 'corp.example.internal',
+      external_auth_configuration: { domain: 'corp.example.internal', server: 'ldap01.corp.example.internal' },
+      guest_VCPUs_params: { weight: '256', cap: '0' },
+      sched_gran: 'cpu',
+      ssl_legacy: false,
+      bios_strings: { 'system-manufacturer': 'Dell Inc.', 'system-product-name': 'PowerEdge R750', 'bios-version': '1.12.2' },
       PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif2'],
       PBDs: ['OpaqueRef:pbd1'],
-      cpu_info: { cpu_count: '24', modelname: 'AMD EPYC' },
+      cpu_info: { cpu_count: '24', socket_count: '2', cores_per_socket: '6', threads_per_core: '2', modelname: 'AMD EPYC' },
       logging: { syslog_destination: '10.0.0.50' },
       resident_VMs: ['OpaqueRef:vm1'],
     },
@@ -87,9 +98,20 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       enabled: true,
       maintenance_mode: false,
       tags: ['prod'],
+      edition: 'Standard',
+      license_server: {},
+      software_version: { product_version: '8.4.0', product_brand: 'XenServer', platform_name: 'west-cluster-secondary' },
+      virtual_hardware_platform_versions: ['1', '2', '3'],
+      external_auth_type: '',
+      external_auth_service_name: '',
+      external_auth_configuration: {},
+      guest_VCPUs_params: {},
+      sched_gran: 'core',
+      ssl_legacy: false,
+      bios_strings: { 'system-manufacturer': 'Dell Inc.', 'system-product-name': 'PowerEdge R750', 'bios-version': '1.11.0' },
       PIFs: ['OpaqueRef:pif3', 'OpaqueRef:pif4'],
       PBDs: ['OpaqueRef:pbd1'],
-      cpu_info: { cpu_count: '24', modelname: 'AMD EPYC' },
+      cpu_info: { cpu_count: '24', socket_count: '2', cores_per_socket: '6', threads_per_core: '2', modelname: 'AMD EPYC' },
       logging: {},
       resident_VMs: ['OpaqueRef:vm2'],
     },
@@ -3611,6 +3633,15 @@ async function stubAuthenticatedRoutes(page, options = {}) {
 
     host.name_label = payload.nameLabel;
     host.name_description = payload.nameDescription || '';
+    if (Array.isArray(payload.tags)) {
+      host.tags = [...payload.tags];
+    }
+    if (payload.guestVcpusParams && typeof payload.guestVcpusParams === 'object') {
+      host.guest_VCPUs_params = { ...payload.guestVcpusParams };
+    }
+    if (payload.schedGran) {
+      host.sched_gran = payload.schedGran;
+    }
     if (payload.logging && typeof payload.logging === 'object') {
       host.logging = { ...payload.logging };
     }
@@ -7198,13 +7229,39 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByText('Related Host Inventory')).toBeVisible();
   await expect(page.getByText('Primary SR')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('app-01', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Enterprise', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('24 CPUs · 2 sockets · 6 cores/socket · 2 threads/core · AMD EPYC', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('product_version=8.4.0 · product_brand=XenServer · platform_name=west-cluster-master', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('address=10.0.0.90 · port=27000', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('1, 2, 3, 4', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('AD', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('corp.example.internal', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('domain=corp.example.internal · server=ldap01.corp.example.internal', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('weight=256 · cap=0', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('CPU scheduling', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Disabled', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('system-manufacturer=Dell Inc. · system-product-name=PowerEdge R750 · bios-version=1.12.2', { exact: true }).first()).toBeVisible();
   await page.getByLabel('Host Name').fill('alpha-xen-west');
   await page.getByLabel('Description').fill('Updated operator-facing description for the west production host.');
+  await page.getByLabel('Host Tags').fill('prod, west, governed');
   await page.getByRole('button', { name: 'Save Host Metadata' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.name_label || '').toBe('alpha-xen-west');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.name_description || '').toBe('Updated operator-facing description for the west production host.');
+  await expect.poll(() => (fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.tags || []).join(',')).toBe('prod,west,governed');
   await expect(page.getByText('alpha-xen-west metadata was updated.')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Updated operator-facing description for the west production host.', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('prod, west, governed', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Guest VCPU Parameters').fill('weight=384\ncap=0');
+  await page.getByRole('button', { name: 'Save Guest VCPU Policy' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.guest_VCPUs_params?.weight || '').toBe('384');
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.guest_VCPUs_params?.cap || '').toBe('0');
+  await expect(page.getByText('alpha-xen-west guest VCPU policy was updated.')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('weight=384 · cap=0', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Scheduler Granularity').selectOption('core');
+  await page.getByRole('button', { name: 'Save Scheduler Policy' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.sched_gran || '').toBe('core');
+  await expect(page.getByText('alpha-xen-west scheduler policy was updated.')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Core scheduling', { exact: true }).first()).toBeVisible();
   await page.getByLabel('Host Logging').fill('syslog_destination=10.0.0.51\nsyslog_level=warning');
   await page.getByRole('button', { name: 'Save Host Logging' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_destination || '').toBe('10.0.0.51');

@@ -2,6 +2,7 @@ function buildHostConfigDraft(value = {}) {
   return {
     nameLabel: value.name_label || value.nameLabel || '',
     nameDescription: value.name_description || value.nameDescription || '',
+    tags: Array.isArray(value.tags) ? value.tags.join(', ') : String(value.tags || ''),
   };
 }
 
@@ -28,8 +29,16 @@ const HostConfigForm = {
                   placeholder="Describe the host role, patch posture, ownership, or operator notes."></textarea>
       </div>
 
+      <div class="form-group">
+        <label for="host-config-tags">Host Tags</label>
+        <input id="host-config-tags"
+               class="form-input"
+               v-model="draft.tags"
+               placeholder="prod, west, governed">
+      </div>
+
       <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
-        Update the operator-facing host label and long-form description without leaving the Host Properties workspace.
+        Update the operator-facing host label, long-form description, and host tags without leaving the Host Properties workspace.
       </div>
 
       <button class="form-btn" type="submit" :disabled="saving">
@@ -56,6 +65,10 @@ const HostConfigForm = {
       this.$emit('submit', {
         nameLabel: this.draft.nameLabel.trim(),
         nameDescription: this.draft.nameDescription.trim(),
+        tags: this.draft.tags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
       });
     },
   },

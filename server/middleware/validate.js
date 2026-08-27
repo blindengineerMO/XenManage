@@ -408,6 +408,11 @@ const schemas = {
   hostConfigUpdate: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).optional(),
+    guestVcpusParams: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .optional(),
+    schedGran: Joi.string().valid('cpu', 'core', 'socket').optional(),
     logging: Joi.object()
       .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
       .optional(),

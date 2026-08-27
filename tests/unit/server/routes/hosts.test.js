@@ -46,6 +46,15 @@ jest.mock('../../../../server/services/xenapi', () => {
 
     host.name_label = payload.nameLabel;
     host.name_description = payload.nameDescription || '';
+    if (Array.isArray(payload.tags)) {
+      host.tags = [...payload.tags];
+    }
+    if (payload.guestVcpusParams && typeof payload.guestVcpusParams === 'object') {
+      host.guest_VCPUs_params = { ...payload.guestVcpusParams };
+    }
+    if (payload.schedGran) {
+      host.sched_gran = payload.schedGran;
+    }
     if (payload.logging && typeof payload.logging === 'object') {
       host.logging = { ...payload.logging };
     }
@@ -147,7 +156,10 @@ describe('Host Routes', () => {
         pool: 'OpaqueRef:pool1',
         enabled: true,
         maintenance_mode: false,
+        tags: ['prod'],
         resident_VMs: ['OpaqueRef:vm1'],
+        guest_VCPUs_params: { weight: '256', cap: '0' },
+        sched_gran: 'cpu',
         logging: { syslog_destination: '10.0.0.50' },
         other_config: {},
       },
@@ -160,7 +172,10 @@ describe('Host Routes', () => {
         pool: 'OpaqueRef:pool1',
         enabled: true,
         maintenance_mode: false,
+        tags: ['prod'],
         resident_VMs: [],
+        guest_VCPUs_params: {},
+        sched_gran: 'core',
         logging: {},
         other_config: {},
       },
@@ -239,6 +254,12 @@ describe('Host Routes', () => {
     const updated = await request('PUT', '/api/hosts/OpaqueRef%3Ahost1/config', {
       nameLabel: 'alpha-xen-west',
       nameDescription: 'Updated operator-facing description for the west production host.',
+      tags: ['prod', 'west', 'governed'],
+      guestVcpusParams: {
+        weight: '384',
+        cap: '0',
+      },
+      schedGran: 'core',
       logging: {
         syslog_destination: '10.0.0.51',
         syslog_level: 'warning',
@@ -251,6 +272,12 @@ describe('Host Routes', () => {
       name_label: 'alpha-xen-west',
       name_description: 'Updated operator-facing description for the west production host.',
       address: '10.0.0.11',
+      tags: ['prod', 'west', 'governed'],
+      guest_VCPUs_params: {
+        weight: '384',
+        cap: '0',
+      },
+      sched_gran: 'core',
       logging: {
         syslog_destination: '10.0.0.51',
         syslog_level: 'warning',
