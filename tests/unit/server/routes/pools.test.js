@@ -42,6 +42,36 @@ jest.mock('../../../../server/services/xenapi', () => {
 
     pool.name_label = payload.nameLabel;
     pool.name_description = payload.nameDescription || '';
+    if (payload.defaultSrRef) {
+      pool.default_SR = payload.defaultSrRef;
+    }
+    if (typeof payload.migrationCompressionEnabled === 'boolean') {
+      pool.migration_compression = payload.migrationCompressionEnabled;
+    }
+    if (typeof payload.wlbEnabled === 'boolean') {
+      pool.wlb_enabled = payload.wlbEnabled;
+    }
+    if (typeof payload.igmpSnoopingEnabled === 'boolean') {
+      pool.IGMP_snooping_enabled = payload.igmpSnoopingEnabled;
+    }
+    pool.tags = Array.isArray(payload.tags) ? [...payload.tags] : [];
+    pool.other_config = { ...(payload.otherConfig || {}) };
+    return { ...pool };
+  });
+
+  actual.XenAPI.prototype.updatePoolHaState = jest.fn(async function (ref, payload) {
+    const pool = mockState.pools.find((entry) => entry.ref === ref);
+    if (!pool) {
+      throw new Error('POOL_NOT_FOUND');
+    }
+
+    pool.ha_enabled = Boolean(payload.enabled);
+    pool.ha_configuration = { ...(payload.configuration || {}) };
+    pool.ha_cluster_stack = payload.enabled ? 'xhad' : '';
+    pool.ha_overcommitted = false;
+    pool.ha_host_failures_to_tolerate = payload.enabled ? Number(payload.haHostFailuresToTolerate || 0) : 0;
+    pool.ha_plan_exists_for = payload.enabled ? Number(payload.haHostFailuresToTolerate || 0) : 0;
+    pool.ha_statefiles = payload.enabled ? ['OpaqueRef:ha-statefile-1'] : [];
     return { ...pool };
   });
 
@@ -83,9 +113,20 @@ describe('Pool Routes', () => {
         master: 'OpaqueRef:host1',
         slaves: ['OpaqueRef:host2'],
         default_SR: 'OpaqueRef:sr1',
+        migration_compression: false,
+        wlb_enabled: false,
+        wlb_url: 'https://wlb-west.example.internal',
         migration_network: 'OpaqueRef:net1',
+        ha_enabled: false,
+        ha_configuration: {},
+        ha_host_failures_to_tolerate: 0,
+        ha_overcommitted: false,
+        ha_plan_exists_for: 0,
+        ha_statefiles: [],
+        ha_cluster_stack: '',
         tags: ['prod'],
         other_config: { lifecycle: 'managed' },
+        IGMP_snooping_enabled: false,
       },
     ];
   });
@@ -163,6 +204,15 @@ describe('Pool Routes', () => {
     const updated = await request('PUT', '/api/pools/OpaqueRef%3Apool1/config', {
       nameLabel: 'Production Pool West',
       nameDescription: 'Updated operator-facing pool summary for the west cluster.',
+      defaultSrRef: 'OpaqueRef:sr2',
+      migrationCompressionEnabled: true,
+      wlbEnabled: true,
+      igmpSnoopingEnabled: true,
+      tags: ['prod', 'west', 'governed'],
+      otherConfig: {
+        owner: 'platform-ops',
+        governance_tier: 'gold',
+      },
     }, auth.cookie);
 
     expect(updated.status).toBe(200);
@@ -170,6 +220,36 @@ describe('Pool Routes', () => {
       ref: 'OpaqueRef:pool1',
       name_label: 'Production Pool West',
       name_description: 'Updated operator-facing pool summary for the west cluster.',
+      default_SR: 'OpaqueRef:sr2',
+      migration_compression: true,
+      wlb_enabled: true,
+      wlb_url: 'https://wlb-west.example.internal',
+      IGMP_snooping_enabled: true,
+      tags: ['prod', 'west', 'governed'],
+      other_config: {
+        owner: 'platform-ops',
+        governance_tier: 'gold',
+      },
+    }));
+  });
+
+  it('toggles pool HA through the dedicated HA endpoint', async () => {
+    const auth = await login();
+
+    const enabled = await request('POST', '/api/pools/OpaqueRef%3Apool1/ha', {
+      enabled: true,
+      heartbeatSrRefs: ['OpaqueRef:sr1'],
+      haHostFailuresToTolerate: 2,
+      configuration: {},
+    }, auth.cookie);
+
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:pool1',
+      ha_enabled: true,
+      ha_host_failures_to_tolerate: 2,
+      ha_plan_exists_for: 2,
+      ha_cluster_stack: 'xhad',
     }));
   });
 });

@@ -168,14 +168,88 @@ class XenAPI {
   async updatePoolConfig(ref, {
     nameLabel,
     nameDescription = '',
+    defaultSrRef = '',
+    igmpSnoopingEnabled,
+    migrationCompressionEnabled,
+    wlbEnabled,
+    tags = [],
+    otherConfig = {},
   }) {
     await this.setField('pool', ref, 'name_label', nameLabel);
     await this.setField('pool', ref, 'name_description', nameDescription);
+    if (String(defaultSrRef || '').trim()) {
+      await this.setField('pool', ref, 'default_SR', defaultSrRef);
+    }
+    if (typeof igmpSnoopingEnabled === 'boolean') {
+      await this.setField('pool', ref, 'IGMP_snooping_enabled', igmpSnoopingEnabled);
+    }
+    if (typeof migrationCompressionEnabled === 'boolean') {
+      await this.setField('pool', ref, 'migration_compression', migrationCompressionEnabled);
+    }
+    if (typeof wlbEnabled === 'boolean') {
+      await this.setField('pool', ref, 'wlb_enabled', wlbEnabled);
+    }
+    await this.setField('pool', ref, 'tags', Array.isArray(tags) ? tags : []);
+    await this.setField('pool', ref, 'other_config', normalizeStringMap(otherConfig));
     return this.getRecord('pool', ref);
+  }
+
+  async updatePoolHaState(ref, {
+    enabled = false,
+    heartbeatSrRefs = [],
+    haHostFailuresToTolerate = 1,
+    configuration = {},
+  } = {}) {
+    const currentRecord = await this.getRecord('pool', ref);
+    const desiredEnabled = Boolean(enabled);
+    const desiredTolerance = Math.max(0, Number(haHostFailuresToTolerate || 0));
+
+    if (desiredEnabled && !currentRecord?.ha_enabled) {
+      const normalizedHeartbeatSrRefs = Array.isArray(heartbeatSrRefs) ? heartbeatSrRefs.filter(Boolean) : [];
+      if (!normalizedHeartbeatSrRefs.length) {
+        throw createXenApiError('POOL_HA_HEARTBEAT_SR_REQUIRED', 'Select at least one heartbeat SR before enabling HA.');
+      }
+      await this.call('pool', 'enable_ha', [
+        normalizedHeartbeatSrRefs,
+        normalizeStringMap(
+          Object.keys(configuration || {}).length
+            ? configuration
+            : (currentRecord?.ha_configuration || {})
+        ),
+      ]);
+    } else if (!desiredEnabled && currentRecord?.ha_enabled) {
+      await this.call('pool', 'disable_ha', []);
+    }
+
+    if (desiredEnabled) {
+      await this.setField('pool', ref, 'ha_host_failures_to_tolerate', desiredTolerance);
+    }
+
+    const record = await this.getRecord('pool', ref);
+    return {
+      ref,
+      requestedEnabled: desiredEnabled,
+      requestedTolerance: desiredTolerance,
+      heartbeatSrRefs: Array.isArray(heartbeatSrRefs) ? heartbeatSrRefs.filter(Boolean) : [],
+      ...record,
+    };
   }
 
   async getHosts() {
     return this.getClassRecords('host');
+  }
+
+  async updateHostConfig(ref, {
+    nameLabel,
+    nameDescription = '',
+    logging,
+  }) {
+    await this.setField('host', ref, 'name_label', nameLabel);
+    await this.setField('host', ref, 'name_description', nameDescription);
+    if (logging && typeof logging === 'object') {
+      await this.setField('host', ref, 'logging', normalizeStringMap(logging));
+    }
+    return this.getRecord('host', ref);
   }
 
   async disableHost(ref, autoEnable = false) {

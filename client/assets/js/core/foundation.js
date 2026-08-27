@@ -16,7 +16,18 @@ const demoDb = {
       slaves: ['OpaqueRef:host-demo-2'],
       tags: ['production', 'ha', 'demo'],
       default_SR: 'OpaqueRef:sr-demo-1',
+      IGMP_snooping_enabled: true,
+      migration_compression: true,
+      wlb_enabled: true,
+      wlb_url: 'https://wlb-west.example.internal',
       migration_network: 'OpaqueRef:net-demo-1',
+      ha_enabled: false,
+      ha_configuration: {},
+      ha_host_failures_to_tolerate: 0,
+      ha_overcommitted: false,
+      ha_plan_exists_for: 0,
+      ha_statefiles: [],
+      ha_cluster_stack: '',
       other_config: { cluster_profile: 'balanced', lifecycle: 'managed' },
     },
     {
@@ -28,7 +39,18 @@ const demoDb = {
       slaves: [],
       tags: ['edge', 'branch'],
       default_SR: 'OpaqueRef:sr-demo-2',
+      IGMP_snooping_enabled: false,
+      migration_compression: false,
+      wlb_enabled: false,
+      wlb_url: '',
       migration_network: 'OpaqueRef:net-demo-2',
+      ha_enabled: false,
+      ha_configuration: {},
+      ha_host_failures_to_tolerate: 0,
+      ha_overcommitted: false,
+      ha_plan_exists_for: 0,
+      ha_statefiles: [],
+      ha_cluster_stack: '',
       other_config: { cluster_profile: 'performance' },
     },
   ],
@@ -36,6 +58,7 @@ const demoDb = {
     {
       ref: 'OpaqueRef:host-demo-1',
       name_label: 'xen-host-a01',
+      name_description: 'Primary shared-compute node in the demo production pool.',
       hostname: 'xen-host-a01.lab.local',
       address: '10.42.0.11',
       uuid: 'host-demo-uuid-1',
@@ -47,11 +70,13 @@ const demoDb = {
       PBDs: ['OpaqueRef:pbd-demo-1'],
       resident_VMs: ['OpaqueRef:vm-demo-1', 'OpaqueRef:vm-demo-2'],
       cpu_info: { cpu_count: '32', socket_count: '2', modelname: 'AMD EPYC 7543P' },
+      logging: { syslog_destination: '10.42.0.50', syslog_level: 'warning' },
       other_config: { rack: 'R1', profile: 'gpu-ready' },
     },
     {
       ref: 'OpaqueRef:host-demo-2',
       name_label: 'xen-host-a02',
+      name_description: 'Secondary production node in the demo pool.',
       hostname: 'xen-host-a02.lab.local',
       address: '10.42.0.12',
       uuid: 'host-demo-uuid-2',
@@ -63,11 +88,13 @@ const demoDb = {
       PBDs: ['OpaqueRef:pbd-demo-1'],
       resident_VMs: ['OpaqueRef:vm-demo-3'],
       cpu_info: { cpu_count: '32', socket_count: '2', modelname: 'AMD EPYC 7543P' },
+      logging: {},
       other_config: { rack: 'R1', lifecycle: 'patched' },
     },
     {
       ref: 'OpaqueRef:host-demo-3',
       name_label: 'xen-host-b01',
+      name_description: 'Edge host held in maintenance for the branch pool.',
       hostname: 'xen-host-b01.lab.local',
       address: '10.43.0.21',
       uuid: 'host-demo-uuid-3',
@@ -79,6 +106,7 @@ const demoDb = {
       PBDs: ['OpaqueRef:pbd-demo-2'],
       resident_VMs: ['OpaqueRef:vm-demo-4'],
       cpu_info: { cpu_count: '16', socket_count: '1', modelname: 'Intel Xeon Silver 4310' },
+      logging: { syslog_destination: '10.43.0.60' },
       other_config: { rack: 'R4', maintenance_window: 'Sun 02:00' },
     },
   ],
@@ -381,6 +409,18 @@ const demoDb = {
       tags: ['flash', 'performance'],
     },
     {
+      ref: 'OpaqueRef:sr-demo-3',
+      name_label: 'Operations Archive SR',
+      type: 'nfs',
+      physical_size: 824633720832,
+      virtual_allocation: 263882790666,
+      uuid: 'sr-demo-uuid-3',
+      PBDs: ['OpaqueRef:pbd-demo-1'],
+      shared: true,
+      local_cache_enabled: false,
+      tags: ['archive', 'shared'],
+    },
+    {
       ref: 'OpaqueRef:sr-demo-2',
       name_label: 'Edge Archive SR',
       type: 'nfs',
@@ -399,6 +439,7 @@ const demoDb = {
       { ref: 'OpaqueRef:vdi-demo-2', uuid: 'vdi-demo-uuid-2', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-worker-root', virtual_size: 42949672960, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-2'] },
       { ref: 'OpaqueRef:vdi-demo-3', uuid: 'vdi-demo-uuid-3', SR: 'OpaqueRef:sr-demo-1', name_label: 'analytics-data', virtual_size: 274877906944, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-3'] },
     ],
+    'OpaqueRef:sr-demo-3': [],
     'OpaqueRef:sr-demo-2': [
       { ref: 'OpaqueRef:vdi-demo-4', uuid: 'vdi-demo-uuid-4', SR: 'OpaqueRef:sr-demo-2', name_label: 'branch-cache-root', virtual_size: 21474836480, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-4'] },
     ],
@@ -3734,13 +3775,87 @@ function demoRequest(method, url, body) {
     Object.assign(pool, {
       name_label: body.nameLabel,
       name_description: body.nameDescription || '',
+      default_SR: String(body.defaultSrRef || '').trim() || pool.default_SR || '',
+      tags: Array.isArray(body.tags) ? clone(body.tags) : [],
+      other_config: clone(body.otherConfig || {}),
     });
+    if (typeof body.migrationCompressionEnabled === 'boolean') {
+      pool.migration_compression = body.migrationCompressionEnabled;
+    }
+    if (typeof body.wlbEnabled === 'boolean') {
+      pool.wlb_enabled = body.wlbEnabled;
+    }
+    if (typeof body.igmpSnoopingEnabled === 'boolean') {
+      pool.IGMP_snooping_enabled = body.igmpSnoopingEnabled;
+    }
 
     return clone(pool);
   }
 
+  if (method === 'POST' && path.startsWith('/api/pools/') && path.endsWith('/ha')) {
+    const poolRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'pool_ha_update', entityType: 'pool', entityRef: poolRef });
+    const pool = demoDb.pools.find((entry) => entry.ref === poolRef);
+    if (!pool) throw new Error('POOL_NOT_FOUND');
+
+    const enabled = Boolean(body?.enabled);
+    const heartbeatSrRefs = Array.isArray(body?.heartbeatSrRefs) ? clone(body.heartbeatSrRefs).filter(Boolean) : [];
+    const requestedTolerance = Math.max(0, Number(body?.haHostFailuresToTolerate || 0));
+    if (enabled && !pool.ha_enabled && !heartbeatSrRefs.length) throw new Error('VALIDATION_ERROR');
+
+    if (enabled) {
+      pool.ha_enabled = true;
+      pool.ha_configuration = clone(body?.configuration || pool.ha_configuration || {});
+    } else {
+      pool.ha_enabled = false;
+    }
+    pool.ha_cluster_stack = enabled ? 'xhad' : '';
+    pool.ha_overcommitted = false;
+    pool.ha_host_failures_to_tolerate = enabled ? requestedTolerance : 0;
+    pool.ha_plan_exists_for = enabled ? requestedTolerance : 0;
+    pool.ha_statefiles = enabled
+      ? heartbeatSrRefs.map((srRef, index) => `OpaqueRef:ha-statefile-demo-${index + 1}`)
+      : [];
+
+    return clone({
+      ...pool,
+      requestedEnabled: enabled,
+      requestedTolerance,
+      heartbeatSrRefs,
+    });
+  }
+
   if (method === 'GET' && path === '/api/hosts') {
     return { total: scope.hosts.length, data: clone(scope.hosts) };
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/hosts/') && path.endsWith('/config')) {
+    const hostRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'host_config_update', entityType: 'host', entityRef: hostRef });
+    const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    const previous = clone(host);
+    host.name_label = body.nameLabel;
+    host.name_description = body.nameDescription || '';
+    if (body.logging && typeof body.logging === 'object') {
+      host.logging = clone(body.logging);
+    }
+
+    recordAudit({
+      category: 'hosts',
+      action: 'host_config_updated',
+      actionLabel: 'Updated host configuration',
+      entityType: 'host',
+      entityRef: hostRef,
+      entityName: host.name_label || hostRef,
+      route: '/hosts',
+      before: previous,
+      after: clone(host),
+      detail: `Host configuration saved as ${host.name_label || hostRef}.`,
+    });
+
+    return clone(host);
   }
 
   if (method === 'GET' && path.startsWith('/api/hosts/') && path.endsWith('/metrics')) {

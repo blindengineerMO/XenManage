@@ -66,6 +66,9 @@ function buildVmMigrationDraft(props = {}, currentDraft = null) {
   const currentHostRef = props.initialValue?.resident_on || props.initialValue?.affinity || '';
   const powerState = String(props.initialValue?.power_state || '').toLowerCase();
   const liveEligible = powerState === 'running' || powerState === 'suspended';
+  const poolMigrationCompressionEnabled = typeof props.poolMigrationCompressionEnabled === 'boolean'
+    ? props.poolMigrationCompressionEnabled
+    : true;
   const preferredHostRef = normalizedHostOptions.find((host) => host.ref !== currentHostRef)?.ref || normalizedHostOptions[0]?.ref || '';
   const currentMode = String(seedDraft?.mode || '').trim();
   const mode = currentMode === 'cross-pool' || currentMode === 'same-pool'
@@ -101,7 +104,9 @@ function buildVmMigrationDraft(props = {}, currentDraft = null) {
     live: liveEligible ? seedDraft?.live !== false : false,
     copy: liveEligible ? false : Boolean(seedDraft?.copy),
     force: Boolean(seedDraft?.force),
-    compress: liveEligible ? seedDraft?.compress !== false : false,
+    compress: liveEligible
+      ? (seedDraft?.compress !== undefined ? Boolean(seedDraft.compress) : Boolean(poolMigrationCompressionEnabled))
+      : false,
     setAsHomeServer: Boolean(seedDraft?.setAsHomeServer ?? currentHostRef),
   };
 }
@@ -118,6 +123,7 @@ const VMMigrationForm = {
     'initialDraft',
     'destinationLoading',
     'destinationError',
+    'poolMigrationCompressionEnabled',
     'saving',
     'submitLabel',
     'activeTargetKey',
@@ -172,6 +178,9 @@ const VMMigrationForm = {
           {{ liveEligible
             ? 'Running and suspended VMs can stay online during a live migration. Halted VMs will be relocated with a cold move instead.'
             : 'This workload is not running, so XenMange will perform a relocate-style move instead of live migration.' }}
+        </div>
+        <div class="text-muted mono" style="font-size:11px;margin-top:6px" v-if="liveEligible">
+          Pool default migration compression is {{ poolMigrationCompressionEnabled === false ? 'disabled' : 'enabled' }} for this workload's current pool.
         </div>
       </template>
 
@@ -350,6 +359,9 @@ const VMMigrationForm = {
       handler() {
         this.syncDraft({ preserveCurrentDraft: false });
       },
+    },
+    poolMigrationCompressionEnabled() {
+      this.syncDraft({ preserveCurrentDraft: false });
     },
     'draft.destinationTargetKey'(value, previousValue) {
       if (!value || value === previousValue) return;

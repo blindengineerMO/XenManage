@@ -14,7 +14,19 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       slaves: ['OpaqueRef:host2'],
       tags: ['prod'],
       default_SR: 'OpaqueRef:sr1',
+      migration_compression: false,
+      wlb_enabled: false,
+      wlb_url: 'https://wlb-west.example.internal',
+      IGMP_snooping_enabled: false,
       migration_network: 'OpaqueRef:net1',
+      ha_enabled: false,
+      ha_configuration: {},
+      ha_host_failures_to_tolerate: 0,
+      ha_overcommitted: false,
+      ha_plan_exists_for: 0,
+      ha_statefiles: [],
+      ha_cluster_stack: '',
+      other_config: { cluster_profile: 'balanced', lifecycle: 'managed' },
     },
   ];
   const hostTargets = [
@@ -52,6 +64,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
     {
       ref: 'OpaqueRef:host1',
       name_label: 'alpha-xen',
+      name_description: 'Primary compute node in the west pool.',
       address: '10.0.0.11',
       uuid: 'host-uuid-1',
       pool: 'OpaqueRef:pool1',
@@ -61,11 +74,13 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       PIFs: ['OpaqueRef:pif1', 'OpaqueRef:pif2'],
       PBDs: ['OpaqueRef:pbd1'],
       cpu_info: { cpu_count: '24', modelname: 'AMD EPYC' },
+      logging: { syslog_destination: '10.0.0.50' },
       resident_VMs: ['OpaqueRef:vm1'],
     },
     {
       ref: 'OpaqueRef:host2',
       name_label: 'beta-xen',
+      name_description: 'Secondary compute node in the west pool.',
       address: '10.0.0.12',
       uuid: 'host-uuid-2',
       pool: 'OpaqueRef:pool1',
@@ -75,6 +90,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       PIFs: ['OpaqueRef:pif3', 'OpaqueRef:pif4'],
       PBDs: ['OpaqueRef:pbd1'],
       cpu_info: { cpu_count: '24', modelname: 'AMD EPYC' },
+      logging: {},
       resident_VMs: ['OpaqueRef:vm2'],
     },
   ];
@@ -330,6 +346,19 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       physical_size: 32212254720,
       virtual_allocation: 21474836480,
       uuid: 'sr-uuid-1',
+      PBDs: ['OpaqueRef:pbd1'],
+    },
+    {
+      ref: 'OpaqueRef:sr2',
+      name_label: 'Operations Archive SR',
+      name_description: 'Shared operator archive repository for overflow workloads.',
+      tags: ['archive', 'shared'],
+      type: 'nfs',
+      shared: true,
+      local_cache_enabled: false,
+      physical_size: 64424509440,
+      virtual_allocation: 17179869184,
+      uuid: 'sr-uuid-2',
       PBDs: ['OpaqueRef:pbd1'],
     },
   ]));
@@ -3433,6 +3462,49 @@ async function stubAuthenticatedRoutes(page, options = {}) {
 
     pool.name_label = payload.nameLabel;
     pool.name_description = payload.nameDescription || '';
+    pool.default_SR = payload.defaultSrRef || pool.default_SR;
+    if (typeof payload.migrationCompressionEnabled === 'boolean') {
+      pool.migration_compression = payload.migrationCompressionEnabled;
+    }
+    if (typeof payload.wlbEnabled === 'boolean') {
+      pool.wlb_enabled = payload.wlbEnabled;
+    }
+    if (typeof payload.igmpSnoopingEnabled === 'boolean') {
+      pool.IGMP_snooping_enabled = payload.igmpSnoopingEnabled;
+    }
+    pool.tags = Array.isArray(payload.tags) ? [...payload.tags] : pool.tags;
+    pool.other_config = payload.otherConfig || {};
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(pool),
+    });
+  });
+
+  await page.route('**/api/pools/*/ha', async (route) => {
+    if (!targetAttached) {
+      await fulfillNeedsConnection(route);
+      return;
+    }
+
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const payload = route.request().postDataJSON();
+    const pool = poolInventory.find((entry) => entry.ref === ref);
+    if (!pool) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'POOL_NOT_FOUND' }) });
+      return;
+    }
+
+    const enabled = Boolean(payload.enabled);
+    const requestedTolerance = Math.max(0, Number(payload.haHostFailuresToTolerate || 0));
+    pool.ha_enabled = enabled;
+    pool.ha_configuration = payload.configuration || pool.ha_configuration || {};
+    pool.ha_cluster_stack = enabled ? 'xhad' : '';
+    pool.ha_overcommitted = false;
+    pool.ha_host_failures_to_tolerate = enabled ? requestedTolerance : 0;
+    pool.ha_plan_exists_for = enabled ? requestedTolerance : 0;
+    pool.ha_statefiles = enabled ? ['OpaqueRef:ha-statefile-1'] : [];
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -3518,6 +3590,34 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(metricsByRef[ref] || { live: false, memory_total: 0, memory_free: 0 }),
+    });
+  });
+
+  await page.route('**/api/hosts/*/config', async (route) => {
+    if (!targetAttached) {
+      await fulfillNeedsConnection(route);
+      return;
+    }
+
+    const url = new URL(route.request().url());
+    const ref = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const payload = route.request().postDataJSON();
+    const host = hostInventory.find((entry) => entry.ref === ref);
+
+    if (!host) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'HOST_NOT_FOUND' }) });
+      return;
+    }
+
+    host.name_label = payload.nameLabel;
+    host.name_description = payload.nameDescription || '';
+    if (payload.logging && typeof payload.logging === 'object') {
+      host.logging = { ...payload.logging };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(host),
     });
   });
 
@@ -5746,7 +5846,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     const targetKey = url.searchParams.get('targetKey') || '';
     const pools = targetKey === 'host:10.0.1.1|user:root|port:443'
       ? destinationPools
-      : [{ ref: 'OpaqueRef:pool1', name_label: 'Production Pool', uuid: 'pool-uuid-1', master: 'OpaqueRef:host1', default_SR: 'OpaqueRef:sr1', migration_network: 'OpaqueRef:net1' }];
+      : [{ ref: 'OpaqueRef:pool1', name_label: 'Production Pool', uuid: 'pool-uuid-1', master: 'OpaqueRef:host1', default_SR: 'OpaqueRef:sr1', migration_network: 'OpaqueRef:net1', migration_compression: false }];
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -6144,6 +6244,8 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await expect(page.getByRole('button', { name: 'Launch' })).toBeVisible();
 
   await page.locator('.vm-tab-strip').getByRole('button', { name: 'Migration' }).click();
+  await expect(page.getByLabel('Compress the migration stream')).not.toBeChecked();
+  await expect(page.getByText("Pool default migration compression is disabled for this workload's current pool.", { exact: true })).toBeVisible();
   await page.getByLabel('Destination Host', { exact: true }).selectOption('OpaqueRef:host2');
   await page.getByRole('button', { name: 'Migrate VM' }).click();
   await expect.poll(() => migrationSubmitted).toBe(true);
@@ -7034,10 +7136,36 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.data-table').getByText('Production Pool', { exact: true }).click();
   await page.getByLabel('Pool Name').fill('Production Pool West');
   await page.getByLabel('Description').fill('Updated operator-facing pool summary for the west cluster.');
+  await page.getByLabel('Default Storage Repository').selectOption('OpaqueRef:sr2');
+  await page.getByLabel('Enable pool-wide migration compression by default').check();
+  await page.getByLabel('Enable workload balancing for this pool').check();
+  await page.getByLabel('Enable IGMP snooping for multicast-sensitive pool networks').check();
+  await page.getByLabel('Pool Tags').fill('prod, west, governed');
+  await page.getByLabel('Pool other_config').fill('owner=platform-ops\ngovernance_tier=gold');
   await page.getByRole('button', { name: 'Save Pool Metadata' }).click();
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.name_label || '').toBe('Production Pool West');
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.default_SR || '').toBe('OpaqueRef:sr2');
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.migration_compression || false).toBe(true);
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.wlb_enabled || false).toBe(true);
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.IGMP_snooping_enabled || false).toBe(true);
+  await expect.poll(() => (fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.tags || []).join(',')).toBe('prod,west,governed');
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.other_config?.owner || '').toBe('platform-ops');
   await expect(page.getByText('Associated Hosts')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Production Pool West', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Operations Archive SR', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Same-pool migration workflows default to a compressed transfer stream for this pool.', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Workload balancing is enabled via https://wlb-west.example.internal', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Multicast membership tracking is enforced for pool networking.', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('prod, west, governed', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('owner=platform-ops · governance_tier=gold', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Heartbeat Storage Repository').selectOption('OpaqueRef:sr2');
+  await page.getByLabel('Host Failures To Tolerate').fill('2');
+  await page.getByRole('button', { name: 'Enable HA' }).click();
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.ha_enabled || false).toBe(true);
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.ha_host_failures_to_tolerate || 0).toBe(2);
+  await expect(page.locator('.floating-window').getByText('Enabled', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Production Pool West high availability is now enabled with a 2 host-failure target.')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('2 host failure(s)', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Associated Hosts')).toBeVisible();
   await expect(page.getByText('alpha-xen')).toBeVisible();
   await page.locator('.floating-window').getByRole('button').last().click();
@@ -7065,11 +7193,24 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
   await page.locator('.data-table').getByText('alpha-xen', { exact: true }).first().click();
-  await expect(page.getByText('Pool Membership')).toBeVisible();
-  await expect(page.getByText('Operations')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Pool Membership').first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Operations', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Related Host Inventory')).toBeVisible();
   await expect(page.getByText('Primary SR')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('app-01', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Host Name').fill('alpha-xen-west');
+  await page.getByLabel('Description').fill('Updated operator-facing description for the west production host.');
+  await page.getByRole('button', { name: 'Save Host Metadata' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.name_label || '').toBe('alpha-xen-west');
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.name_description || '').toBe('Updated operator-facing description for the west production host.');
+  await expect(page.getByText('alpha-xen-west metadata was updated.')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Updated operator-facing description for the west production host.', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Host Logging').fill('syslog_destination=10.0.0.51\nsyslog_level=warning');
+  await page.getByRole('button', { name: 'Save Host Logging' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_destination || '').toBe('10.0.0.51');
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_level || '').toBe('warning');
+  await expect(page.getByText('alpha-xen-west logging configuration was updated.')).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('syslog_destination=10.0.0.51 · syslog_level=warning', { exact: true }).first()).toBeVisible();
   await page.getByLabel('Migration Network').selectOption('OpaqueRef:net1');
   await page.getByLabel('Evacuation Batch Size').fill('2');
   await page.getByRole('button', { name: 'Enter Maintenance Mode' }).click();
@@ -7098,7 +7239,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
   await expect(page.locator('.floating-window').getByText('Host Uplinks', { exact: true })).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Connected Workloads', { exact: true })).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('alpha-xen', { exact: true })).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('alpha-xen-west', { exact: true })).toBeVisible();
   await expect(page.locator('.floating-window').getByText('app-01', { exact: true })).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
 
@@ -7130,7 +7271,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('VM Name').fill('ubuntu-prod-01');
   await page.getByRole('button', { name: 'Deploy VM' }).click();
   await expect(page.getByText('Deployment Submitted')).toBeVisible();
-  await expect(page.getByText(/ubuntu-prod-01 prepared on alpha-xen and started\./)).toBeVisible();
+  await expect(page.getByText(/ubuntu-prod-01 prepared on alpha-xen-west and started\./)).toBeVisible();
   await page.locator('.floating-window .fw-close').last().click();
   await page.locator('.floating-window .fw-close').first().click();
   await expect(page.getByText('Recent Deployments', { exact: true })).toBeVisible();
@@ -7389,12 +7530,12 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByRole('button', { name: 'Open Target' }).click();
   await expect(page).toHaveURL(/\/inventory$/);
   await page.locator('.stack-item').filter({ hasText: 'Host Alpha' }).getByRole('button', { name: 'Apply' }).click();
-  await expect(page.locator('.data-table').getByText('alpha-xen', { exact: true })).toBeVisible();
-  await page.locator('.data-table').getByText('alpha-xen', { exact: true }).click();
+  await expect(page.locator('.data-table').getByText('alpha-xen-west', { exact: true })).toBeVisible();
+  await page.locator('.data-table').getByText('alpha-xen-west', { exact: true }).click();
   await expect(page.getByText('Inventory Result Detail')).toBeVisible();
   await page.getByRole('button', { name: 'Open Workspace' }).click();
   await expect(page).toHaveURL(/\/hosts\?/);
-  await expect(page.getByText('Host Properties')).toBeVisible();
+  await expect(page.locator('.floating-window .fw-title').first()).toHaveText('Host Properties');
   await expect(page.locator('.floating-window .property-grid').getByText('10.0.0.11').first()).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
 
@@ -7428,7 +7569,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/lifecycle$/);
   await expect(page.getByRole('heading', { name: 'Lifecycle' })).toBeVisible();
   await expect(page.getByText('Compliance posture, maintenance prep, and drift review in one queue.')).toBeVisible();
-  await page.locator('.dash-card').filter({ hasText: 'Compliance Queue' }).getByText('alpha-xen', { exact: true }).click();
+  await page.locator('.dash-card').filter({ hasText: 'Compliance Queue' }).getByText('alpha-xen-west', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit Lifecycle Plan' })).toBeVisible();
   await page.getByRole('button', { name: 'Edit Lifecycle Plan' }).click();
   await page.getByLabel('Baseline Status').selectOption('drifted');
@@ -7452,7 +7593,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/capacity/);
   await expect(page.getByRole('heading', { name: 'Capacity' })).toBeVisible();
   await expect(page.getByText('Headroom, saturation, and imbalance before they become incidents.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /alpha-xen 10\.0\.0\.11/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /alpha-xen-west 10\.0\.0\.11/ })).toBeVisible();
   await expect(page.getByText('Top VM Consumers')).toBeVisible();
   await expect(page.getByText('Noisy-Neighbor Candidates')).toBeVisible();
   await expect(page.getByText(/pressure leader/i)).toBeVisible();
@@ -7605,7 +7746,7 @@ test('pool and host registration flows live alongside the broader operator workb
     ref: 'OpaqueRef:remediation-seed-vm-migration',
     uuid: 'remediation-task-seed-vm-migration',
     name_label: 'Pressure Relief Migration: app-01',
-    name_description: 'Move app-01 back onto alpha-xen to relieve forecast pressure after the evacuation drill.',
+    name_description: 'Move app-01 back onto alpha-xen-west to relieve forecast pressure after the evacuation drill.',
     status: 'pending',
     progress: 0,
     created: '2026-08-25T13:20:00.000Z',
@@ -7624,7 +7765,7 @@ test('pool and host registration flows live alongside the broader operator workb
     related_class: 'vm',
     related_object: 'OpaqueRef:vm1',
     target_route: '/vms',
-    workspace_summary: 'Draft a VM migration for app-01 and move it back to alpha-xen.',
+    workspace_summary: 'Draft a VM migration for app-01 and move it back to alpha-xen-west.',
     evidence_checklist: ['Confirm destination host readiness.', 'Record the placement change.'],
     completion_criteria: ['Migration completes successfully.', 'Task result captures the destination host.'],
     vm_migration_seed: {
@@ -7666,7 +7807,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByRole('button', { name: 'Migrate VM' }).click();
   await expect.poll(() => seededVmMigrationSubmitted).toBe(true);
   await expect.poll(() => fixtures.tasks.find((task) => task.ref === 'OpaqueRef:remediation-seed-vm-migration')?.status || '').toBe('success');
-  await expect(page.locator('.vm-stat-chips').getByText('alpha-xen', { exact: true })).toBeVisible();
+  await expect(page.locator('.vm-stat-chips').getByText('alpha-xen-west', { exact: true })).toBeVisible();
 });
 
 test('settings workspace saves runtime configuration and previews retention', async ({ page }) => {

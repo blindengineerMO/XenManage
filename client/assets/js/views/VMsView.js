@@ -531,6 +531,7 @@ const VMsView = {
                     :source-network-options="attachedVmNetworks"
                     :destination-loading="migrationDestinationLoading"
                     :destination-error="migrationDestinationError"
+                    :pool-migration-compression-enabled="selectedVmPoolMigrationCompressionEnabled"
                     :active-target-key="currentTargetKey"
                     :saving="migrationSaving"
                     @destination-target-change="handleMigrationTargetChange"
@@ -1488,6 +1489,12 @@ const VMsView = {
 
       if (this.relatedPools.length === 1) return this.relatedPools[0];
       return null;
+    },
+    selectedVmPoolMigrationCompressionEnabled() {
+      if (typeof this.selectedVmPool?.migration_compression === 'boolean') {
+        return this.selectedVmPool.migration_compression;
+      }
+      return true;
     },
     attachedVmDisks() {
       if (!this.selectedVM) return [];

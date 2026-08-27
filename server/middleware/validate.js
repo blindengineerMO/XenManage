@@ -382,6 +382,35 @@ const schemas = {
   poolConfigUpdate: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
+    defaultSrRef: Joi.alternatives().try(
+      Joi.string().pattern(/^OpaqueRef:/),
+      Joi.string().allow('')
+    ).default(''),
+    igmpSnoopingEnabled: Joi.boolean(),
+    migrationCompressionEnabled: Joi.boolean(),
+    wlbEnabled: Joi.boolean(),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    otherConfig: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
+  poolHaUpdate: Joi.object({
+    enabled: Joi.boolean().required(),
+    heartbeatSrRefs: Joi.array()
+      .items(Joi.string().required().pattern(/^OpaqueRef:/))
+      .max(8)
+      .default([]),
+    haHostFailuresToTolerate: Joi.number().integer().min(0).max(32).default(1),
+    configuration: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }),
+  hostConfigUpdate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    logging: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .optional(),
   }),
   vmNicCreate: Joi.object({
     networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
