@@ -22,6 +22,10 @@ const HostsView = {
           <p class="section-subtitle">Dense infrastructure inventory with quick-access host details and host-target registration.</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" @click="showRegisteredTargetsWindow = true">
+            <span class="mdi mdi-server-network-outline"></span>
+            Registered Host Targets ({{ hostTargets.length }})
+          </button>
           <button class="btn" @click="openRegistration()">
             <span class="mdi mdi-plus"></span>
             Register Host
@@ -30,63 +34,6 @@ const HostsView = {
             <span class="mdi mdi-refresh"></span>
             Refresh
           </button>
-        </div>
-      </div>
-
-      <div class="dashboard-panels">
-        <div class="dash-card">
-          <div class="dash-card-label">Registered Host Targets</div>
-          <div class="stack-list" v-if="hostTargets.length">
-            <div class="stack-item" v-for="target in hostTargets" :key="target.id">
-              <div>
-                <strong>{{ target.name }}</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ target.host }} · {{ target.username }} · :{{ target.port || 443 }}</div>
-                <div class="text-muted" style="font-size:12px;margin-top:6px">
-                  {{ target.mode === 'pool-member' ? `Pool member of ${target.pool_name || 'registered pool'}` : 'Standalone host target' }}
-                  <span v-if="isCurrentTarget(target)"> · connected now</span>
-                  <span v-else-if="isTargetAttached(target)"> · attached in session</span>
-                  <span v-if="target.vault_credential_id"> · vault credential linked</span>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                  <span class="badge" :class="target.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(target.visibility) }}</span>
-                  <span class="badge badge-info" v-if="target.owner_display_name || target.owner_username">{{ ownershipLabel(target) }}</span>
-                </div>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
-                <status-badge :status="target.mode === 'pool-member'
-                  ? 'pending'
-                  : (isCurrentTarget(target) ? 'connected' : (isTargetAttached(target) ? 'success' : 'info'))"></status-badge>
-                <button class="btn btn-sm"
-                        v-if="target.mode === 'standalone' && !isTargetAttached(target)"
-                        :disabled="isTargetBusy(target, 'connect')"
-                        @click="connectHostTarget(target)">
-                  <span class="mdi" :class="isTargetBusy(target, 'connect') ? 'mdi-loading mdi-spin' : (target.vault_credential_id ? 'mdi-connection' : 'mdi-login-variant')"></span>
-                  {{ isTargetBusy(target, 'connect') ? 'Connecting...' : (target.vault_credential_id ? 'Connect' : 'Open Login') }}
-                </button>
-                <button class="btn btn-sm"
-                        v-if="target.mode === 'standalone' && isTargetAttached(target) && !isCurrentTarget(target)"
-                        :disabled="isTargetBusy(target, 'activate')"
-                        @click="activateHostTarget(target)">
-                  <span class="mdi" :class="isTargetBusy(target, 'activate') ? 'mdi-loading mdi-spin' : 'mdi-target'"></span>
-                  {{ isTargetBusy(target, 'activate') ? 'Activating...' : 'Activate' }}
-                </button>
-                <button class="btn btn-sm"
-                        v-if="target.mode === 'pool-member'"
-                        @click="openPoolTarget(target)">
-                  <span class="mdi mdi-open-in-app"></span>
-                  Open Pool
-                </button>
-                <button class="btn btn-sm" v-if="target.can_manage !== false" @click="openRegistration(target)">
-                  <span class="mdi mdi-pencil-outline"></span>
-                </button>
-                <button class="btn btn-sm" v-if="target.can_manage !== false" @click="removeTarget(target.id)">
-                  <span class="mdi mdi-delete-outline"></span>
-                </button>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-state" style="padding:18px 12px">Register standalone hosts or queue hosts as members of a saved pool target.</div>
-          <div class="form-error" v-if="targetError" style="text-align:left">{{ targetError }}</div>
         </div>
       </div>
 
@@ -135,7 +82,7 @@ const HostsView = {
         </template>
       </data-table>
 
-      <floating-window :show="showProps" title="Host Properties" :width="860" :height="640" @close="showProps = false">
+      <floating-window :show="showProps" title="Host Properties" :width="860" :height="640" @close="closeHostProperties">
         <div v-if="selectedHost">
           <div class="property-grid">
             <span class="text-muted">Name</span><span>{{ selectedHost.name_label || '-' }}</span>
@@ -174,192 +121,35 @@ const HostsView = {
           <div class="form-error" v-if="actionError" style="text-align:left">{{ actionError }}</div>
 
           <div class="detail-section">
-            <div class="detail-section-title">Host Metadata</div>
-            <div class="dashboard-panels">
-              <div class="dash-card">
-                <div class="dash-card-label">Host Identity</div>
-                <p class="text-muted" style="margin-bottom:12px">
-                  Update the operator-facing host label and description without leaving the host detail workspace.
-                </p>
-                <host-config-form
-                  :initial-value="selectedHost"
-                  :saving="hostConfigSaving"
-                  :submit-label="'Save Host Metadata'"
-                  @submit="submitSelectedHostConfig">
-                </host-config-form>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Host Context</div>
-                <div class="stack-list">
-                  <div class="stack-item">
-                    <div>
-                      <strong>{{ selectedHost.name_label || 'Selected host' }}</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHost.uuid || selectedHost.ref || 'host ref unavailable' }}</div>
-                    </div>
-                    <status-badge :status="selectedHost.enabled ? 'enabled' : 'disabled'"></status-badge>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Address</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHost.address || selectedHost.hostname || 'not reported' }}</div>
-                    </div>
-                    <span class="badge badge-info">network</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Pool Membership</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostPool ? (selectedHostPool.name_label || selectedHostPool.uuid || selectedHostPool.ref) : 'Unknown / standalone' }}</div>
-                    </div>
-                    <span class="badge badge-info">pool</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Operator Description</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHost.name_description || 'No operator-facing host description has been saved yet.' }}</div>
-                    </div>
-                    <span class="badge badge-info">notes</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Logging Overrides</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.loggingSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">logging</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Host Logging</div>
-                <p class="text-muted" style="margin-bottom:12px">
-                  Keep per-host syslog destinations or verbosity overrides visible beside maintenance and telemetry workflows.
-                </p>
-                <host-logging-form
-                  :initial-value="selectedHost"
-                  :saving="hostConfigSaving"
-                  :submit-label="'Save Host Logging'"
-                  @submit="submitSelectedHostLogging">
-                </host-logging-form>
-                <div class="text-muted mono" style="font-size:11px;margin-top:12px">
-                  {{ selectedHostSummaryProfile.loggingSummary }}
-                </div>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Guest CPU Policy</div>
-                <p class="text-muted" style="margin-bottom:12px">
-                  Keep the host-wide Xen guest VCPU defaults visible and editable beside placement and maintenance workflows.
-                </p>
-                <host-guest-vcpus-params-form
-                  :initial-value="selectedHost"
-                  :saving="hostConfigSaving"
-                  :submit-label="'Save Guest VCPU Policy'"
-                  @submit="submitSelectedHostGuestVcpusParams">
-                </host-guest-vcpus-params-form>
-                <div class="text-muted mono" style="font-size:11px;margin-top:12px">
-                  {{ selectedHostSummaryProfile.guestVcpusParamsSummary }}
-                </div>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Scheduler Policy</div>
-                <p class="text-muted" style="margin-bottom:12px">
-                  Align Xen CPU scheduling behavior for this host without leaving the broader operations workspace.
-                </p>
-                <host-sched-gran-form
-                  :initial-value="selectedHost"
-                  :saving="hostConfigSaving"
-                  :submit-label="'Save Scheduler Policy'"
-                  @submit="submitSelectedHostSchedGran">
-                </host-sched-gran-form>
-                <div class="text-muted mono" style="font-size:11px;margin-top:12px">
-                  {{ selectedHostSummaryProfile.schedGranLabel }}
-                </div>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Platform & Licensing</div>
-                <div class="stack-list">
-                  <div class="stack-item">
-                    <div>
-                      <strong>Edition</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.editionLabel }}</div>
-                    </div>
-                    <span class="badge badge-info">license</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>CPU Topology</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.cpuSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">compute</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Software Version</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.softwareVersionSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">platform</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>License Server</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.licenseServerSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">support</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Supported HW Versions</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.hardwarePlatformSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">compatibility</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>External Authentication</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.externalAuthTypeLabel }} · {{ selectedHostSummaryProfile.externalAuthServiceLabel }}</div>
-                    </div>
-                    <span class="badge badge-info">identity</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>External Auth Configuration</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.externalAuthConfigSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">directory</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Guest VCPU Parameters</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.guestVcpusParamsSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">scheduler</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Scheduler Granularity</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.schedGranLabel }}</div>
-                    </div>
-                    <span class="badge badge-info">cpu policy</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Legacy SSL</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.sslLegacyLabel }}</div>
-                    </div>
-                    <span class="badge badge-warning">deprecated</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>BIOS Strings</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.biosStringsSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">firmware</span>
-                  </div>
-                </div>
-              </div>
+            <div class="detail-section-title">Host Workspaces</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" type="button" @click="showHostIdentityWindow = true">
+                <span class="mdi mdi-form-textbox"></span>
+                Host Identity
+              </button>
+              <button class="btn btn-sm" type="button" @click="showHostContextWindow = true">
+                <span class="mdi mdi-card-account-details-outline"></span>
+                Host Context
+              </button>
+              <button class="btn btn-sm" type="button" @click="showHostLoggingWindow = true">
+                <span class="mdi mdi-text-box-search-outline"></span>
+                Host Logging
+              </button>
+              <button class="btn btn-sm" type="button" @click="showHostGuestCpuWindow = true">
+                <span class="mdi mdi-chip"></span>
+                Guest CPU Policy
+              </button>
+              <button class="btn btn-sm" type="button" @click="showHostSchedulerWindow = true">
+                <span class="mdi mdi-tune-variant"></span>
+                Scheduler Policy
+              </button>
+              <button class="btn btn-sm" type="button" @click="showHostPlatformWindow = true">
+                <span class="mdi mdi-server-cog-outline"></span>
+                Platform and Licensing
+              </button>
+            </div>
+            <div class="text-muted mono" style="font-size:11px;margin-top:10px">
+              {{ selectedHost.address || selectedHost.hostname || 'no address' }} · {{ selectedHostSummaryProfile.editionLabel }} · {{ selectedHostSummaryProfile.schedGranLabel }}
             </div>
           </div>
 
@@ -524,6 +314,288 @@ const HostsView = {
         </div>
       </floating-window>
 
+      <floating-window :show="showHostIdentityWindow"
+                       title="Host Identity"
+                       :width="720"
+                       :height="520"
+                       @close="showHostIdentityWindow = false">
+        <div class="detail-section" v-if="selectedHost">
+          <div class="detail-title">Metadata Editor</div>
+          <p class="text-muted" style="margin-bottom:12px">
+            Update the operator-facing host label and description without leaving the host detail workspace.
+          </p>
+          <host-config-form
+            :initial-value="selectedHost"
+            :saving="hostConfigSaving"
+            :submit-label="'Save Host Metadata'"
+            @submit="submitSelectedHostConfig">
+          </host-config-form>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showHostContextWindow"
+                       title="Host Context"
+                       :width="720"
+                       :height="500"
+                       @close="showHostContextWindow = false">
+        <div class="detail-section" v-if="selectedHost">
+          <div class="detail-title">Operational Context</div>
+          <div class="stack-list">
+            <div class="stack-item">
+              <div>
+                <strong>{{ selectedHost.name_label || 'Selected host' }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHost.uuid || selectedHost.ref || 'host ref unavailable' }}</div>
+              </div>
+              <status-badge :status="selectedHost.enabled ? 'enabled' : 'disabled'"></status-badge>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Address</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHost.address || selectedHost.hostname || 'not reported' }}</div>
+              </div>
+              <span class="badge badge-info">network</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Pool Membership</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostPool ? (selectedHostPool.name_label || selectedHostPool.uuid || selectedHostPool.ref) : 'Unknown / standalone' }}</div>
+              </div>
+              <span class="badge badge-info">pool</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Operator Description</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHost.name_description || 'No operator-facing host description has been saved yet.' }}</div>
+              </div>
+              <span class="badge badge-info">notes</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Logging Overrides</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.loggingSummary }}</div>
+              </div>
+              <span class="badge badge-info">logging</span>
+            </div>
+          </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showHostLoggingWindow"
+                       title="Host Logging"
+                       :width="720"
+                       :height="480"
+                       @close="showHostLoggingWindow = false">
+        <div class="detail-section" v-if="selectedHost">
+          <div class="detail-title">Logging Overrides</div>
+          <p class="text-muted" style="margin-bottom:12px">
+            Keep per-host syslog destinations or verbosity overrides visible beside maintenance and telemetry workflows.
+          </p>
+          <host-logging-form
+            :initial-value="selectedHost"
+            :saving="hostConfigSaving"
+            :submit-label="'Save Host Logging'"
+            @submit="submitSelectedHostLogging">
+          </host-logging-form>
+          <div class="text-muted mono" style="font-size:11px;margin-top:12px">
+            {{ selectedHostSummaryProfile.loggingSummary }}
+          </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showHostGuestCpuWindow"
+                       title="Guest CPU Policy"
+                       :width="720"
+                       :height="480"
+                       @close="showHostGuestCpuWindow = false">
+        <div class="detail-section" v-if="selectedHost">
+          <div class="detail-title">Guest VCPU Defaults</div>
+          <p class="text-muted" style="margin-bottom:12px">
+            Keep the host-wide Xen guest VCPU defaults visible and editable beside placement and maintenance workflows.
+          </p>
+          <host-guest-vcpus-params-form
+            :initial-value="selectedHost"
+            :saving="hostConfigSaving"
+            :submit-label="'Save Guest VCPU Policy'"
+            @submit="submitSelectedHostGuestVcpusParams">
+          </host-guest-vcpus-params-form>
+          <div class="text-muted mono" style="font-size:11px;margin-top:12px">
+            {{ selectedHostSummaryProfile.guestVcpusParamsSummary }}
+          </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showHostSchedulerWindow"
+                       title="Scheduler Policy"
+                       :width="720"
+                       :height="460"
+                       @close="showHostSchedulerWindow = false">
+        <div class="detail-section" v-if="selectedHost">
+          <div class="detail-title">CPU Scheduling</div>
+          <p class="text-muted" style="margin-bottom:12px">
+            Align Xen CPU scheduling behavior for this host without leaving the broader operations workspace.
+          </p>
+          <host-sched-gran-form
+            :initial-value="selectedHost"
+            :saving="hostConfigSaving"
+            :submit-label="'Save Scheduler Policy'"
+            @submit="submitSelectedHostSchedGran">
+          </host-sched-gran-form>
+          <div class="text-muted mono" style="font-size:11px;margin-top:12px">
+            {{ selectedHostSummaryProfile.schedGranLabel }}
+          </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showHostPlatformWindow"
+                       title="Platform and Licensing"
+                       :width="760"
+                       :height="560"
+                       @close="showHostPlatformWindow = false">
+        <div class="detail-section" v-if="selectedHost">
+          <div class="detail-title">Platform Snapshot</div>
+          <div class="stack-list">
+            <div class="stack-item">
+              <div>
+                <strong>Edition</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.editionLabel }}</div>
+              </div>
+              <span class="badge badge-info">license</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>CPU Topology</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.cpuSummary }}</div>
+              </div>
+              <span class="badge badge-info">compute</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Software Version</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.softwareVersionSummary }}</div>
+              </div>
+              <span class="badge badge-info">platform</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>License Server</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.licenseServerSummary }}</div>
+              </div>
+              <span class="badge badge-info">support</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Supported HW Versions</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.hardwarePlatformSummary }}</div>
+              </div>
+              <span class="badge badge-info">compatibility</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>External Authentication</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.externalAuthTypeLabel }} · {{ selectedHostSummaryProfile.externalAuthServiceLabel }}</div>
+              </div>
+              <span class="badge badge-info">identity</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>External Auth Configuration</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.externalAuthConfigSummary }}</div>
+              </div>
+              <span class="badge badge-info">directory</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Guest VCPU Parameters</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.guestVcpusParamsSummary }}</div>
+              </div>
+              <span class="badge badge-info">scheduler</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Scheduler Granularity</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.schedGranLabel }}</div>
+              </div>
+              <span class="badge badge-info">cpu policy</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Legacy SSL</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.sslLegacyLabel }}</div>
+              </div>
+              <span class="badge badge-warning">deprecated</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>BIOS Strings</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.biosStringsSummary }}</div>
+              </div>
+              <span class="badge badge-info">firmware</span>
+            </div>
+          </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showRegisteredTargetsWindow"
+                       title="Registered Host Targets"
+                       :width="820"
+                       :height="540"
+                       @close="showRegisteredTargetsWindow = false">
+        <div class="detail-section">
+          <div class="detail-title">Saved Host Targets</div>
+          <div class="stack-list" v-if="hostTargets.length">
+            <div class="stack-item" v-for="target in hostTargets" :key="target.id">
+              <div>
+                <strong>{{ target.name }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ target.host }} · {{ target.username }} · :{{ target.port || 443 }}</div>
+                <div class="text-muted" style="font-size:12px;margin-top:6px">
+                  {{ target.mode === 'pool-member' ? `Pool member of ${target.pool_name || 'registered pool'}` : 'Standalone host target' }}
+                  <span v-if="isCurrentTarget(target)"> · connected now</span>
+                  <span v-else-if="isTargetAttached(target)"> · attached in session</span>
+                  <span v-if="target.vault_credential_id"> · vault credential linked</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                  <span class="badge" :class="target.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(target.visibility) }}</span>
+                  <span class="badge badge-info" v-if="target.owner_display_name || target.owner_username">{{ ownershipLabel(target) }}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
+                <status-badge :status="target.mode === 'pool-member'
+                  ? 'pending'
+                  : (isCurrentTarget(target) ? 'connected' : (isTargetAttached(target) ? 'success' : 'info'))"></status-badge>
+                <button class="btn btn-sm"
+                        v-if="target.mode === 'standalone' && !isTargetAttached(target)"
+                        :disabled="isTargetBusy(target, 'connect')"
+                        @click="connectHostTarget(target)">
+                  <span class="mdi" :class="isTargetBusy(target, 'connect') ? 'mdi-loading mdi-spin' : 'mdi-connection'"></span>
+                  {{ isTargetBusy(target, 'connect') ? 'Connecting...' : 'Connect' }}
+                </button>
+                <button class="btn btn-sm"
+                        v-if="target.mode === 'standalone' && isTargetAttached(target) && !isCurrentTarget(target)"
+                        :disabled="isTargetBusy(target, 'activate')"
+                        @click="activateHostTarget(target)">
+                  <span class="mdi" :class="isTargetBusy(target, 'activate') ? 'mdi-loading mdi-spin' : 'mdi-target'"></span>
+                  {{ isTargetBusy(target, 'activate') ? 'Activating...' : 'Activate' }}
+                </button>
+                <button class="btn btn-sm"
+                        v-if="target.mode === 'pool-member'"
+                        @click="openPoolTarget(target)">
+                  <span class="mdi mdi-open-in-app"></span>
+                  Open Pool
+                </button>
+                <button class="btn btn-sm" v-if="target.can_manage !== false" @click="openRegistration(target)">
+                  <span class="mdi mdi-pencil-outline"></span>
+                </button>
+                <button class="btn btn-sm" v-if="target.can_manage !== false" @click="removeTarget(target.id)">
+                  <span class="mdi mdi-delete-outline"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-state" style="padding:18px 12px">Register standalone hosts or queue hosts as members of a saved pool target.</div>
+          <div class="form-error" v-if="targetError" style="text-align:left">{{ targetError }}</div>
+        </div>
+      </floating-window>
+
       <floating-window :show="showRegistration"
                        :title="editingTargetId ? 'Edit Host Target' : 'Register Host Target'"
                        :width="620"
@@ -537,6 +609,51 @@ const HostsView = {
           @submit="submitTarget">
         </host-registration-form>
       </floating-window>
+
+      <floating-window :show="showHostConnectDialogWindow"
+                       title="Connect to Host Target"
+                       :width="460"
+                       :height="360"
+                       @close="closeHostConnectDialog">
+        <form v-if="connectTarget" @submit.prevent="connectStandaloneHostTarget">
+          <div class="property-grid" style="margin-bottom:18px">
+            <span class="text-muted">Host Target</span><span>{{ connectTarget.name || '-' }}</span>
+            <span class="text-muted">Host</span><span class="mono property-wrap">{{ connectTarget.host || '-' }}</span>
+            <span class="text-muted">Username</span><span class="mono">{{ connectTarget.username || '-' }}</span>
+          </div>
+
+          <div class="form-group">
+            <label for="host-connect-password">{{ useSavedCredential ? 'Vault Credential' : 'Host Password' }}</label>
+            <label class="form-toggle" v-if="connectTarget.vault_credential_id" style="margin-bottom:12px">
+              <input type="checkbox" v-model="useSavedCredential">
+              <span>Use linked vault credential for this host target</span>
+            </label>
+            <div v-if="useSavedCredential" class="empty-state" style="padding:12px 14px">
+              XenMange will resolve the linked vault credential server-side. No password will be sent back to the browser.
+            </div>
+            <input v-else
+                   id="host-connect-password"
+                   class="form-input"
+                   v-model="connectPassword"
+                   type="password"
+                   autocomplete="current-password"
+                   placeholder="Password"
+                   required>
+          </div>
+
+          <div class="form-actions">
+            <button class="form-btn" type="submit" :disabled="connectLoading">
+              <span v-if="connectLoading" class="loading-spinner" style="margin-right:8px"></span>
+              {{ connectLoading ? 'Connecting...' : 'Connect to Host' }}
+            </button>
+            <button class="form-btn form-btn-secondary" type="button" :disabled="connectLoading" @click="closeHostConnectDialog">
+              Cancel
+            </button>
+          </div>
+          <div class="login-meta-note">This attaches the selected standalone host target to the current XenMange session without leaving the Hosts workspace.</div>
+          <div class="form-error" v-if="connectError">{{ connectError }}</div>
+        </form>
+      </floating-window>
     </div>
   `,
   data() {
@@ -549,7 +666,15 @@ const HostsView = {
       credentials: [],
       selectedHost: null,
       showProps: false,
+      showHostIdentityWindow: false,
+      showHostContextWindow: false,
+      showHostLoggingWindow: false,
+      showHostGuestCpuWindow: false,
+      showHostSchedulerWindow: false,
+      showHostPlatformWindow: false,
+      showRegisteredTargetsWindow: false,
       showRegistration: false,
+      showHostConnectDialogWindow: false,
       editingTargetId: null,
       hostTargetDraft: null,
       metricsLoading: false,
@@ -559,6 +684,11 @@ const HostsView = {
       targetError: null,
       targetActionBusyId: null,
       targetActionBusyKind: '',
+      connectTarget: null,
+      connectPassword: '',
+      connectLoading: false,
+      connectError: null,
+      useSavedCredential: false,
       actionError: null,
       hostActionMessage: '',
       hostActionBusy: '',
@@ -720,7 +850,20 @@ const HostsView = {
         this.credentials = [];
       }
     },
+    resetHostWorkspaceWindows() {
+      this.showHostIdentityWindow = false;
+      this.showHostContextWindow = false;
+      this.showHostLoggingWindow = false;
+      this.showHostGuestCpuWindow = false;
+      this.showHostSchedulerWindow = false;
+      this.showHostPlatformWindow = false;
+    },
+    closeHostProperties() {
+      this.showProps = false;
+      this.resetHostWorkspaceWindows();
+    },
     async openProperties(row) {
+      this.resetHostWorkspaceWindows();
       this.selectedHost = row;
       this.showProps = true;
       this.actionError = null;
@@ -1039,6 +1182,23 @@ const HostsView = {
       };
       this.showRegistration = true;
     },
+    openHostConnectDialog(target) {
+      if (!target) return;
+      this.connectTarget = { ...target };
+      this.connectPassword = '';
+      this.connectError = null;
+      this.connectLoading = false;
+      this.useSavedCredential = Boolean(target.vault_credential_id);
+      this.showHostConnectDialogWindow = true;
+    },
+    closeHostConnectDialog() {
+      this.showHostConnectDialogWindow = false;
+      this.connectTarget = null;
+      this.connectPassword = '';
+      this.connectLoading = false;
+      this.connectError = null;
+      this.useSavedCredential = false;
+    },
     async submitTarget(payload) {
       this.targetError = null;
       try {
@@ -1084,20 +1244,38 @@ const HostsView = {
           return;
         }
 
-        window.sessionStorage.setItem('xenmange.pendingLoginTarget', JSON.stringify({
-          connectionName: target.name || '',
-          name: target.name || '',
-          host: target.host || '',
-          username: target.username || 'root',
-          port: target.port || 443,
-          returnTo: '/hosts',
-        }));
-        await this.$router.push('/login');
+        this.openHostConnectDialog(target);
       } catch (error) {
         this.targetError = error.message || 'Unable to connect the selected host target';
       } finally {
         this.targetActionBusyId = null;
         this.targetActionBusyKind = '';
+      }
+    },
+    async connectStandaloneHostTarget() {
+      if (!this.connectTarget) return;
+
+      this.connectLoading = true;
+      this.connectError = null;
+
+      try {
+        const result = await api.xenLogin(
+          this.connectTarget.host,
+          this.connectTarget.username,
+          this.useSavedCredential ? '' : this.connectPassword,
+          {
+            vaultCredentialId: this.useSavedCredential ? this.connectTarget.vault_credential_id : null,
+            connectionName: this.connectTarget.name || '',
+            port: this.connectTarget.port || 443,
+          }
+        );
+        applySessionStatus(result);
+        this.closeHostConnectDialog();
+        await this.loadAll();
+      } catch (error) {
+        this.connectError = error.message || 'Unable to connect the selected host target';
+      } finally {
+        this.connectLoading = false;
       }
     },
     async activateHostTarget(target) {

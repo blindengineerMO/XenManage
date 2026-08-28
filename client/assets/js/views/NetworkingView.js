@@ -10,48 +10,23 @@ const NetworkingView = {
           </h2>
           <p class="section-subtitle">Bridge-level visibility with connected host uplinks and attached workload paths in one operator pane.</p>
         </div>
-        <button class="btn btn-primary" @click="loadNetworks">
-          <span class="mdi mdi-refresh"></span>
-          Refresh
-        </button>
-      </div>
-
-      <div class="dashboard-panels" style="margin-bottom:16px">
-        <div class="dash-card">
-          <div class="dash-card-label">Create Network</div>
-          <p class="text-muted" style="margin-bottom:12px">Provision a managed bridge with explicit MTU, optional tags, and custom metadata without leaving the Networking workspace.</p>
-          <network-create-form
-            :saving="createBusy"
-            :submit-label="'Create Network'"
-            @submit="submitNetworkCreate">
-          </network-create-form>
-          <div class="form-error" v-if="createError" style="text-align:left;margin-top:12px">{{ createError }}</div>
-        </div>
-
-        <div class="dash-card">
-          <div class="dash-card-label">Create VLAN</div>
-          <p class="text-muted" style="margin-bottom:12px">Attach a VLAN tag to an existing host uplink and map the tagged traffic back onto a selected network object.</p>
-          <network-vlan-create-form
-            :network-options="networkVlanOptions"
-            :pif-options="networkVlanPifOptions"
-            :saving="createVlanBusy"
-            :submit-label="'Create VLAN'"
-            @submit="submitNetworkVlan">
-          </network-vlan-create-form>
-          <div class="form-error" v-if="createVlanError" style="text-align:left;margin-top:12px">{{ createVlanError }}</div>
-        </div>
-
-        <div class="dash-card">
-          <div class="dash-card-label">Create Bond</div>
-          <p class="text-muted" style="margin-bottom:12px">Aggregate multiple uplinks into one logical path on a selected network using one of the Xen-supported bond modes.</p>
-          <network-bond-create-form
-            :network-options="networkVlanOptions"
-            :pif-options="networkVlanPifOptions"
-            :saving="createBondBusy"
-            :submit-label="'Create Bond'"
-            @submit="submitNetworkBond">
-          </network-bond-create-form>
-          <div class="form-error" v-if="createBondError" style="text-align:left;margin-top:12px">{{ createBondError }}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" @click="showCreateNetworkWindow = true">
+            <span class="mdi mdi-lan-connect"></span>
+            Create Network
+          </button>
+          <button class="btn btn-sm" @click="showCreateVlanWindow = true">
+            <span class="mdi mdi-tag-outline"></span>
+            Create VLAN
+          </button>
+          <button class="btn btn-sm" @click="showCreateBondWindow = true">
+            <span class="mdi mdi-lan-pending"></span>
+            Create Bond
+          </button>
+          <button class="btn btn-primary" @click="loadNetworks">
+            <span class="mdi mdi-refresh"></span>
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -78,7 +53,7 @@ const NetworkingView = {
         </template>
       </data-table>
 
-      <floating-window :show="showProps" title="Network Properties" :width="860" :height="620" @close="showProps = false">
+      <floating-window :show="showProps" title="Network Properties" :width="860" :height="620" @close="clearSelectedNetworkDetail">
         <div v-if="selectedNetwork">
           <div class="property-grid">
             <span class="text-muted">Name</span><span>{{ selectedNetwork.name_label || '-' }}</span>
@@ -107,96 +82,26 @@ const NetworkingView = {
 
           <div class="detail-section">
             <div class="detail-section-title">Network Operations</div>
-            <div class="dashboard-panels">
-              <div class="dash-card">
-                <div class="dash-card-label">Network Metadata</div>
-                <p class="text-muted" style="margin-bottom:12px">Update the operator-facing network name, description, MTU, tags, and advanced metadata while keeping bridge assignment read-only.</p>
-                <network-config-form
-                  :initial-value="selectedNetwork"
-                  :submit-label="'Save Network Metadata'"
-                  :saving="detailActionBusy === 'config'"
-                  @submit="submitSelectedNetworkConfig">
-                </network-config-form>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Network Identity</div>
-                <div class="stack-list" style="margin-bottom:12px">
-                  <div class="stack-item">
-                    <div>
-                      <strong>{{ selectedNetwork.name_label || 'Selected network' }}</strong>
-                      <div class="text-muted mono" style="font-size:11px">
-                        {{ selectedNetwork.uuid || selectedNetwork.ref || 'network ref unavailable' }} · {{ selectedNetwork.bridge || 'bridge unavailable' }}
-                      </div>
-                    </div>
-                    <span class="badge badge-info">{{ selectedNetwork.managed ? 'managed' : 'unmanaged' }}</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Bridge Assignment</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedNetwork.bridge || 'bridge unavailable' }}</div>
-                    </div>
-                    <span class="badge badge-running">read-only</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Topology Snapshot</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedNetworkTopologyLabel }}</div>
-                    </div>
-                    <span class="badge badge-info">{{ selectedNetworkVlanLabel }}</span>
-                  </div>
-                </div>
-                <p class="text-muted" style="margin:0 0 12px">Bridge attachment stays constructor-scoped in Xen, so metadata edits here intentionally stop short of renaming or rehoming the bridge itself.</p>
-                <button class="btn btn-sm"
-                        type="button"
-                        :disabled="Boolean(detailActionBusy) || Boolean(selectedNetworkDestroyBlockedReason)"
-                        @click="destroySelectedNetwork">
-                  <span class="mdi mdi-delete-outline"></span>
-                  {{ detailActionBusy === 'destroy-network' ? 'Destroying...' : 'Destroy Network' }}
-                </button>
-                <div class="text-muted mono" v-if="selectedNetworkDestroyBlockedReason" style="font-size:11px;margin-top:10px">
-                  {{ selectedNetworkDestroyBlockedReason }}
-                </div>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Attach Workload Interface</div>
-                <p class="text-muted" style="margin-bottom:12px">Create a new VIF on this network for a selected VM without leaving the Networking detail workspace.</p>
-                <network-vif-attach-form
-                  :vm-options="networkVifVmOptions"
-                  :saving="detailActionBusy === 'create-vif'"
-                  :submit-label="'Attach VIF'"
-                  @submit="submitSelectedNetworkVif">
-                </network-vif-attach-form>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Interface QoS</div>
-                <p class="text-muted" style="margin-bottom:12px">Tune Xen VIF bandwidth shaping for an attached workload path without leaving the selected network workspace.</p>
-                <div v-if="networkVifQosOptions.length">
-                  <div class="form-group">
-                    <label for="network-vif-qos-target">Attached Interface</label>
-                    <select id="network-vif-qos-target"
-                            class="form-input"
-                            v-model="selectedAttachmentVifRef"
-                            :disabled="Boolean(detailActionBusy)">
-                      <option v-for="option in networkVifQosOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
-                    {{ selectedNetworkVifQosSummary }}
-                  </div>
-                  <network-vif-qos-form
-                    :initial-value="selectedNetworkVifQosTarget"
-                    :submit-label="'Save Interface QoS'"
-                    :saving="detailActionBusy === 'config-vif'"
-                    @submit="submitSelectedNetworkVifQos">
-                  </network-vif-qos-form>
-                </div>
-                <div v-else class="empty-state" style="padding:18px 12px">Attach a workload interface to this network before editing per-VIF QoS policy.</div>
-              </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" type="button" @click="showNetworkMetadataWindow = true">
+                <span class="mdi mdi-card-text-outline"></span>
+                Network Metadata
+              </button>
+              <button class="btn btn-sm" type="button" @click="showNetworkIdentityWindow = true">
+                <span class="mdi mdi-fingerprint"></span>
+                Network Identity
+              </button>
+              <button class="btn btn-sm" type="button" @click="showNetworkAttachVifWindow = true">
+                <span class="mdi mdi-lan-connect"></span>
+                Attach Workload Interface
+              </button>
+              <button class="btn btn-sm" type="button" @click="showNetworkVifQosWindow = true">
+                <span class="mdi mdi-speedometer-medium"></span>
+                Interface QoS
+              </button>
+            </div>
+            <div class="text-muted mono" style="font-size:11px;margin-top:10px">
+              {{ selectedNetwork.bridge || 'bridge unavailable' }} · {{ selectedNetworkTopologyLabel }} · {{ summarizeCount('interfaces', selectedNetworkVmAttachments.length) }}
             </div>
 
             <div class="form-error" v-if="detailActionError" style="text-align:left;margin-top:12px">{{ detailActionError }}</div>
@@ -288,6 +193,176 @@ const NetworkingView = {
           </div>
         </div>
       </floating-window>
+
+      <floating-window :show="showNetworkMetadataWindow"
+                       title="Network Metadata"
+                       :width="760"
+                       :height="560"
+                       @close="showNetworkMetadataWindow = false">
+        <div class="detail-section" v-if="selectedNetwork">
+          <div class="detail-title">Operator Metadata</div>
+          <p class="text-muted" style="margin-bottom:12px">Update the operator-facing network name, description, MTU, tags, and advanced metadata while keeping bridge assignment read-only.</p>
+          <network-config-form
+            :initial-value="selectedNetwork"
+            :submit-label="'Save Network Metadata'"
+            :saving="detailActionBusy === 'config'"
+            @submit="submitSelectedNetworkConfig">
+          </network-config-form>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showNetworkIdentityWindow"
+                       title="Network Identity"
+                       :width="760"
+                       :height="520"
+                       @close="showNetworkIdentityWindow = false">
+        <div class="detail-section" v-if="selectedNetwork">
+          <div class="detail-title">Identity Snapshot</div>
+          <p class="text-muted" style="margin-bottom:12px">Review immutable bridge placement, topology hints, and network destroy readiness from one focused identity sheet.</p>
+          <div class="stack-list" style="margin-bottom:12px">
+            <div class="stack-item">
+              <div>
+                <strong>{{ selectedNetwork.name_label || 'Selected network' }}</strong>
+                <div class="text-muted mono" style="font-size:11px">
+                  {{ selectedNetwork.uuid || selectedNetwork.ref || 'network ref unavailable' }} · {{ selectedNetwork.bridge || 'bridge unavailable' }}
+                </div>
+              </div>
+              <span class="badge badge-info">{{ selectedNetwork.managed ? 'managed' : 'unmanaged' }}</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Bridge Assignment</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedNetwork.bridge || 'bridge unavailable' }}</div>
+              </div>
+              <span class="badge badge-running">read-only</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Topology Snapshot</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedNetworkTopologyLabel }}</div>
+              </div>
+              <span class="badge badge-info">{{ selectedNetworkVlanLabel }}</span>
+            </div>
+          </div>
+          <p class="text-muted" style="margin:0 0 12px">Bridge attachment stays constructor-scoped in Xen, so metadata edits here intentionally stop short of renaming or rehoming the bridge itself.</p>
+          <button class="btn btn-sm"
+                  type="button"
+                  :disabled="Boolean(detailActionBusy) || Boolean(selectedNetworkDestroyBlockedReason)"
+                  @click="destroySelectedNetwork">
+            <span class="mdi mdi-delete-outline"></span>
+            {{ detailActionBusy === 'destroy-network' ? 'Destroying...' : 'Destroy Network' }}
+          </button>
+          <div class="text-muted mono" v-if="selectedNetworkDestroyBlockedReason" style="font-size:11px;margin-top:10px">
+            {{ selectedNetworkDestroyBlockedReason }}
+          </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showNetworkAttachVifWindow"
+                       title="Attach Workload Interface"
+                       :width="760"
+                       :height="520"
+                       @close="showNetworkAttachVifWindow = false">
+        <div class="detail-section" v-if="selectedNetwork">
+          <div class="detail-title">Workload Interface Attach</div>
+          <p class="text-muted" style="margin-bottom:12px">Create a new VIF on this network for a selected VM without leaving the Networking detail workspace.</p>
+          <network-vif-attach-form
+            :vm-options="networkVifVmOptions"
+            :saving="detailActionBusy === 'create-vif'"
+            :submit-label="'Attach VIF'"
+            @submit="submitSelectedNetworkVif">
+          </network-vif-attach-form>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showNetworkVifQosWindow"
+                       title="Interface QoS"
+                       :width="760"
+                       :height="560"
+                       @close="showNetworkVifQosWindow = false">
+        <div class="detail-section" v-if="selectedNetwork">
+          <div class="detail-title">Bandwidth Shaping</div>
+          <p class="text-muted" style="margin-bottom:12px">Tune Xen VIF bandwidth shaping for an attached workload path without leaving the selected network workspace.</p>
+          <div v-if="networkVifQosOptions.length">
+            <div class="form-group">
+              <label for="network-vif-qos-target">Attached Interface</label>
+              <select id="network-vif-qos-target"
+                      class="form-input"
+                      v-model="selectedAttachmentVifRef"
+                      :disabled="Boolean(detailActionBusy)">
+                <option v-for="option in networkVifQosOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+            <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
+              {{ selectedNetworkVifQosSummary }}
+            </div>
+            <network-vif-qos-form
+              :initial-value="selectedNetworkVifQosTarget"
+              :submit-label="'Save Interface QoS'"
+              :saving="detailActionBusy === 'config-vif'"
+              @submit="submitSelectedNetworkVifQos">
+            </network-vif-qos-form>
+          </div>
+          <div v-else class="empty-state" style="padding:18px 12px">Attach a workload interface to this network before editing per-VIF QoS policy.</div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showCreateNetworkWindow"
+                       title="Create Network"
+                       :width="760"
+                       :height="560"
+                       @close="showCreateNetworkWindow = false">
+        <div class="detail-section">
+          <div class="detail-title">Managed Network</div>
+          <p class="text-muted" style="margin-bottom:12px">Provision a managed bridge with explicit MTU, optional tags, and custom metadata without leaving the Networking workspace.</p>
+          <network-create-form
+            :saving="createBusy"
+            :submit-label="'Create Network'"
+            @submit="submitNetworkCreate">
+          </network-create-form>
+          <div class="form-error" v-if="createError" style="text-align:left;margin-top:12px">{{ createError }}</div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showCreateVlanWindow"
+                       title="Create VLAN"
+                       :width="760"
+                       :height="520"
+                       @close="showCreateVlanWindow = false">
+        <div class="detail-section">
+          <div class="detail-title">Tagged Uplink Mapping</div>
+          <p class="text-muted" style="margin-bottom:12px">Attach a VLAN tag to an existing host uplink and map the tagged traffic back onto a selected network object.</p>
+          <network-vlan-create-form
+            :network-options="networkVlanOptions"
+            :pif-options="networkVlanPifOptions"
+            :saving="createVlanBusy"
+            :submit-label="'Create VLAN'"
+            @submit="submitNetworkVlan">
+          </network-vlan-create-form>
+          <div class="form-error" v-if="createVlanError" style="text-align:left;margin-top:12px">{{ createVlanError }}</div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showCreateBondWindow"
+                       title="Create Bond"
+                       :width="760"
+                       :height="540"
+                       @close="showCreateBondWindow = false">
+        <div class="detail-section">
+          <div class="detail-title">Bonded Uplink Path</div>
+          <p class="text-muted" style="margin-bottom:12px">Aggregate multiple uplinks into one logical path on a selected network using one of the Xen-supported bond modes.</p>
+          <network-bond-create-form
+            :network-options="networkVlanOptions"
+            :pif-options="networkVlanPifOptions"
+            :saving="createBondBusy"
+            :submit-label="'Create Bond'"
+            @submit="submitNetworkBond">
+          </network-bond-create-form>
+          <div class="form-error" v-if="createBondError" style="text-align:left;margin-top:12px">{{ createBondError }}</div>
+        </div>
+      </floating-window>
     </div>
   `,
   data() {
@@ -302,6 +377,13 @@ const NetworkingView = {
       createBondBusy: false,
       createBondError: '',
       workspaceMessage: '',
+      showCreateNetworkWindow: false,
+      showCreateVlanWindow: false,
+      showCreateBondWindow: false,
+      showNetworkMetadataWindow: false,
+      showNetworkIdentityWindow: false,
+      showNetworkAttachVifWindow: false,
+      showNetworkVifQosWindow: false,
       selectedNetwork: null,
       relatedHosts: [],
       relatedVMs: [],
@@ -433,6 +515,7 @@ const NetworkingView = {
       try {
         const record = await api.createNetwork(payload);
         await this.loadNetworks();
+        this.showCreateNetworkWindow = false;
         this.workspaceMessage = buildNetworkCreateMessage(record, payload);
         const created = this.networks.find((entry) => entry.ref === record.ref) || record;
         if (created?.ref) {
@@ -452,6 +535,7 @@ const NetworkingView = {
       try {
         const record = await api.createNetworkVlan(payload);
         await this.loadNetworks();
+        this.showCreateVlanWindow = false;
         const targetNetwork = this.networks.find((entry) => entry.ref === (record.networkRef || payload.networkRef))
           || record.network
           || null;
@@ -477,6 +561,7 @@ const NetworkingView = {
       try {
         const record = await api.createNetworkBond(payload);
         await this.loadNetworks();
+        this.showCreateBondWindow = false;
         const targetNetwork = this.networks.find((entry) => entry.ref === (record.networkRef || payload.networkRef))
           || record.network
           || null;
@@ -611,6 +696,7 @@ const NetworkingView = {
       await this.openProperties(updated, focusOptions);
     },
     clearSelectedNetworkDetail() {
+      this.resetNetworkWorkspaceWindows();
       this.showProps = false;
       this.selectedNetwork = null;
       this.relatedHosts = [];
@@ -623,6 +709,12 @@ const NetworkingView = {
       this.removingVifRef = '';
       this.focusedNetworkClass = '';
       this.lastAppliedFocusKey = '';
+    },
+    resetNetworkWorkspaceWindows() {
+      this.showNetworkMetadataWindow = false;
+      this.showNetworkIdentityWindow = false;
+      this.showNetworkAttachVifWindow = false;
+      this.showNetworkVifQosWindow = false;
     },
     async submitSelectedNetworkConfig(payload) {
       if (!this.selectedNetwork?.ref) {
@@ -702,6 +794,7 @@ const NetworkingView = {
       }
     },
     async openProperties(row, options = {}) {
+      this.resetNetworkWorkspaceWindows();
       this.selectedNetwork = row;
       this.showProps = true;
       this.detailActionError = '';
@@ -783,13 +876,13 @@ const NetworkingView = {
     openHostWorkspace(uplink) {
       const location = buildNetworkHostWorkspaceLocation(uplink);
       if (!location) return;
-      this.showProps = false;
+      this.clearSelectedNetworkDetail();
       this.$router.push(location);
     },
     openVmWorkspace(attachment) {
       const location = buildNetworkVmWorkspaceLocation(attachment);
       if (!location) return;
-      this.showProps = false;
+      this.clearSelectedNetworkDetail();
       this.$router.push(location);
     },
     findNetworkByFocus(focus) {
