@@ -44,8 +44,28 @@ const StorageView = {
               <span class="mdi mdi-refresh-circle"></span>
               {{ bulkActionBusy === 'rescan' ? 'Rescanning...' : `Rescan Selected (${storageSelectionProfile.rows.length})` }}
             </button>
+            <button class="btn btn-sm"
+                    v-if="storageSelectionProfile.forgetReady.length"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkStorageAction('forget')">
+              <span class="mdi mdi-database-remove-outline"></span>
+              {{ bulkActionBusy === 'forget' ? 'Forgetting...' : `Forget Selected (${storageSelectionProfile.forgetReady.length})` }}
+            </button>
+            <button class="btn btn-sm btn-danger"
+                    v-if="storageSelectionProfile.destroyReady.length"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkStorageAction('destroy')">
+              <span class="mdi mdi-delete-outline"></span>
+              {{ bulkActionBusy === 'destroy' ? 'Destroying...' : `Destroy Selected (${storageSelectionProfile.destroyReady.length})` }}
+            </button>
             <button class="btn btn-sm" :disabled="Boolean(bulkActionBusy)" @click="clearSrSelection">Clear Selection</button>
           </div>
+        </div>
+        <div class="text-muted mono" v-if="storageSelectionProfile.destroyBlocked.length" style="font-size:11px;margin-top:12px">
+          {{ storageSelectionProfile.destroyBlocked.length }} selected repositor{{ storageSelectionProfile.destroyBlocked.length === 1 ? 'y remains' : 'ies remain' }} non-empty and cannot be batch-destroyed yet.
+        </div>
+        <div class="text-muted mono" v-if="storageSelectionProfile.destroyUnknown.length" style="font-size:11px;margin-top:6px">
+          {{ storageSelectionProfile.destroyUnknown.length }} selected repositor{{ storageSelectionProfile.destroyUnknown.length === 1 ? 'y needs' : 'ies need' }} disk inventory detail before destroy eligibility can be confirmed.
         </div>
         <div class="form-error" v-if="bulkError" style="text-align:left;margin-top:12px">{{ bulkError }}</div>
       </div>
@@ -765,39 +785,105 @@ const StorageView = {
       this.detailLoading = false;
     },
     async applyBulkStorageAction(action) {
-      if (action !== 'rescan') return;
+      const isRescan = action === 'rescan';
+      const isForget = action === 'forget';
+      const isDestroy = action === 'destroy';
+      if (!isRescan && !isForget && !isDestroy) return;
 
-      const targets = this.storageSelectionProfile.rows;
+      const targets = isRescan
+        ? this.storageSelectionProfile.rows
+        : isForget
+          ? this.storageSelectionProfile.forgetReady
+          : this.storageSelectionProfile.destroyReady;
       if (!targets.length) {
-        this.bulkError = 'No selected storage repositories are available for rescanning.';
+        this.bulkError = isRescan
+          ? 'No selected storage repositories are available for rescanning.'
+          : isForget
+            ? 'No selected storage repositories are available for the forget action.'
+            : 'No selected storage repositories are currently empty and destroy-ready.';
         return;
       }
 
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(
+          isRescan
+            ? `Rescan ${targets.length} selected ${targets.length === 1 ? 'repository' : 'repositories'}?`
+            : isForget
+              ? `Forget ${targets.length} selected ${targets.length === 1 ? 'repository' : 'repositories'} from XenManage inventory? The backing storage will not be deleted.`
+              : `Destroy ${targets.length} selected empty ${targets.length === 1 ? 'repository' : 'repositories'}? This permanently deletes the backing storage after XenAPI accepts the request.`
+        );
+      if (!confirmed) return;
+
+      this.workspaceMessage = '';
       this.bulkError = null;
       this.bulkActionBusy = action;
       let completed = 0;
+      let approvalDraft = null;
+      let selectedSrRemoved = false;
 
       try {
         for (const sr of targets) {
           try {
-            await api.rescanSR(sr.ref);
+            if (isRescan) {
+              await api.rescanSR(sr.ref);
+            } else if (isForget) {
+              const approvalId = await this.resolveStorageGovernanceApproval('forget-sr', sr);
+              await api.forgetSR(sr.ref, approvalId ? { approvalId } : {});
+            } else {
+              const approvalId = await this.resolveStorageGovernanceApproval('destroy-sr', sr);
+              await api.destroySR(sr.ref, approvalId ? { approvalId } : {});
+            }
             completed += 1;
+            if (!isRescan && this.selectedSR?.ref === sr.ref) {
+              selectedSrRemoved = true;
+            }
           } catch (error) {
+            approvalDraft = error.code === 'APPROVAL_REQUIRED' ? error.approvalDraft : null;
             this.bulkError = completed
-              ? `Processed ${completed} repository${completed === 1 ? '' : 'ies'} before stopping: ${error.message || 'Unable to continue the storage rescan.'}`
-              : (error.message || 'Unable to continue the storage rescan.');
-            return;
+              ? `Processed ${completed} repository${completed === 1 ? '' : 'ies'} before stopping: ${error.message || 'Unable to continue the selected storage action.'}`
+              : (error.message || 'Unable to continue the selected storage action.');
+            break;
           }
         }
       } finally {
         this.bulkActionBusy = '';
       }
 
+      if (!completed && approvalDraft) {
+        await handoffToGovernanceApproval(
+          this.$router,
+          approvalDraft,
+          isDestroy
+            ? 'Approval required before destroying one or more selected storage repositories.'
+            : 'Approval required before forgetting one or more selected storage repositories.'
+        );
+        return;
+      }
+
       await this.loadSRs();
 
-      if (this.selectedSR?.ref && targets.some((sr) => sr.ref === this.selectedSR.ref)) {
+      if (!isRescan && selectedSrRemoved) {
+        this.clearSelectedStorageDetail();
+      } else if (this.selectedSR?.ref && targets.some((sr) => sr.ref === this.selectedSR.ref)) {
         const updated = this.srs.find((sr) => sr.ref === this.selectedSR.ref) || this.selectedSR;
         await this.openProperties(updated);
+      }
+
+      if (completed && isForget) {
+        this.workspaceMessage = buildBulkStorageForgetMessage(targets.slice(0, completed));
+      } else if (completed && isDestroy) {
+        this.workspaceMessage = buildBulkStorageDestroyMessage(targets.slice(0, completed));
+      }
+
+      if (approvalDraft) {
+        await handoffToGovernanceApproval(
+          this.$router,
+          approvalDraft,
+          isDestroy
+            ? 'Approval required before destroying one or more selected storage repositories.'
+            : 'Approval required before forgetting one or more selected storage repositories.'
+        );
       }
     },
     async applyDetailStorageAction(action) {

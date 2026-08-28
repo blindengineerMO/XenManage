@@ -6,16 +6,44 @@ function buildStorageSelectionProfile(srs = [], selectedSrRefs = []) {
   if (!rows.length) {
     return {
       rows,
+      forgetReady: [],
+      destroyReady: [],
+      destroyBlocked: [],
+      destroyUnknown: [],
       summary: 'No storage repositories selected.',
     };
   }
 
   const totalCapacity = rows.reduce((sum, sr) => sum + Number(sr.physical_size || 0), 0);
   const totalAllocation = rows.reduce((sum, sr) => sum + Number(sr.virtual_allocation || 0), 0);
+  const forgetReady = [...rows];
+  const destroyReady = [];
+  const destroyBlocked = [];
+  const destroyUnknown = [];
+
+  rows.forEach((sr) => {
+    if (Array.isArray(sr?.VDIs)) {
+      if (sr.VDIs.length) destroyBlocked.push(sr);
+      else destroyReady.push(sr);
+      return;
+    }
+    destroyUnknown.push(sr);
+  });
+
+  const parts = [
+    `${formatBytes(totalAllocation)} allocated of ${formatBytes(totalCapacity)} across ${rows.length} ${rows.length === 1 ? 'repository' : 'repositories'}`,
+  ];
+  if (destroyReady.length) parts.push(`${destroyReady.length} destroy-ready`);
+  if (destroyBlocked.length) parts.push(`${destroyBlocked.length} non-empty`);
+  if (destroyUnknown.length) parts.push(`${destroyUnknown.length} pending disk inventory`);
 
   return {
     rows,
-    summary: `${formatBytes(totalAllocation)} allocated of ${formatBytes(totalCapacity)} across ${rows.length} ${rows.length === 1 ? 'repository' : 'repositories'}`,
+    forgetReady,
+    destroyReady,
+    destroyBlocked,
+    destroyUnknown,
+    summary: parts.join(' · '),
   };
 }
 
@@ -234,5 +262,31 @@ function buildStorageDetailProfile({
       : detailLoading
         ? 'Storage relationships are still loading before destroy safety checks can finish.'
         : topologyProfile.destroyBlockedReason,
+  };
+}
+
+function buildBulkStorageForgetMessage(rows = []) {
+  const items = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!items.length) return 'Selected storage repositories were forgotten and removed from the current storage inventory view.';
+  if (items.length === 1) {
+    return `${items[0]?.name_label || items[0]?.ref} was forgotten and removed from the current storage inventory view.`;
+  }
+  return `${items.length} selected storage repositories were forgotten and removed from the current storage inventory view.`;
+}
+
+function buildBulkStorageDestroyMessage(rows = []) {
+  const items = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!items.length) return 'Selected storage repositories were destroyed and removed from the current storage inventory view.';
+  if (items.length === 1) {
+    return `${items[0]?.name_label || items[0]?.ref} was destroyed and removed from the current storage inventory view.`;
+  }
+  return `${items.length} selected storage repositories were destroyed and removed from the current storage inventory view.`;
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildStorageSelectionProfile,
+    buildBulkStorageForgetMessage,
+    buildBulkStorageDestroyMessage,
   };
 }

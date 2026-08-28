@@ -487,6 +487,14 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       default_locking_mode: 'unlocked',
     },
   ];
+  const syncStorageInventoryVdis = () => {
+    storageInventory.forEach((sr) => {
+      sr.VDIs = vdiInventory
+        .filter((entry) => entry.SR === sr.ref)
+        .map((entry) => entry.ref);
+    });
+  };
+  syncStorageInventoryVdis();
   const vifInventory = [
     {
       ref: 'OpaqueRef:vif1',
@@ -4661,6 +4669,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
     };
 
     storageInventory.push(created);
+    syncStorageInventoryVdis();
 
     await route.fulfill({
       status: 201,
@@ -4955,6 +4964,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
         vdiInventory.splice(pointer, 1);
       }
     }
+    syncStorageInventoryVdis();
 
     await route.fulfill({
       status: 200,
@@ -4986,6 +4996,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
     }
 
     storageInventory.splice(index, 1);
+    syncStorageInventoryVdis();
 
     await route.fulfill({
       status: 200,
@@ -5022,6 +5033,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
 
     vdiInventory.push(created);
     target.virtual_allocation = Number(target.virtual_allocation || 0) + Number(payload.sizeBytes || 0);
+    syncStorageInventoryVdis();
 
     await route.fulfill({
       status: 201,
@@ -5091,6 +5103,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
 
     const [removed] = vdiInventory.splice(index, 1);
     target.virtual_allocation = Math.max(0, Number(target.virtual_allocation || 0) - Number(removed?.virtual_size || 0));
+    syncStorageInventoryVdis();
 
     await route.fulfill({
       status: 200,
@@ -5115,9 +5128,10 @@ async function stubAuthenticatedRoutes(page, options = {}) {
             uuid: 'sr-uuid-9',
             physical_size: 107374182400,
             virtual_allocation: 32212254720,
+            VDIs: [],
           },
         ]
-      : storageInventory;
+      : storageInventory.map((sr) => ({ ...sr, VDIs: Array.isArray(sr.VDIs) ? [...sr.VDIs] : [] }));
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -6500,6 +6514,71 @@ test('storage workspace supports selected-row rescans', async ({ page }) => {
   ]);
   expect(rescanResponse.ok()).toBe(true);
   await expect.poll(async () => (await rescanResponse.json())?.other_config?.last_rescan_at || '').toBe('2026-08-26T18:45:00.000Z');
+});
+
+test('storage workspace supports selected-row forget and empty-repository destroy actions', async ({ page }) => {
+  await stubAuthenticatedRoutes(page, {
+    storageInventory: [
+      {
+        ref: 'OpaqueRef:sr1',
+        name_label: 'Primary SR',
+        type: 'lvm',
+        physical_size: 32212254720,
+        virtual_allocation: 21474836480,
+        uuid: 'sr-uuid-1',
+        PBDs: ['OpaqueRef:pbd1'],
+      },
+      {
+        ref: 'OpaqueRef:sr2',
+        name_label: 'Archive SR',
+        type: 'nfs',
+        physical_size: 21474836480,
+        virtual_allocation: 0,
+        uuid: 'sr-uuid-2',
+        PBDs: [],
+      },
+    ],
+    vdiInventory: [
+      { ref: 'OpaqueRef:vdi1', SR: 'OpaqueRef:sr1', name_label: 'disk-01', virtual_size: 10737418240, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd1'] },
+    ],
+  });
+
+  await signInAndConnectDefaultTarget(page);
+
+  await page.getByText('Storage').first().click();
+  await expect(page).toHaveURL(/\/storage$/);
+
+  await page.getByLabel('Select Primary SR').check();
+  await page.getByLabel('Select Archive SR').check();
+  await expect(page.getByText('2 repositories selected')).toBeVisible();
+  await expect(page.getByText('1 destroy-ready')).toBeVisible();
+  await expect(page.getByText('1 non-empty')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  const [destroyResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
+    ),
+    page.getByRole('button', { name: 'Destroy Selected (1)' }).click(),
+  ]);
+  expect(destroyResponse.ok()).toBe(true);
+  await expect(page.getByText('Archive SR was destroyed and removed from the current storage inventory view.')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Archive SR', { exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Clear Selection' }).click();
+  await page.getByLabel('Select Primary SR').check();
+  page.once('dialog', (dialog) => dialog.accept());
+  const [forgetResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
+    ),
+    page.getByRole('button', { name: 'Forget Selected (1)' }).click(),
+  ]);
+  expect(forgetResponse.ok()).toBe(true);
+  await expect(page.getByText('Primary SR was forgotten and removed from the current storage inventory view.')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Primary SR', { exact: true })).toHaveCount(0);
 });
 
 test('storage workspace can create a new nfs storage repository from the top-level form', async ({ page }) => {
