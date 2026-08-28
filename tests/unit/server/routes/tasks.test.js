@@ -102,11 +102,16 @@ describe('Tasks Routes', () => {
   }
 
   async function login() {
+    const auth = await request('POST', '/api/auth/login', {
+      username: 'admin',
+      password: 'admin123!',
+    });
+
     return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',
-    });
+    }, auth.cookie);
   }
 
   it('should create remediation tasks, merge them into activity, and audit the action', async () => {
@@ -201,7 +206,7 @@ describe('Tasks Routes', () => {
       category: 'alerts',
       action: 'remediation_task_created',
       entityType: 'task',
-      operator: 'root',
+      operator: 'admin',
     }));
   });
 

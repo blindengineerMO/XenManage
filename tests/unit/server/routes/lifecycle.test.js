@@ -86,11 +86,16 @@ describe('Lifecycle Routes', () => {
   }
 
   async function login() {
+    const auth = await request('POST', '/api/auth/login', {
+      username: 'admin',
+      password: 'admin123!',
+    });
+
     return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',
-    });
+    }, auth.cookie);
   }
 
   it('should return an empty lifecycle plan collection by default', async () => {
@@ -140,7 +145,7 @@ describe('Lifecycle Routes', () => {
     expect(audit.body.data[0]).toEqual(expect.objectContaining({
       category: 'lifecycle',
       action: 'lifecycle_plan_saved',
-      operator: 'root',
+      operator: 'admin',
     }));
   });
 

@@ -100,12 +100,12 @@ describe('Credential Vault Routes', () => {
     });
   }
 
-  function xenLogin() {
+  function xenLogin(cookie) {
     return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',
-    });
+    }, cookie);
   }
 
   function createLocalUser(username, role = 'operator') {
@@ -115,11 +115,10 @@ describe('Credential Vault Routes', () => {
     `).run(username, bcrypt.hashSync('password123!', 10), username, role);
   }
 
-  it('should require a local XenMange user session', async () => {
-    const xen = await xenLogin();
-    const res = await request('GET', '/api/credentials', null, xen.cookie);
-    expect(res.status).toBe(403);
-    expect(res.body.error).toBe('LOCAL_USER_REQUIRED');
+  it('should require authentication before vault access', async () => {
+    const res = await request('GET', '/api/credentials');
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe('NOT_AUTHENTICATED');
   });
 
   it('should create, list, update, and delete encrypted credentials without exposing passwords', async () => {
