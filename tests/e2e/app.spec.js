@@ -8289,3 +8289,26 @@ test('settings workspace saves runtime configuration and previews retention', as
   await page.getByRole('button', { name: 'Preview This Domain' }).click();
   await expect(page.getByText('1 record(s) would be purged.')).toBeVisible();
 });
+
+test('settings credential table keeps first and trailing action columns sticky', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await signInAndConnectDefaultTarget(page);
+
+  await page.getByText('Settings').first().click();
+  await expect(page).toHaveURL(/\/settings$/);
+
+  const credentialTable = page.locator('.dash-card').filter({ hasText: 'Saved Credentials' }).locator('.data-table').first();
+  const firstHeader = credentialTable.locator('thead th').nth(0);
+  const actionHeader = credentialTable.locator('thead th').last();
+  const firstCell = credentialTable.locator('tbody tr').first().locator('td').nth(0);
+  const actionCell = credentialTable.locator('tbody tr').first().locator('td').last();
+
+  await expect(firstHeader).toHaveClass(/data-table-sticky-start/);
+  await expect(actionHeader).toHaveClass(/data-table-sticky-end/);
+  await expect(firstCell).toHaveClass(/data-table-sticky-start/);
+  await expect(actionCell).toHaveClass(/data-table-sticky-end/);
+
+  await expect(firstHeader.evaluate((element) => window.getComputedStyle(element).position)).resolves.toBe('sticky');
+  await expect(actionHeader.evaluate((element) => window.getComputedStyle(element).position)).resolves.toBe('sticky');
+});

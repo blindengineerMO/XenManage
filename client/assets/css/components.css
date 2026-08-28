@@ -523,6 +523,10 @@
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   overflow: hidden;
+  --data-table-sticky-first-left: 0px;
+  --data-table-sticky-edge-bg: rgba(8, 12, 16, 0.96);
+  --data-table-sticky-shadow: 12px 0 18px rgba(0, 0, 0, 0.16);
+  --data-table-sticky-shadow-right: -12px 0 18px rgba(0, 0, 0, 0.16);
 }
 
 .data-table-toolbar {
@@ -554,8 +558,14 @@
   box-shadow: 0 0 0 1px rgba(0, 255, 65, 0.1);
 }
 
+.data-table-scroller {
+  overflow-x: auto;
+  position: relative;
+}
+
 .data-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -573,6 +583,8 @@
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
+  position: relative;
+  background: var(--data-table-sticky-edge-bg);
 }
 .data-table th:hover {
   color: var(--neon-green);
@@ -589,11 +601,54 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 250px;
+  position: relative;
+  background: rgba(8, 12, 16, 0.66);
 }
 
 .data-table tr:hover td {
   background: rgba(0, 255, 65, 0.03);
   color: var(--text-primary);
+}
+
+.data-table .data-table-sticky-select,
+.data-table .data-table-sticky-start,
+.data-table .data-table-sticky-end {
+  position: sticky;
+  z-index: 2;
+}
+
+.data-table th.data-table-sticky-select,
+.data-table th.data-table-sticky-start,
+.data-table th.data-table-sticky-end {
+  z-index: 4;
+}
+
+.data-table .data-table-sticky-select {
+  left: 0;
+  min-width: 44px;
+  max-width: 44px;
+  background: var(--data-table-sticky-edge-bg);
+}
+
+.data-table .data-table-sticky-start {
+  left: var(--data-table-sticky-first-left);
+  background: var(--data-table-sticky-edge-bg);
+  box-shadow: var(--data-table-sticky-shadow);
+}
+
+.data-table tr:hover .data-table-sticky-select,
+.data-table tr:hover .data-table-sticky-start {
+  background: rgba(0, 255, 65, 0.06);
+}
+
+.data-table .data-table-sticky-end {
+  right: 0;
+  background: var(--data-table-sticky-edge-bg);
+  box-shadow: var(--data-table-sticky-shadow-right);
+}
+
+.data-table tr:hover .data-table-sticky-end {
+  background: rgba(0, 255, 65, 0.06);
 }
 
 .data-table-pagination {

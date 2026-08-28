@@ -176,58 +176,1738 @@ XenMange/
 
 ## API Reference
 
-All `/api/*` routes require a valid session cookie except the sign-in endpoints. Routes marked "requires target" additionally require an attached, live XenServer session.
+Every `/api/*` route except the two sign-in endpoints requires a valid XenMange session cookie. Two auth tiers exist:
+
+- **Control-plane auth** (`requireAuth`) — the caller must be signed into XenMange itself (`POST /api/auth/login`). These routes manage XenMange's own data (users, saved connections, credentials, governance policy, audit log, settings) and work whether or not a XenServer pool/host is currently attached.
+- **Session + attached target** (`requireXenConnection`) — the caller must be signed in **and** have a live XenServer session attached (`POST /api/auth/xen-login`, or a saved connection activated via `POST /api/auth/targets/activate`). Calling one of these routes with no target attached returns `409 XEN_TARGET_NOT_CONNECTED`.
+
+A session can have multiple XenServer targets attached at once (multi-pool/multi-host). Every target-scoped route accepts an optional `targetKey` (body or query field) or `X-XenMange-Target-Key` header to pick which attached target the call runs against; if omitted, the session's currently-active target is used.
+
+Many mutating routes are additionally **governance-gated** via `ensureMutationAllowed`:
+- If the caller's governance role is `read-only`, the mutation is rejected with `403 READ_ONLY_MODE` — switch to `operator` or `admin` first (`PUT /api/governance/role`).
+- Routes marked **destructive** also require a governance approval when the policy flag `requireDestructiveApproval` is on and the caller isn't `admin`: request one via `POST /api/governance/approvals`, have an admin approve it via `POST /api/governance/approvals/:id/decision`, then pass the returned approval's `id` as `approvalId` in the mutating request body. Admins bypass the approval requirement. See [Governance & Compliance](#governance--compliance).
+
+All curl examples assume you've already authenticated and stored the session cookie:
+
+```bash
+curl -c cookies.txt -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "your-password"}'
+```
+
+For target-scoped examples below, attach a XenServer session first:
+
+```bash
+curl -b cookies.txt -c cookies.txt -X POST http://localhost:3000/api/auth/xen-login \
+  -H "Content-Type: application/json" \
+  -d '{"host": "xenserver.example.com", "username": "root", "password": "xen-password"}'
+```
 
 ### Auth
 
-| Method | Path | Description |
-|--------|------|--------------|
-| POST | `/api/auth/login` | Sign into the XenMange control plane |
-| POST | `/api/auth/xen-login` | Legacy direct Xen session (see [How XenMange Is Organized](#how-xenmange-is-organized)) |
-| POST | `/api/auth/logout` | Disconnect and destroy session |
-| GET | `/api/auth/status` | Current control-plane + attached-target session status |
+#### `POST /api/auth/login`
 
-### VMs *(requires target)*
+- **Auth:** None (this is the sign-in endpoint). Rate-limited to 20 requests / 15 min per IP.
+- **Body params:** `username` (string, required) · `password` (string, required)
+- **curl:**
+```bash
+curl -c cookies.txt -X POST "http://localhost:3000/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "your-password"}'
+```
 
-`GET /api/vms`, `GET /api/vms/:ref`, `PUT /api/vms/:ref/config`, `POST /api/vms/{start,shutdown,reboot,suspend,resume}`, `GET/POST /api/vms/:ref/snapshots`, `POST /api/vms/:ref/snapshots/:snapshotRef/revert`, `DELETE /api/vms/:ref/snapshots/:snapshotRef`, `POST /api/vms/:ref/duplicate`, `GET /api/vms/:ref/export`, `PUT /api/vms/import`, `POST /api/vms/:ref/migrate`, `GET /api/vms/:ref/compatibility`, `GET /api/vms/:ref/consoles`, `GET /api/vms/:ref/consoles/:consoleRef/launch`, `POST /api/vms/:ref/disks`, `POST /api/vms/:ref/nics`, `POST/DELETE /api/vms/:ref/nics/:vifRef`, `GET /api/vms/{templates,appliances,snapshot-schedules}`, `GET/PUT /api/vms/templates/governance`, `GET /api/vms/templates/:ref/history`, `POST /api/vms/templates/:ref/{promote,deploy}`, `GET/PUT /api/vms/templates/deployments*`
+#### `POST /api/auth/xen-login`
+
+- **Auth:** Requires an authenticated local XenMange session (`authMode: 'local'`) — returns `403 LOCAL_USER_REQUIRED` otherwise. Rate-limited to 20 requests / 15 min per IP.
+- **Body params:** `host` (string, required) · `username` (string, required) · `password` (string, required unless `vaultCredentialId` is set) · `vaultCredentialId` (integer, optional — use a saved credential from `/api/credentials` instead of a raw password) · `connectionId` (integer, optional — link to a saved connection from `/api/connections`) · `connectionName` (string, optional) · `port` (integer, default `443`)
+- **curl:**
+```bash
+curl -b cookies.txt -c cookies.txt -X POST "http://localhost:3000/api/auth/xen-login" \
+  -H "Content-Type: application/json" \
+  -d '{"host": "xenserver.example.com", "username": "root", "password": "xen-password", "port": 443}'
+```
+
+#### `POST /api/auth/logout`
+
+- **Auth:** None required (safe to call on an anonymous session; destroys whatever session exists).
+- **Body params:** None
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/auth/logout"
+```
+
+#### `GET /api/auth/status`
+
+- **Auth:** None required — returns `{ authenticated: false, connected: false }` for an anonymous session.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/auth/status"
+```
+
+#### `GET /api/auth/targets`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Description:** Returns the same payload as `/api/auth/status` — the full list of currently-attached XenServer targets for this session and which one is active.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/auth/targets"
+```
+
+#### `POST /api/auth/targets/activate`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Description:** Switches the session's active target among the ones already attached (does not create a new connection — use `POST /api/auth/xen-login` for that). Returns `404 XEN_TARGET_NOT_FOUND` if the selector doesn't match an attached target.
+- **Body params:** `targetKey` (string, optional) · `connectionId` (integer, optional) — at least one should identify an already-attached target
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/auth/targets/activate" \
+  -H "Content-Type: application/json" \
+  -d '{"connectionId": 3}'
+```
+
+#### `DELETE /api/auth/targets/:targetKey`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Description:** Detaches (disconnects) one attached XenServer target from the session without ending the XenMange session itself. Returns `404 XEN_TARGET_NOT_FOUND` if not attached.
+- **Path params:** `targetKey` (string, required, URL-encoded) — the target's key as returned by `/api/auth/status`
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/auth/targets/host-a.example.com%3A443%3Aroot"
+```
+
+
+### VMs
+
+All routes below are mounted at `/api/vms` behind `requireXenConnection`: the caller needs an authenticated control-plane session (`POST /api/auth/login`) **and** a live XenServer target attached (`POST /api/auth/xen-login` or already attached) — otherwise `401 NOT_AUTHENTICATED` or `409 XEN_TARGET_NOT_CONNECTED`. Any route may also accept an optional `targetKey` (or `targetConnectionId`) query/body field to select which attached live target to operate against when a session has more than one attached; it is omitted below for brevity. Where a route calls `ensureMutationAllowed`, a `read-only` governance role is blocked with `403 READ_ONLY_MODE`, and a `destructive: true` action additionally requires either an `admin` role or a governance `approvalId` (from a prior approved `POST /api/governance/approvals`) when the pool policy `requireDestructiveApproval` is on, else `403 APPROVAL_REQUIRED`.
+
+#### Listing & Templates
+
+##### `GET /api/vms/`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Query params:** `page` — integer, min 1, default `1`; `pageSize` — integer, 1-500, default `50`; `search` — string, default `''`, case-insensitive substring match against `name_label`/`name_description`; `sort` — string, default `''`; `sortDir` — `asc`\|`desc`, default `asc`
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/?page=1&pageSize=50&search=web"
+```
+
+##### `GET /api/vms/templates`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/templates"
+```
+
+##### `GET /api/vms/appliances`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/appliances"
+```
+
+##### `GET /api/vms/snapshot-schedules`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/snapshot-schedules"
+```
+
+#### Template Governance
+
+##### `GET /api/vms/templates/governance`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/templates/governance"
+```
+
+##### `PUT /api/vms/templates/:ref/governance`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_governance_save`)
+- **Path params:** `ref` — template's OpaqueRef (pattern `^OpaqueRef:`)
+- **Body params:**
+  - `versionLabel` — string, ≤80 chars, default `''`
+  - `profileLabel` — string, ≤80 chars, default `''`
+  - `lifecycleStage` — one of `draft`\|`staged`\|`stable`\|`deprecated`, default `draft`
+  - `goldenImage` — boolean, default `false`
+  - `guestCustomization` — string, ≤120 chars, default `''`
+  - `validationStatus` — one of `untested`\|`review`\|`validated`\|`failed`, default `untested`
+  - `lastValidatedAt` — ISO 8601 date string, default `''`
+  - `owner` — string, ≤120 chars, default `''`
+  - `notes` — string, ≤800 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/vms/templates/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/governance" \
+  -H "Content-Type: application/json" \
+  -d '{"versionLabel": "2026.08-golden", "lifecycleStage": "staged", "goldenImage": true, "validationStatus": "review", "owner": "platform-team"}'
+```
+
+##### `GET /api/vms/templates/:ref/history`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — template's OpaqueRef
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/templates/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/history"
+```
+
+##### `POST /api/vms/templates/:ref/history/:id/restore`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_governance_restore`)
+- **Path params:** `ref` — template's OpaqueRef; `id` — history entry id (string, 1-160 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/templates/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/history/hist-20260810-0931/restore" \
+  -H "Content-Type: application/json"
+```
+
+##### `POST /api/vms/templates/:ref/promote`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_promote`)
+- **Path params:** `ref` — template's OpaqueRef
+- **Body params:**
+  - `baselineTemplateRef` — OpaqueRef string, optional, default `''` — an existing stable baseline to retire in favor of this one
+  - `retireExistingStable` — boolean, default `true` — retires other `stable` versions of this template lineage
+  - `promotionNotes` — string, ≤800 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/templates/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/promote" \
+  -H "Content-Type: application/json" \
+  -d '{"retireExistingStable": true, "promotionNotes": "Passed boot, network, and storage validation."}'
+```
+
+#### Template Deployment
+
+##### `GET /api/vms/templates/deployments`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/templates/deployments"
+```
+
+##### `PUT /api/vms/templates/deployments/:id/validation`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_deployment_validate`)
+- **Path params:** `id` — deployment audit record id (not pattern-validated)
+- **Body params:**
+  - `validationStatus` — one of `pending`\|`validated`\|`warning`\|`failed`, default `pending`
+  - `validationNotes` — string, ≤800 chars, default `''`
+  - `guestCustomization` — string, ≤120 chars, default `''`
+  - `bootVerified` — boolean, default `false`
+  - `networkVerified` — boolean, default `false`
+  - `storageVerified` — boolean, default `false`
+  - `policyTagged` — boolean, default `false`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/vms/templates/deployments/dep-20260810-0001/validation" \
+  -H "Content-Type: application/json" \
+  -d '{"validationStatus": "validated", "bootVerified": true, "networkVerified": true, "storageVerified": true, "policyTagged": true}'
+```
+
+##### `POST /api/vms/templates/:ref/deploy`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_deploy`). When `hostRef` is supplied, the request is also checked against the destination pool's configured governance quota (`409 QUOTA_EXCEEDED` if it would breach VM count, running VM count, or memory allocation limits).
+- **Path params:** `ref` — source template's OpaqueRef (not pattern-validated by this route)
+- **Body params:**
+  - `nameLabel` — string, required, 1-120 chars
+  - `nameDescription` — string, ≤500 chars, default `''`
+  - `hostRef` — OpaqueRef or `null`, default `null`
+  - `storageRef` — OpaqueRef or `null`, default `null`
+  - `networkRef` — OpaqueRef or `null`, default `null`
+  - `vcpus` — integer, required, 1-128
+  - `memoryStaticMax` — integer, required, ≥1073741824 (1 GiB)
+  - `tags` — array of strings (≤64 chars each), max 24 items, default `[]`
+  - `startAfter` — boolean, default `false`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/templates/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/deploy" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "web-app-03", "hostRef": "OpaqueRef:host-1111-2222", "storageRef": "OpaqueRef:sr-3333-4444", "networkRef": "OpaqueRef:net-5555-6666", "vcpus": 4, "memoryStaticMax": 4294967296, "tags": ["web"], "startAfter": true}'
+```
+
+#### VM Detail
+
+##### `GET /api/vms/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab"
+```
+
+#### Snapshots
+
+##### `GET /api/vms/:ref/snapshots`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/snapshots"
+```
+
+##### `POST /api/vms/:ref/snapshots`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_snapshot_create`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **Body params:**
+  - `nameLabel` — string, required, 1-120 chars
+  - `nameDescription` — string, ≤500 chars, default `''`
+  - `mode` — `snapshot`\|`checkpoint`, default `snapshot`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/snapshots" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "pre-patch-2026-08-25", "mode": "snapshot"}'
+```
+
+##### `POST /api/vms/:ref/snapshots/:snapshotRef/revert`
+
+- **Auth:** Session + attached live target; operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `vm_snapshot_revert`)
+- **Path params:** `ref` — VM's OpaqueRef; `snapshotRef` — snapshot VM's OpaqueRef
+- **Body params:** `approvalId` — string, ≤120 chars, default `''` — required governance approval id when the pool enforces destructive approval and the caller is not `admin`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/snapshots/OpaqueRef:snap-1111-2222/revert" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "appr-20260825-0007"}'
+```
+
+##### `DELETE /api/vms/:ref/snapshots/:snapshotRef`
+
+- **Auth:** Session + attached live target; operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `vm_snapshot_delete`)
+- **Path params:** `ref` — VM's OpaqueRef; `snapshotRef` — snapshot VM's OpaqueRef
+- **Body params:** `approvalId` — string, ≤120 chars, default `''` — required governance approval id when the pool enforces destructive approval and the caller is not `admin`
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/snapshots/OpaqueRef:snap-1111-2222" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "appr-20260825-0007"}'
+```
+
+#### Clone / Export / Import
+
+##### `POST /api/vms/:ref/duplicate`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_duplicate_create`)
+- **Path params:** `ref` — source VM's OpaqueRef
+- **Body params:**
+  - `nameLabel` — string, required, 1-120 chars
+  - `nameDescription` — string, ≤500 chars, default `''`
+  - `mode` — `clone`\|`copy`, default `clone` — `clone` is a fast, copy-on-write clone; `copy` is a full disk copy
+  - `srRef` — required OpaqueRef when `mode` is `copy` (target storage repository for the full copy); otherwise an optional string, default `''`
+  - `startAfter` — boolean, default `false`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/duplicate" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "web-app-03-copy", "mode": "copy", "srRef": "OpaqueRef:sr-3333-4444", "startAfter": false}'
+```
+
+##### `GET /api/vms/:ref/export`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **Query params:** `metadataOnly` — boolean, default `false` — export only VM metadata instead of a full XVA disk package
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/export?metadataOnly=false" \
+  -o web-app-03.xva
+```
+
+##### `PUT /api/vms/import`
+
+- **Auth:** Session + attached live target (`requireXenConnection`) — no governance mutation gate is applied to this route
+- **Query params:** `srRef` — OpaqueRef, optional, default `''` — destination storage repository; `restore` — boolean, default `false`; `force` — boolean, default `false`; `metadataOnly` — boolean, default `false`
+- **Body:** raw binary XVA package streamed as the request body (not JSON); requires either a `Content-Length` header or `Transfer-Encoding: chunked`, otherwise `400 VM_IMPORT_BODY_REQUIRED`. The optional `X-XenMange-Filename` header names the uploaded file (defaults to `package.xva`).
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/vms/import?srRef=OpaqueRef:sr-3333-4444" \
+  -H "Content-Type: application/octet-stream" \
+  -H "X-XenMange-Filename: web-app-03.xva" \
+  --data-binary @web-app-03.xva
+```
+
+#### Migration
+
+##### `POST /api/vms/:ref/migrate`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_migrate`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **Body params:**
+  - `mode` — `same-pool`\|`cross-pool`, default `same-pool`
+  - `hostRef` — OpaqueRef, default `''` — **required when `mode` is `same-pool`** (destination host within the current pool)
+  - `destinationTargetKey` — string, ≤200 chars, default `''` — **required when `mode` is `cross-pool`**: the key of a different live target already attached to this session to migrate/copy the VM into
+  - `transferNetworkRef` — OpaqueRef, default `''` — **required when `mode` is `cross-pool`**: network used for the inter-pool transfer
+  - `srRef` — OpaqueRef, default `''` — **required when `mode` is `cross-pool`**: destination storage repository
+  - `vifNetworkMap` — array of `{ vifRef, networkRef }` OpaqueRef pairs, default `[]`
+  - `live` — boolean, default `true`
+  - `copy` — boolean, default `false` — in `cross-pool` mode, `copy` and `live` cannot both be `true` at once
+  - `force` — boolean, default `false`
+  - `compress` — boolean, default `true`
+  - `setAsHomeServer` — boolean, default `false` — same-pool only; updates the VM's affinity to the destination host
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/migrate" \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "same-pool", "hostRef": "OpaqueRef:host-7777-8888", "live": true, "setAsHomeServer": true}'
+```
+
+##### `GET /api/vms/:ref/compatibility`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/compatibility"
+```
+
+#### Consoles
+
+##### `GET /api/vms/:ref/consoles`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/consoles"
+```
+
+##### `GET /api/vms/:ref/consoles/:consoleRef/launch`
+
+- **Auth:** Session + attached live target (`requireXenConnection`). Returns an HTML page (not JSON) that resolves the session-authenticated console URL and offers a direct-open link plus an embedded iframe — intended to be opened directly in a browser tab rather than called as a JSON API.
+- **Path params:** `ref` — VM's OpaqueRef; `consoleRef` — console's OpaqueRef (from the `consoles` list response)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/consoles/OpaqueRef:console-9999-0000/launch"
+```
+
+#### Configuration & Devices
+
+##### `PUT /api/vms/:ref/config`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_config_update`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **Body params:**
+  - `nameLabel` — string, required, 1-120 chars
+  - `nameDescription` — string, ≤500 chars, default `''`
+  - `userVersion` — integer, 0-2147483647, default `0`
+  - `startDelay` — integer, 0-2147483647, default `0`
+  - `shutdownDelay` — integer, 0-2147483647, default `0`
+  - `order` — integer, 0-2147483647, default `0`
+  - `vcpusAtStartup` — integer, required, 1-128
+  - `vcpusMax` — integer, required, min `vcpusAtStartup`, max 128
+  - `memoryStaticMax` — integer, required, ≥1073741824 (1 GiB)
+  - `memoryDynamicMax` — integer, ≥1073741824, max `memoryStaticMax`, defaults to `memoryStaticMax`
+  - `memoryStaticMin` — integer, required, ≥1073741824, max `memoryStaticMax`
+  - `memoryDynamicMin` — integer, min `memoryStaticMin`, max `memoryDynamicMax`, defaults to `memoryDynamicMax`
+  - `hardwarePlatformVersion` — integer, 0-2147483647, default `0`
+  - `domainType` — one of `unspecified`\|`hvm`\|`pv`\|`pvh`\|`pv_in_pvh`, default `unspecified`
+  - `hasVendorDevice` — boolean, default `true`
+  - `affinity` — OpaqueRef or `''`, default `''`
+  - `applianceRef` — OpaqueRef or `''`, default `''`
+  - `snapshotScheduleRef` — OpaqueRef or `''`, default `''`
+  - `tags` — array of strings (≤64 chars each), max 24 items, default `[]`
+  - `blockedOperations` — object map of string keys (≤40 chars) to string values (≤120 chars), default `{}`
+  - `vcpusParams` — object map of string keys (≤80 chars) to string values (≤255 chars), default `{}`
+  - `otherConfig` — object map of string keys (≤80 chars) to string values (≤255 chars), default `{}`
+  - `xenstoreData` — object map of string keys (≤120 chars) to string values (≤1024 chars), default `{}`
+  - `nvram` — object map of string keys (≤160 chars) to string values (≤2048 chars), default `{}`
+  - `platform` — object map of string keys (≤80 chars) to string values (≤255 chars), default `{}`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/config" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "web-app-03", "vcpusAtStartup": 2, "vcpusMax": 4, "memoryStaticMax": 4294967296, "memoryStaticMin": 2147483648, "domainType": "hvm", "tags": ["web", "prod"]}'
+```
+
+##### `POST /api/vms/:ref/disks`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_disk_add`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **Body params:**
+  - `srRef` — OpaqueRef, required — storage repository to create the disk on
+  - `nameLabel` — string, required, 1-120 chars
+  - `sizeBytes` — integer, required, ≥1073741824 (1 GiB)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/disks" \
+  -H "Content-Type: application/json" \
+  -d '{"srRef": "OpaqueRef:sr-3333-4444", "nameLabel": "web-app-03-data", "sizeBytes": 10737418240}'
+```
+
+##### `POST /api/vms/:ref/nics`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_nic_add`)
+- **Path params:** `ref` — VM's OpaqueRef
+- **Body params:**
+  - `networkRef` — OpaqueRef, required — network to attach the new VIF to
+  - `deviceLabel` — string, ≤12 chars, default `''` — device position/index; auto-assigned when omitted
+  - `mac` — string, ≤64 chars, default `''` — auto-generated when omitted
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/nics" \
+  -H "Content-Type: application/json" \
+  -d '{"networkRef": "OpaqueRef:net-5555-6666", "deviceLabel": "1"}'
+```
+
+##### `POST /api/vms/:ref/nics/:vifRef/disconnect`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_nic_disconnect`)
+- **Path params:** `ref` — VM's OpaqueRef; `vifRef` — VIF's OpaqueRef
+- **Body params:** `force` — boolean, default `true`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/nics/OpaqueRef:vif-2222-3333/disconnect" \
+  -H "Content-Type: application/json" \
+  -d '{"force": true}'
+```
+
+##### `DELETE /api/vms/:ref/nics/:vifRef`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_nic_remove`)
+- **Path params:** `ref` — VM's OpaqueRef; `vifRef` — VIF's OpaqueRef
+- **Body params:** `force` — boolean, default `true`
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/nics/OpaqueRef:vif-2222-3333" \
+  -H "Content-Type: application/json" \
+  -d '{"force": true}'
+```
+
+#### Power Actions
+
+##### `POST /api/vms/start`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_start`)
+- **Body params:**
+  - `ref` — OpaqueRef, required — VM to start
+  - `paused` — boolean, default `false` — start directly into a paused state
+  - `force` — boolean, default `false`
+  - `approvalId` — string, ≤120 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/start" \
+  -H "Content-Type: application/json" \
+  -d '{"ref": "OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "paused": false, "force": false}'
+```
+
+##### `POST /api/vms/shutdown`
+
+- **Auth:** Session + attached live target; operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `vm_shutdown`)
+- **Body params:**
+  - `ref` — OpaqueRef, required — VM to shut down
+  - `paused` — boolean, default `false` (unused by this action, part of the shared lifecycle schema)
+  - `force` — boolean, default `false` — hard power-off instead of a clean guest shutdown
+  - `approvalId` — string, ≤120 chars, default `''` — required governance approval id when the pool enforces destructive approval and the caller is not `admin`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/shutdown" \
+  -H "Content-Type: application/json" \
+  -d '{"ref": "OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "force": false, "approvalId": "appr-20260825-0007"}'
+```
+
+##### `POST /api/vms/reboot`
+
+- **Auth:** Session + attached live target; operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `vm_reboot`)
+- **Body params:**
+  - `ref` — OpaqueRef, required — VM to reboot
+  - `paused` — boolean, default `false` (unused by this action, part of the shared lifecycle schema)
+  - `force` — boolean, default `false` — hard reset instead of a clean guest reboot
+  - `approvalId` — string, ≤120 chars, default `''` — required governance approval id when the pool enforces destructive approval and the caller is not `admin`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/reboot" \
+  -H "Content-Type: application/json" \
+  -d '{"ref": "OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "force": false, "approvalId": "appr-20260825-0007"}'
+```
+
+##### `POST /api/vms/suspend`
+
+- **Auth:** Session + attached live target; operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `vm_suspend`)
+- **Body params:**
+  - `ref` — OpaqueRef, required — VM to suspend
+  - `approvalId` — string, ≤120 chars, default `''` — required governance approval id when the pool enforces destructive approval and the caller is not `admin`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/suspend" \
+  -H "Content-Type: application/json" \
+  -d '{"ref": "OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "approvalId": "appr-20260825-0007"}'
+```
+
+##### `POST /api/vms/resume`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `vm_resume`)
+- **Body params:**
+  - `ref` — OpaqueRef, required — VM to resume
+  - `paused` — boolean, default `false` — resume directly into a paused state
+  - `force` — boolean, default `false`
+  - `approvalId` — string, ≤120 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/resume" \
+  -H "Content-Type: application/json" \
+  -d '{"ref": "OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "paused": false}'
+```
 
 ### Hosts *(requires target)*
 
-`GET /api/hosts`, `GET /api/hosts/:ref`, `GET /api/hosts/:ref/metrics`, `PUT /api/hosts/:ref/config`, `POST /api/hosts/:ref/maintenance/{enter,exit}`, `POST /api/hosts/:ref/{reboot,shutdown}`
+#### `GET /api/hosts`
 
-### Storage & Networking *(require target)*
+- **Auth:** Session + attached live target (`requireXenConnection`).
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/hosts"
+```
 
-`GET/POST /api/storage`, `POST /api/storage/{probe,import}`, `GET /api/storage/:ref`, `PUT /api/storage/:ref/config`, `GET /api/storage/:ref/vdis`, `POST /api/storage/:ref/{rescan,repair,local-cache,forget,destroy}`, `POST /api/storage/:ref/vdis`, `POST /api/storage/:ref/vdis/:vdiRef/resize`, `DELETE /api/storage/:ref/vdis/:vdiRef`
-`GET /api/networks`, `GET/PUT /api/networks/interfaces*`, `POST /api/networks`, `POST /api/networks/{vlans,bonds}`, `GET /api/networks/:ref`, `PUT /api/networks/:ref/config`, `POST /api/networks/:ref/destroy`
+#### `GET /api/hosts/:ref`
+
+- **Auth:** Session + attached live target.
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab"
+```
+
+#### `GET /api/hosts/:ref/metrics`
+
+- **Auth:** Session + attached live target.
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/metrics"
+```
+
+#### `PUT /api/hosts/:ref/config`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `host_config_update`).
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **Body params:** `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `tags` (string[], max 24 items, each max 64 chars) · `guestVcpusParams` (object of string→string) · `schedGran` (one of `cpu`/`core`/`socket`) · `logging` (object of string→string)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/config" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "xen-host-01", "nameDescription": "Rack 3, Node 1", "tags": ["tier-1"]}'
+```
+
+#### `POST /api/hosts/:ref/maintenance/enter`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `host_maintenance_enter`).
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **Body params:** `evacuateRunningVms` (boolean, default `true`) · `networkRef` (string, `OpaqueRef` pattern — **required when** `evacuateRunningVms` is `true`, the network used to live-migrate resident VMs off the host) · `evacuateBatchSize` (integer, 0-64, default `0` = no batching limit)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/maintenance/enter" \
+  -H "Content-Type: application/json" \
+  -d '{"evacuateRunningVms": true, "networkRef": "OpaqueRef:net-1234", "evacuateBatchSize": 4}'
+```
+
+#### `POST /api/hosts/:ref/maintenance/exit`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `host_maintenance_exit`).
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **Body params:** None
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/maintenance/exit"
+```
+
+#### `POST /api/hosts/:ref/reboot`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `host_reboot`).
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **Body params:** `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/reboot" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "42"}'
+```
+
+#### `POST /api/hosts/:ref/shutdown`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `host_shutdown`).
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **Body params:** `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/shutdown" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "42"}'
+```
+
+### Storage *(requires target)*
+
+#### `GET /api/storage`
+
+- **Auth:** Session + attached live target.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/storage"
+```
+
+#### `POST /api/storage`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_create`).
+- **Body params:** `hostRef` (string, required, `OpaqueRef`) · `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `type` (one of `nfs`/`lvmoiscsi`/`ext`/`lvm`, required) · `contentType` (`user`, default) · `shared` (boolean, default `false`) · `deviceConfig` (object of string→string, required — keys vary by `type`: NFS needs `server`+`serverpath`, iSCSI needs `target`+`targetIQN`+`SCSIid`, ext/lvm need `device`) · `smConfig` (object of string→string, default `{}`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage" \
+  -H "Content-Type: application/json" \
+  -d '{"hostRef": "OpaqueRef:host-1234", "nameLabel": "nfs-datastore-1", "type": "nfs", "shared": true, "deviceConfig": {"server": "10.0.0.50", "serverpath": "/export/xen"}}'
+```
+
+#### `POST /api/storage/probe`
+
+- **Auth:** Session + attached live target (no governance gate — read-only probe).
+- **Body params:** `hostRef` (string, required, `OpaqueRef`) · `type` (one of `nfs`/`lvmoiscsi`/`ext`/`lvm`, required) · `deviceConfig` (object of string→string, default `{}`) · `smConfig` (object of string→string, default `{}`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/probe" \
+  -H "Content-Type: application/json" \
+  -d '{"hostRef": "OpaqueRef:host-1234", "type": "nfs", "deviceConfig": {"server": "10.0.0.50"}}'
+```
+
+#### `POST /api/storage/import`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_import`).
+- **Body params:** `hostRef` (string, required, `OpaqueRef`) · `uuid` (string, required, max 120 — UUID of the existing SR to introduce/attach) · `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `type` (one of `nfs`/`lvmoiscsi`/`ext`/`lvm`, required) · `contentType` (`user`, default) · `shared` (boolean, default `false`) · `deviceConfig` (object, required) · `smConfig` (object, default `{}`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/import" \
+  -H "Content-Type: application/json" \
+  -d '{"hostRef": "OpaqueRef:host-1234", "uuid": "9f2c...uuid", "nameLabel": "existing-nfs-sr", "type": "nfs", "deviceConfig": {"server": "10.0.0.50", "serverpath": "/export/xen"}}'
+```
+
+#### `GET /api/storage/:ref`
+
+- **Auth:** Session + attached live target.
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/storage/OpaqueRef:sr-1234"
+```
+
+#### `PUT /api/storage/:ref/config`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_config_update`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `tags` (string[], max 24) · `otherConfig` (object of string→string)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/storage/OpaqueRef:sr-1234/config" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "nfs-datastore-1", "tags": ["tier-1"]}'
+```
+
+#### `GET /api/storage/:ref/vdis`
+
+- **Auth:** Session + attached live target.
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/storage/OpaqueRef:sr-1234/vdis"
+```
+
+#### `POST /api/storage/:ref/rescan`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_rescan`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/rescan"
+```
+
+#### `POST /api/storage/:ref/repair`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_repair`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Description:** Re-runs `SR.update` and replugs any detached PBDs.
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/repair"
+```
+
+#### `POST /api/storage/:ref/local-cache`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_local_cache_update`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `hostRef` (string, required, `OpaqueRef`) · `enabled` (boolean, required)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/local-cache" \
+  -H "Content-Type: application/json" \
+  -d '{"hostRef": "OpaqueRef:host-1234", "enabled": true}'
+```
+
+#### `POST /api/storage/:ref/forget`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `sr_forget`). Removes the SR from inventory without destroying the backing storage.
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/forget" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "42"}'
+```
+
+#### `POST /api/storage/:ref/destroy`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `sr_destroy`). Requires the SR to have zero VDIs (`409 SR_DESTROY_REQUIRES_EMPTY_REPOSITORY` otherwise) — permanently destroys the backing storage.
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/destroy" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "42"}'
+```
+
+#### `POST /api/storage/:ref/vdis`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `sr_vdi_create`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `nameLabel` (string, required, max 120) · `sizeBytes` (integer, required, min 1 GiB) · `type` (string, default `'user'`, max 40)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/vdis" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "data-disk-2", "sizeBytes": 21474836480, "type": "user"}'
+```
+
+#### `POST /api/storage/:ref/vdis/:vdiRef/resize`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `vdi_resize`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef` · `vdiRef` (string, required) — VDI `OpaqueRef`
+- **Body params:** `sizeBytes` (integer, required, min 1 GiB — new size; must be ≥ current size)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/vdis/OpaqueRef:vdi-5678/resize" \
+  -H "Content-Type: application/json" \
+  -d '{"sizeBytes": 42949672960}'
+```
+
+#### `DELETE /api/storage/:ref/vdis/:vdiRef`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `vdi_delete`). Requires the VDI to be fully detached (`409 VDI_DELETE_REQUIRES_DETACHED_DISK` if any VBD still attaches it).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef` · `vdiRef` (string, required) — VDI `OpaqueRef`
+- **Body params:** `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/storage/OpaqueRef:sr-1234/vdis/OpaqueRef:vdi-5678" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "42"}'
+```
+
+### Networking *(requires target)*
+
+#### `GET /api/networks`
+
+- **Auth:** Session + attached live target.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/networks"
+```
+
+#### `GET /api/networks/interfaces`
+
+- **Auth:** Session + attached live target. Lists VIFs (virtual interfaces) across all VMs.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/networks/interfaces"
+```
+
+#### `PUT /api/networks/interfaces/:vifRef/config`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `network_vif_config_update`).
+- **Path params:** `vifRef` (string, required) — VIF `OpaqueRef`
+- **Body params:** `qosAlgorithmType` (string, max 120, default `''`) · `qosAlgorithmParams` (object of string→string, default `{}` — only valid when `qosAlgorithmType` is set; the schema rejects non-empty params with an empty type)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/networks/interfaces/OpaqueRef:vif-1234/config" \
+  -H "Content-Type: application/json" \
+  -d '{"qosAlgorithmType": "ratelimit", "qosAlgorithmParams": {"kbps": "10000"}}'
+```
+
+#### `POST /api/networks`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `network_create`).
+- **Body params:** `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `mtu` (integer, 576-9216, default `1500`) · `bridge` (string, required, max 64) · `tags` (string[], max 24) · `otherConfig` (object of string→string)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/networks" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "internal-vlan-100", "bridge": "xapi100", "mtu": 1500}'
+```
+
+#### `POST /api/networks/vlans`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `network_vlan_create`).
+- **Body params:** `networkRef` (string, required, `OpaqueRef`) · `pifRef` (string, required, `OpaqueRef` — physical interface to tag) · `tag` (integer, required, 1-4094)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/networks/vlans" \
+  -H "Content-Type: application/json" \
+  -d '{"networkRef": "OpaqueRef:net-1234", "pifRef": "OpaqueRef:pif-5678", "tag": 100}'
+```
+
+#### `POST /api/networks/bonds`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `network_bond_create`).
+- **Body params:** `networkRef` (string, required, `OpaqueRef`) · `pifRefs` (string[], required, 2-8 `OpaqueRef` items — physical interfaces to bond) · `mode` (one of `balance-slb`/`active-backup`/`lacp`, default `balance-slb`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/networks/bonds" \
+  -H "Content-Type: application/json" \
+  -d '{"networkRef": "OpaqueRef:net-1234", "pifRefs": ["OpaqueRef:pif-1", "OpaqueRef:pif-2"], "mode": "lacp"}'
+```
+
+#### `PUT /api/networks/:ref/config`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `network_config_update`).
+- **Path params:** `ref` (string, required) — network `OpaqueRef`
+- **Body params:** `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `mtu` (integer, 576-9216, default `1500`) · `defaultLockingMode` (one of `unlocked`/`disabled`, default `unlocked`) · `purpose` (array of `nbd`/`insecure_nbd`, max 2) · `tags` (string[], max 24) · `otherConfig` (object of string→string)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/networks/OpaqueRef:net-1234/config" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "internal-vlan-100", "mtu": 9000, "defaultLockingMode": "unlocked"}'
+```
+
+#### `POST /api/networks/:ref/destroy`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `network_destroy`). Requires the network to have no attached PIFs or VIFs (`409 NETWORK_DESTROY_REQUIRES_DETACHED_ATTACHMENTS` otherwise).
+- **Path params:** `ref` (string, required) — network `OpaqueRef`
+- **Body params:** `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/networks/OpaqueRef:net-1234/destroy" \
+  -H "Content-Type: application/json" \
+  -d '{"approvalId": "42"}'
+```
+
+#### `GET /api/networks/:ref`
+
+- **Auth:** Session + attached live target.
+- **Path params:** `ref` (string, required) — network `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/networks/OpaqueRef:net-1234"
+```
 
 ### Pools *(requires target)*
 
-`GET /api/pools`, `GET /api/pools/:ref`, `PUT /api/pools/:ref/config`, `POST /api/pools/:ref/ha`
+#### `GET /api/pools`
 
-### Dashboard, Tasks & Metrics *(require target)*
+- **Auth:** Session + attached live target.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/pools"
+```
 
-`GET /api/dashboard`, `GET /api/dashboard/messages`, `GET /api/tasks`, `GET /api/metrics/{cluster,capacity-baseline,rrd-updates}`, `GET /api/metrics/hosts/:ref`, `GET /api/metrics/vms/:ref`, `GET /api/metrics/storage/:ref`, `POST /api/metrics/collect`
+#### `GET /api/pools/:ref`
 
-### Alerts, Lifecycle & Resilience *(require target)*
+- **Auth:** Session + attached live target.
+- **Path params:** `ref` (string, required) — pool `OpaqueRef`
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/pools/OpaqueRef:pool-1234"
+```
 
-`GET /api/alerts`, `GET/POST/PUT/DELETE /api/alerts/policies`, `PUT /api/alerts/:ref/state`, `PUT /api/alerts/bulk-state`
-`GET/PUT/DELETE /api/lifecycle/plans`
-`GET /api/resilience`, `GET/PUT/DELETE /api/resilience/plans`, `GET /api/resilience/drills`, `POST /api/resilience/drills/:ref`
-`POST /api/tasks/remediation`, `GET/POST/PUT/DELETE /api/tasks/remediation/templates`, `PUT /api/tasks/remediation/:ref`
+#### `PUT /api/pools/:ref/config`
 
-### Governance & Audit *(control-plane auth only)*
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `pool_config_update`).
+- **Path params:** `ref` (string, required) — pool `OpaqueRef`
+- **Body params:** `nameLabel` (string, required, max 120) · `nameDescription` (string, max 500, default `''`) · `defaultSrRef` (string, `OpaqueRef` or `''`) · `vswitchController` (string, IPv4/IPv6 address or `''`, max 120) · `igmpSnoopingEnabled` (boolean) · `migrationCompressionEnabled` (boolean) · `wlbEnabled` (boolean) · `tags` (string[], max 24) · `otherConfig` (object of string→string)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/pools/OpaqueRef:pool-1234/config" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "production-pool", "migrationCompressionEnabled": true, "wlbEnabled": false}'
+```
 
-`GET /api/governance`, `PUT /api/governance/{policy,role}`, `PUT/DELETE /api/governance/quotas/:ref`, `POST /api/governance/approvals`, `POST /api/governance/approvals/:id/decision`, `GET /api/audit`
+#### `POST /api/pools/:ref/ha`
 
-### Settings, Users, Groups, Credentials, Targets *(control-plane auth only)*
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `pool_ha_update`).
+- **Path params:** `ref` (string, required) — pool `OpaqueRef`
+- **Body params:** `enabled` (boolean, required) · `heartbeatSrRefs` (string[], max 8 `OpaqueRef` items — heartbeat SRs, used when enabling) · `haHostFailuresToTolerate` (integer, 0-32, default `1`) · `configuration` (object of string→string)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/pools/OpaqueRef:pool-1234/ha" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "heartbeatSrRefs": ["OpaqueRef:sr-1234"], "haHostFailuresToTolerate": 1}'
+```
 
-`GET/PUT /api/settings`, `GET /api/settings/retention/preview`, `POST /api/settings/retention/run`, `PUT /api/settings/retention/policies/:domain`, `POST /api/settings/vault/rewrap`
-`GET/POST/PUT /api/users`, `POST /api/users/:id/password`, `GET/POST/PUT/DELETE /api/groups`, `GET/POST/PUT/DELETE /api/credentials`
-`GET/POST/PUT/DELETE /api/connections` (saved pool targets), `GET/POST/PUT/DELETE /api/host-targets` (saved standalone-host targets), `GET/POST/PUT/DELETE /api/workspaces/inventory` (saved Inventory presets)
+### Dashboard
+
+#### `GET /api/dashboard`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/dashboard"
+```
+
+#### `GET /api/dashboard/messages`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/dashboard/messages"
+```
+
+### Alerts
+
+#### `GET /api/alerts`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/alerts"
+```
+
+#### `GET /api/alerts/policies`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/alerts/policies"
+```
+
+#### `PUT /api/alerts/:ref/state`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `alert_state_save`)
+- **Path params:** `ref` — OpaqueRef of the alert record (string, must match `^OpaqueRef:`)
+- **Body params:** `acknowledged` — boolean, default `false`; `suppressionUntil` — ISO-8601 date string, optional, default `''`; `severityOverride` — one of `''`, `critical`, `warning`, `info`, `notice`, default `''`; `healthAction` — one of `none`, `inspect`, `monitor`, `review`, `evacuate`, `snapshot`, `lifecycle`, `capacity`, `resilience`, `governance`, default `none`; `notes` — string, max 600 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/alerts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/state" \
+  -H "Content-Type: application/json" \
+  -d '{"acknowledged": true, "severityOverride": "warning", "healthAction": "inspect", "notes": "Investigating high CPU alert."}'
+```
+
+#### `PUT /api/alerts/bulk-state`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `alert_bulk_state_save`)
+- **Body params:** `refs` — array of OpaqueRef strings, 1-100 items, required; `state` — object, required, containing `acknowledged` (boolean, default `false`), `suppressionUntil` (ISO-8601 date string, default `''`), `severityOverride` (one of `''`, `critical`, `warning`, `info`, `notice`, default `''`), `healthAction` (one of `none`, `inspect`, `monitor`, `review`, `evacuate`, `snapshot`, `lifecycle`, `capacity`, `resilience`, `governance`, default `none`), `notes` (string, max 600 chars, default `''`)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/alerts/bulk-state" \
+  -H "Content-Type: application/json" \
+  -d '{"refs": ["OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "OpaqueRef:11112222-3333-4444-5555-666677778888"], "state": {"acknowledged": true, "healthAction": "monitor"}}'
+```
+
+#### `POST /api/alerts/policies`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `alert_policy_save`)
+- **Body params:** `enabled` — boolean, default `true`; `name` — string, required, 1-120 chars; `matchClass` — one of `''`, `host`, `sr`, `vdi`, `vbd`, `vm`, `pool`, `network`, `vif`, `pif`, `bond`, `vlan`, `task`, default `''`; `matchTargetRoute` — one of `''`, `/hosts`, `/storage`, `/vms`, `/pools`, `/networking`, `/activity`, `/inventory`, `/capacity`, `/resilience`, `/lifecycle`, `/governance`, default `''`; `matchObject` — string, max 120 chars, default `''`; `matchSeverity` — one of `''`, `critical`, `warning`, `info`, `notice`, default `''`; `matchText` — string, max 120 chars, default `''`; `textMatchMode` — one of `phrase`, `all`, default `phrase`; `autoAcknowledge` — boolean, default `false`; `suppressionHours` — integer 0-720, default `0`; `severityOverride` — one of `''`, `critical`, `warning`, `info`, `notice`, default `''`; `healthAction` — one of `none`, `inspect`, `monitor`, `review`, `evacuate`, `snapshot`, `lifecycle`, `capacity`, `resilience`, `governance`, default `none`; `notes` — string, max 600 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/alerts/policies" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Storage capacity warnings", "matchClass": "sr", "matchSeverity": "warning", "healthAction": "capacity"}'
+```
+
+#### `PUT /api/alerts/policies/:id`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `alert_policy_save`)
+- **Path params:** `id` — alert policy id (string, 1-120 chars)
+- **Body params:** same as `POST /api/alerts/policies`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/alerts/policies/storage-capacity-warnings" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Storage capacity warnings", "matchClass": "sr", "matchSeverity": "critical", "healthAction": "capacity"}'
+```
+
+#### `DELETE /api/alerts/policies/:id`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required for destructive action — needs a governance approval in operator mode (actionKey: `alert_policy_delete`)
+- **Path params:** `id` — alert policy id (string, 1-120 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/alerts/policies/storage-capacity-warnings?approvalId=appr_9f1c2e"
+```
+
+### Metrics
+
+#### `GET /api/metrics/cluster`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Query params:** `range` — one of `1h`, `6h`, `24h`, `7d`, `30d`, default `24h`
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/metrics/cluster?range=6h"
+```
+
+#### `GET /api/metrics/capacity-baseline`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/metrics/capacity-baseline"
+```
+
+#### `GET /api/metrics/rrd-updates`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Query params:** `start` — integer >= 0, optional (defaults to now minus 3600s server-side); `cf` — one of `AVERAGE`, `MIN`, `MAX`, default `AVERAGE`; `interval` — integer 1-86400 (seconds), default `60`; `host` — boolean, default `false` (true = host-level RRD instead of VM-level)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/metrics/rrd-updates?cf=AVERAGE&interval=60&host=true"
+```
+
+#### `POST /api/metrics/collect`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/metrics/collect"
+```
+
+#### `GET /api/metrics/hosts/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — OpaqueRef of the host (string, must match `^OpaqueRef:`)
+- **Query params:** `range` — one of `1h`, `6h`, `24h`, `7d`, `30d`, default `24h`
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/metrics/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab?range=24h"
+```
+
+#### `GET /api/metrics/vms/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — OpaqueRef of the VM (string, must match `^OpaqueRef:`)
+- **Query params:** `range` — one of `1h`, `6h`, `24h`, `7d`, `30d`, default `24h`
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/metrics/vms/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab?range=24h"
+```
+
+#### `GET /api/metrics/storage/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **Path params:** `ref` — OpaqueRef of the SR (string, must match `^OpaqueRef:`)
+- **Query params:** `range` — one of `1h`, `6h`, `24h`, `7d`, `30d`, default `24h`
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/metrics/storage/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab?range=7d"
+```
+
+### Tasks & Remediation
+
+#### `GET /api/tasks`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/tasks"
+```
+
+#### `POST /api/tasks/remediation`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `remediation_task_create`)
+- **Body params:** `nameLabel` — string, required, 1-120 chars; `nameDescription` — string, max 800 chars, default `''`; `actionType` — one of `inspect`, `monitor`, `review`, `evacuate`, `snapshot`, `lifecycle`, `capacity`, `resilience`, `governance`, default `review`; `assignee` — string, max 120 chars, default `''`; `dueDate` — string, max 40 chars, default `''`; `alertRef` — OpaqueRef string, required; `alertUuid` — string, max 120 chars, default `''`; `alertSummary` — string, required, 1-180 chars; `targetRoute` — one of `''`, `/hosts`, `/storage`, `/vms`, `/pools`, `/networking`, `/activity`, `/inventory`, `/capacity`, `/resilience`, `/lifecycle`, `/governance`, default `''`; `relatedObject` — string, max 180 chars, default `''`; `relatedClass` — one of `''`, `host`, `sr`, `vdi`, `vbd`, `vm`, `pool`, `network`, `vif`, `pif`, `bond`, `vlan`, `task`, `alert`, default `''`; `workspaceSummary` — string, max 240 chars, default `''`; `evidenceChecklist` — array of strings (max 8, each 1-200 chars), default `[]`; `completionCriteria` — array of strings (max 8, each 1-200 chars), default `[]`; `lifecyclePlanSeed` — nullable object seed (see lifecycle plan seed fields: `enabled`, `baselineStatus`, `targetStage`, `maintenanceWindow`, `patchGroup`, `owner`, `nextAction`, `rebootRequired`, `evacuationRequired`, `dueDays`, `dueDate`, `notes`, `sourceTaskRef`, `sourceTemplateId`, `sourceTemplateName`), default `null`; `resilienceRunbookSeed` — nullable object seed (`enabled`, `recoveryTier`, `haPolicy`, `restartPriority`, `backupWindowHours`, `rpoMinutes`, `rtoMinutes`, `restorePointStatus`, `owner`, `standbyHostRef`, `failoverNetworkRef`, `runbookSteps`, `notes`, `sourceTaskRef`, `sourceTemplateId`, `sourceTemplateName`), default `null`; `vmMigrationSeed` — nullable object seed (`enabled`, `mode`, `hostRef`, `destinationTargetKey`, `transferNetworkRef`, `srRef`, `vifNetworkMap`, `live`, `copy`, `force`, `compress`, `setAsHomeServer`, `notes`, `sourceTaskRef`, `sourceTemplateId`, `sourceTemplateName`), default `null`; `templateId` — string, max 120 chars, default `''`; `templateName` — string, max 120 chars, default `''`; `templateLaunchMode` — one of `draft`, `queue`, `lifecycle-plan`, `lifecycle-maintenance`, `resilience-runbook`, `resilience-drill`, `vm-migration`, default `draft`; `recurrenceMode` — one of `manual`, `once`, `daily`, `weekly`, `cooldown`, default `manual`; `recurrenceScope` — one of `alert`, `object`, `class`, default `object`; `cooldownDays` — integer 0-365, default `0`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/tasks/remediation" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "Investigate SR latency alert", "actionType": "inspect", "alertRef": "OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab", "alertSummary": "SR read latency exceeded threshold", "assignee": "ops-team"}'
+```
+
+#### `GET /api/tasks/remediation/templates`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/tasks/remediation/templates"
+```
+
+#### `POST /api/tasks/remediation/templates`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `remediation_template_save`)
+- **Body params:** `enabled` — boolean, default `true`; `name` — string, required, 1-120 chars; `matchClass` — one of `''`, `host`, `sr`, `vdi`, `vbd`, `vm`, `pool`, `network`, `vif`, `pif`, `bond`, `vlan`, `task`, `alert`, default `''`; `matchTargetRoute` — one of `''`, `/hosts`, `/storage`, `/vms`, `/pools`, `/networking`, `/activity`, `/inventory`, `/capacity`, `/resilience`, `/lifecycle`, `/governance`, default `''`; `matchObject` — string, max 120 chars, default `''`; `matchSeverity` — one of `''`, `critical`, `warning`, `info`, `notice`, default `''`; `matchText` — string, max 120 chars, default `''`; `textMatchMode` — one of `phrase`, `all`, default `phrase`; `actionType` — one of `inspect`, `monitor`, `review`, `evacuate`, `snapshot`, `lifecycle`, `capacity`, `resilience`, `governance`, default `review`; `taskNameTemplate` — string, required, 1-160 chars; `defaultAssignee` — string, max 120 chars, default `''`; `defaultDueDays` — integer 0-365, default `0`; `defaultTargetRoute` — one of `''`, `/hosts`, `/storage`, `/vms`, `/pools`, `/networking`, `/activity`, `/inventory`, `/capacity`, `/resilience`, `/lifecycle`, `/governance`, default `''`; `defaultNotes` — string, max 1000 chars, default `''`; `workspaceSummaryTemplate` — string, max 240 chars, default `''`; `evidenceChecklist` — array of strings (max 8, each 1-200 chars), default `[]`; `completionCriteria` — array of strings (max 8, each 1-200 chars), default `[]`; `lifecyclePlanSeed` — nullable seed object (same shape as remediation create), default `null`; `resilienceRunbookSeed` — nullable seed object, default `null`; `vmMigrationSeed` — nullable seed object, default `null`; `launchMode` — one of `draft`, `queue`, `lifecycle-plan`, `lifecycle-maintenance`, `resilience-runbook`, `resilience-drill`, `vm-migration`, default `draft`; `recurrenceMode` — one of `manual`, `once`, `daily`, `weekly`, `cooldown`, default `manual`; `recurrenceScope` — one of `alert`, `object`, `class`, default `object`; `cooldownDays` — integer, required (1-365) when `recurrenceMode` is `cooldown`, otherwise optional integer 0-365, default `0`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/tasks/remediation/templates" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "SR capacity follow-up", "matchClass": "sr", "matchSeverity": "warning", "actionType": "capacity", "taskNameTemplate": "Review SR capacity on {{object}}"}'
+```
+
+#### `PUT /api/tasks/remediation/templates/:id`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `remediation_template_save`)
+- **Path params:** `id` — remediation template id (string, 1-120 chars)
+- **Body params:** same as `POST /api/tasks/remediation/templates`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/tasks/remediation/templates/sr-capacity-follow-up" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "SR capacity follow-up", "matchClass": "sr", "matchSeverity": "critical", "actionType": "capacity", "taskNameTemplate": "Review SR capacity on {{object}}"}'
+```
+
+#### `DELETE /api/tasks/remediation/templates/:id`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required for destructive action — needs a governance approval in operator mode (actionKey: `remediation_template_delete`)
+- **Path params:** `id` — remediation template id (string, 1-120 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/tasks/remediation/templates/sr-capacity-follow-up?approvalId=appr_9f1c2e"
+```
+
+#### `PUT /api/tasks/remediation/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `remediation_task_update`)
+- **Path params:** `ref` — OpaqueRef of the remediation task (string, must match `^OpaqueRef:`)
+- **Body params:** `status` — one of `pending`, `queued`, `in_progress`, `success`, `warning`, `failure`, `cancelled`, default `pending`; `assignee` — string, max 120 chars, default `''`; `dueDate` — string, max 40 chars, default `''`; `result` — string, max 500 chars, default `''`; `nameDescription` — string, max 800 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/tasks/remediation/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "success", "result": "SR latency returned to baseline after cache flush."}'
+```
+
+### Resilience
+
+#### `GET /api/resilience`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/resilience"
+```
+
+#### `GET /api/resilience/plans`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/resilience/plans"
+```
+
+#### `GET /api/resilience/drills`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/resilience/drills"
+```
+
+#### `PUT /api/resilience/plans/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `resilience_runbook_save`)
+- **Path params:** `ref` — OpaqueRef of the pool the runbook is scoped to (string, must match `^OpaqueRef:`)
+- **Body params:** `recoveryTier` — one of `tier-1`, `tier-2`, `standard`, `edge`, default `standard`; `haPolicy` — one of `auto-failover`, `priority-restart`, `manual`, `disabled`, default `manual`; `restartPriority` — one of `highest`, `high`, `medium`, `low`, `best-effort`, default `medium`; `backupWindowHours` — integer 1-720, default `24`; `rpoMinutes` — integer 5-10080, default `60`; `rtoMinutes` — integer 5-10080, default `120`; `restorePointStatus` — one of `current`, `review`, `stale`, `missing`, default `review`; `owner` — string, max 120 chars, default `''`; `standbyHostRef` — OpaqueRef string, optional, default `''`; `failoverNetworkRef` — OpaqueRef string, optional, default `''`; `lastVerifiedAt` — ISO-8601 date string, default `''`; `runbookSteps` — array of strings (max 8, each 1-240 chars), default `[]`; `notes` — string, max 1000 chars, default `''`; `sourceTaskRef` — string, max 160 chars, default `''`; `sourceTemplateId` — string, max 160 chars, default `''`; `sourceTemplateName` — string, max 160 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/resilience/plans/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab" \
+  -H "Content-Type: application/json" \
+  -d '{"recoveryTier": "tier-1", "haPolicy": "auto-failover", "backupWindowHours": 12, "owner": "infra-team"}'
+```
+
+#### `DELETE /api/resilience/plans/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required for destructive action — needs a governance approval in operator mode (actionKey: `resilience_runbook_delete`)
+- **Path params:** `ref` — OpaqueRef of the pool the runbook is scoped to (string, must match `^OpaqueRef:`)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/resilience/plans/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab?approvalId=appr_9f1c2e"
+```
+
+#### `POST /api/resilience/drills/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `resilience_drill_log`)
+- **Path params:** `ref` — OpaqueRef of the pool the drill is scoped to (string, must match `^OpaqueRef:`)
+- **Body params:** `drillType` — one of `restore`, `failover`, `evacuation`, `backup-verify`, default `restore`; `status` — one of `success`, `warning`, `critical`, `pending`, default `success`; `scope` — string, max 120 chars, default `''`; `executedAt` — ISO-8601 date string, default `''`; `durationMinutes` — integer 0-10080, default `0`; `summary` — string, required, 1-240 chars; `findings` — string, max 1000 chars, default `''`; `nextStep` — string, max 240 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/resilience/drills/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab" \
+  -H "Content-Type: application/json" \
+  -d '{"drillType": "failover", "status": "success", "summary": "Quarterly HA failover drill completed without incident.", "durationMinutes": 45}'
+```
+
+### Lifecycle
+
+#### `GET /api/lifecycle/plans`
+
+- **Auth:** Session + attached live target (`requireXenConnection`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/lifecycle/plans"
+```
+
+#### `PUT /api/lifecycle/plans/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required (governance-gated, actionKey: `lifecycle_plan_save`)
+- **Path params:** `ref` — OpaqueRef of the host the plan is scoped to (string, must match `^OpaqueRef:`)
+- **Body params:** `baselineStatus` — one of `compliant`, `drifted`, `unknown`, default `unknown`; `targetStage` — one of `aligned`, `review`, `maintenance`, `remediate`, default `review`; `maintenanceWindow` — string, max 80 chars, default `''`; `patchGroup` — string, max 120 chars, default `''`; `owner` — string, max 120 chars, default `''`; `nextAction` — one of `none`, `scan`, `patch`, `reboot`, `validate`, default `scan`; `rebootRequired` — boolean, default `false`; `evacuationRequired` — boolean, default `false`; `dueDate` — string, `YYYY-MM-DD` pattern, default `''`; `notes` — string, max 800 chars, default `''`; `sourceTaskRef` — string, max 160 chars, default `''`; `sourceTemplateId` — string, max 160 chars, default `''`; `sourceTemplateName` — string, max 160 chars, default `''`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/lifecycle/plans/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab" \
+  -H "Content-Type: application/json" \
+  -d '{"targetStage": "maintenance", "nextAction": "patch", "dueDate": "2026-09-15", "owner": "patch-team"}'
+```
+
+#### `DELETE /api/lifecycle/plans/:ref`
+
+- **Auth:** Session + attached live target (`requireXenConnection`), operator/admin role required for destructive action — needs a governance approval in operator mode (actionKey: `lifecycle_plan_delete`)
+- **Path params:** `ref` — OpaqueRef of the host the plan is scoped to (string, must match `^OpaqueRef:`)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/lifecycle/plans/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab?approvalId=appr_9f1c2e"
+```
+
+### Governance
+
+#### `GET /api/governance/`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`). No governance role check.
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/governance"
+```
+
+#### `PUT /api/governance/policy`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin governance role required (`requireAdminSession` — checked against both the session's governance role and, when the session is bound to a local account, that account's fixed `role`).
+- **Body params:** `defaultRole` — one of `read-only`, `operator`, `admin`, default `admin`; `requireDestructiveApproval` — boolean, default `true`; `approvalTtlMinutes` — integer 5-10080, default `240`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/governance/policy" \
+  -H "Content-Type: application/json" \
+  -d '{"defaultRole": "operator", "requireDestructiveApproval": true, "approvalTtlMinutes": 240}'
+```
+
+#### `PUT /api/governance/role`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`). No admin gate on the route itself; if the session is bound to an active local account whose fixed `role` is not `admin`, the requested `role` must not exceed the account's role in the `read-only < operator < admin` hierarchy (`governanceService.hasRole`), otherwise the request is rejected with `403 ROLE_ESCALATION_NOT_ALLOWED`.
+- **Body params:** `role` — required, one of `read-only`, `operator`, `admin`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/governance/role" \
+  -H "Content-Type: application/json" \
+  -d '{"role": "operator"}'
+```
+
+#### `PUT /api/governance/quotas/:ref`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin governance role required (`requireAdminSession`).
+- **Path params:** `ref` — pool opaque reference, string matching `^OpaqueRef:`
+- **Body params:** `enabled` — boolean, default `true`; `owner` — string, max 120 chars, default `""`; `maxVmCount` — integer 0-100000, default `0`; `maxRunningVmCount` — integer 0-100000, default `0`; `maxTotalMemoryGiB` — integer 0-1048576, default `0`; `notes` — string, max 1000 chars, default `""`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/governance/quotas/OpaqueRef:1234abcd" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "owner": "platform-team", "maxVmCount": 50, "maxRunningVmCount": 30, "maxTotalMemoryGiB": 512, "notes": "Production pool cap"}'
+```
+
+#### `DELETE /api/governance/quotas/:ref`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin governance role required (`requireAdminSession`).
+- **Path params:** `ref` — pool opaque reference, string matching `^OpaqueRef:`
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/governance/quotas/OpaqueRef:1234abcd"
+```
+
+#### `POST /api/governance/approvals`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`). No governance role check — any authenticated user may submit an approval request.
+- **Body params:** `actionKey` — required string, 1-120 chars; `entityType` — required string, 1-60 chars; `entityRef` — required string, 1-255 chars; `entityName` — optional string, max 160 chars, default `""`; `justification` — required string, 1-500 chars; `route` — optional string, max 120 chars, default `""`; `expiresAt` — optional ISO-8601 date string, default `""` (server computes an expiry from the current policy's `approvalTtlMinutes` if omitted)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/governance/approvals" \
+  -H "Content-Type: application/json" \
+  -d '{"actionKey": "vm_force_shutdown", "entityType": "vm", "entityRef": "OpaqueRef:5678efgh", "entityName": "web-01", "justification": "Emergency shutdown to stop a runaway process"}'
+```
+
+#### `POST /api/governance/approvals/:id/decision`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin governance role required (`requireAdminSession`).
+- **Path params:** `id` — approval record id
+- **Body params:** `decision` — required, one of `approved`, `rejected`; `notes` — optional string, max 500 chars, default `""`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/governance/approvals/approval-1699999999-ab12cd/decision" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "approved", "notes": "Confirmed with on-call lead"}'
+```
+
+### Audit
+
+#### `GET /api/audit/`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/audit"
+```
+
+### Settings
+
+#### `GET /api/settings/`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/settings"
+```
+
+#### `GET /api/settings/retention/preview`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Query params:** `domain` — optional, one of `""`, `audit-log`, `remediation-tasks`, `auth-events`, `template-deployment-runs`, `metric-samples`, `metric-hourly-rollups`, default `""` (all domains); `dryRun` — boolean, default `false`, but the route always runs the sweep as a dry run regardless of this value; `approvalId` — optional string, max 120 chars, default `""` (accepted by the schema but unused by this read-only route)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/settings/retention/preview?domain=audit-log"
+```
+
+#### `POST /api/settings/vault/rewrap`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); blocked with `403 READ_ONLY_MODE` if the current governance role is `read-only` (`ensureMutationAllowed`, not flagged destructive so no approval is required for `operator`/`admin`).
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/settings/vault/rewrap"
+```
+
+#### `POST /api/settings/retention/run`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`). Blocked with `403 READ_ONLY_MODE` if the governance role is `read-only`. When `dryRun` is `false` the action is treated as destructive: if the current governance role is not `admin` and the governance policy's `requireDestructiveApproval` is set, a valid, unused, unexpired `approvalId` scoped to `actionKey: "retention_sweep_run"` must be supplied or the request is rejected with `403 APPROVAL_REQUIRED` (or `403 APPROVAL_EXPIRED` / `APPROVAL_NOT_ACTIVE` / `APPROVAL_SCOPE_MISMATCH` for an invalid approval).
+- **Body params:** `domain` — optional, one of `""`, `audit-log`, `remediation-tasks`, `auth-events`, `template-deployment-runs`, `metric-samples`, `metric-hourly-rollups`, default `""` (all domains); `dryRun` — boolean, default `false`; `approvalId` — optional string, max 120 chars, default `""`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/settings/retention/run" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "audit-log", "dryRun": true}'
+```
+
+#### `PUT /api/settings/retention/policies/:domain`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); blocked with `403 READ_ONLY_MODE` if the current governance role is `read-only` (`ensureMutationAllowed`, not destructive so no approval required).
+- **Path params:** `domain` — required, one of `audit-log`, `remediation-tasks`, `auth-events`, `template-deployment-runs`, `metric-samples`, `metric-hourly-rollups`
+- **Body params:** `retentionDays` — required integer, 1-3650; `enabled` — boolean, default `true`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/settings/retention/policies/audit-log" \
+  -H "Content-Type: application/json" \
+  -d '{"retentionDays": 90, "enabled": true}'
+```
+
+#### `PUT /api/settings/:section`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); blocked with `403 READ_ONLY_MODE` if the current governance role is `read-only` (`ensureMutationAllowed`, not destructive so no approval required).
+- **Path params:** `section` — required, one of `general`, `network`, `security`, `logging`, `performance`, `retention` (an unknown section returns `404 UNKNOWN_SETTINGS_SECTION`); the body schema is selected based on this value
+- **Body params:** (schema depends on `section`)
+  - `section=general`: `appName` — required string, 1-120 chars; `timezone` — required string, 1-120 chars
+  - `section=network`: `publicBaseUrl` — optional `http`/`https` URI, max 240 chars, default `""`; `trustProxy` — boolean, default `false`
+  - `section=security`: `sessionMaxAgeMs` — integer 60000-2592000000, default `86400000`; `failedLoginWindowMinutes` — integer 1-1440, default `15`; `failedLoginMaxAttempts` — integer 1-100, default `20`
+  - `section=logging`: `level` — one of `trace`, `debug`, `info`, `warn`, `error`, default `info`; `structuredJson` — boolean, default `false`
+  - `section=performance`: `collectionEnabled` — boolean, default `true`; `collectionIntervalSeconds` — integer 30-3600, default `60`
+  - `section=retention`: `sweepIntervalHours` — integer 1-168, default `24`; `vacuumAfterSweep` — boolean, default `true`
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/settings/general" \
+  -H "Content-Type: application/json" \
+  -d '{"appName": "XenMange", "timezone": "America/New_York"}'
+```
 
 ### Logs
 
-`GET /api/logs` (federated audit/auth/alerts/tasks), `POST /api/logs/export` (JSON, HTML, or PDF)
+#### `GET /api/logs/`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Query params:** `page` — integer, min 1, default `1`; `pageSize` — integer, 1-500, default `50`; `search` — string, max 200 chars, default `""`; `source` — one of `all`, `audit`, `auth`, `alert`, `remediation-task`, `xen-task`, default `all`; `severity` — one of `all`, `success`, `pending`, `warning`, `failure`, `critical`, `info`, `notice`, default `all`
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/logs?page=1&pageSize=50&search=xapi&source=audit&severity=warning"
+```
+
+#### `POST /api/logs/export`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); blocked with `403 READ_ONLY_MODE` if the current governance role is `read-only` (`ensureMutationAllowed`, not destructive so no approval required).
+- **Body params:** `ids` — optional array of strings (each 1-160 chars), max 500 items, default `[]` (limits export to specific log entry ids; empty means filter-driven export); `format` — required, one of `json`, `html`, `pdf`; `search` — optional string, max 200 chars, default `""`; `source` — optional, one of `all`, `audit`, `auth`, `alert`, `remediation-task`, `xen-task`, default `all`; `severity` — optional, one of `all`, `success`, `pending`, `warning`, `failure`, `critical`, `info`, `notice`, default `all`
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/logs/export" \
+  -H "Content-Type: application/json" \
+  -d '{"format": "json", "source": "audit", "severity": "all", "ids": []}'
+```
+
+### Connections
+
+#### `GET /api/connections`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/connections"
+```
+
+#### `POST /api/connections`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Body params:** `name` — display name for the saved pool target (string, 1-120 chars, required); `host` — hostname/IP of the pool master (string, 1-255 chars, required); `username` — Xen login username (string, 1-100 chars, required); `vaultCredentialId` — id of a saved vault credential to use instead of an inline password (integer ≥1 or null, default null); `port` — Xen API port (integer 1-65535, default 443); `visibility` — `private` or `shared` (default `private`); `isDefault` — mark this as the default login target (boolean, default false)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/connections" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Prod Pool", "host": "10.0.0.10", "username": "root", "port": 443, "visibility": "shared", "isDefault": false}'
+```
+
+#### `PUT /api/connections/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Path params:** `id` — connection id (integer, ≥1, required)
+- **Body params:** `name` — display name for the saved pool target (string, 1-120 chars, required); `host` — hostname/IP of the pool master (string, 1-255 chars, required); `username` — Xen login username (string, 1-100 chars, required); `vaultCredentialId` — id of a saved vault credential (integer ≥1 or null, default null); `port` — Xen API port (integer 1-65535, default 443); `visibility` — `private` or `shared` (default `private`); `isDefault` — mark this as the default login target (boolean, default false)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/connections/4" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Prod Pool", "host": "10.0.0.10", "username": "root", "port": 443, "visibility": "shared", "isDefault": true}'
+```
+
+#### `POST /api/connections/:id/default`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Path params:** `id` — connection id (integer, ≥1, required)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/connections/4/default"
+```
+
+#### `DELETE /api/connections/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only, and this is a destructive action — requires admin governance role or a valid `approvalId` when the destructive-approval policy is enabled (`ensureMutationAllowed`)
+- **Path params:** `id` — connection id (integer, ≥1, required)
+- **Query params:** `approvalId` — governance approval id required for non-admin operators when destructive approval is enforced (string, optional)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/connections/4?approvalId=appr_123"
+```
+
+### Credentials
+
+#### `GET /api/credentials`
+
+- **Auth:** Authenticated control-plane session with a local user account (`req.session.userId` present)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/credentials"
+```
+
+#### `POST /api/credentials`
+
+- **Auth:** Authenticated control-plane session with a local user account (`req.session.userId` present); governance role must not be read-only (`ensureMutationAllowed`)
+- **Body params:** `name` — label for the vault entry (string, 1-120 chars, required); `scope` — `private` or `shared` (default `private`); `targetType` — `pool` or `host` (required); `targetHint` — free-text hint about the target (string, up to 180 chars, default ''); `username` — credential username (string, 1-100 chars, required); `password` — credential password, stored encrypted, never returned on read (string, 1-255 chars, required)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Pool Service Account", "scope": "shared", "targetType": "pool", "username": "svc-xen", "password": "changeme-strong-password"}'
+```
+
+#### `PUT /api/credentials/:id`
+
+- **Auth:** Authenticated control-plane session with a local user account (`req.session.userId` present); governance role must not be read-only (`ensureMutationAllowed`)
+- **Path params:** `id` — credential id (integer, ≥1, required)
+- **Body params:** `name` — label for the vault entry (string, 1-120 chars, required); `scope` — `private` or `shared` (default `private`); `targetType` — `pool` or `host` (required); `targetHint` — free-text hint about the target (string, up to 180 chars, default ''); `username` — credential username (string, 1-100 chars, required); `password` — new password to rotate in; omit or send empty string to keep the existing password unchanged (string, up to 255 chars, default '')
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/credentials/7" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Pool Service Account", "scope": "shared", "targetType": "pool", "username": "svc-xen", "password": ""}'
+```
+
+#### `DELETE /api/credentials/:id`
+
+- **Auth:** Authenticated control-plane session with a local user account (`req.session.userId` present); governance role must not be read-only, and this is a destructive action — requires admin governance role or a valid `approvalId` when the destructive-approval policy is enabled (`ensureMutationAllowed`)
+- **Path params:** `id` — credential id (integer, ≥1, required)
+- **Query params:** `approvalId` — governance approval id required for non-admin operators when destructive approval is enforced (string, optional)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/credentials/7?approvalId=appr_123"
+```
+
+### Users
+
+#### `GET /api/users`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/users"
+```
+
+#### `POST /api/users`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **Body params:** `username` — login name, alphanumeric plus `._-` (string, 3-80 chars, required); `password` — initial password (string, 10-256 chars, required); `displayName` — friendly display name (string, up to 120 chars, default ''); `email` — contact email (string, valid email, up to 160 chars, default ''); `role` — `read-only`, `operator`, or `admin` (default `operator`); `active` — whether the account can log in (boolean, default true); `groupIds` — group ids to assign membership (array of integers ≥1, up to 50 items, default [])
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/users" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "jsmith", "password": "changeme-strong-password", "displayName": "Jane Smith", "role": "operator", "active": true, "groupIds": [1]}'
+```
+
+#### `PUT /api/users/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **Path params:** `id` — user id (integer, ≥1, required)
+- **Body params:** `username` — login name, alphanumeric plus `._-` (string, 3-80 chars, required); `displayName` — friendly display name (string, up to 120 chars, default ''); `email` — contact email (string, valid email, up to 160 chars, default ''); `role` — `read-only`, `operator`, or `admin` (default `operator`); `active` — whether the account can log in (boolean, default true); `groupIds` — group ids to assign membership (array of integers ≥1, up to 50 items, default [])
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/users/12" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "jsmith", "displayName": "Jane Smith", "role": "operator", "active": true, "groupIds": [1, 2]}'
+```
+
+#### `POST /api/users/:id/password`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **Path params:** `id` — user id (integer, ≥1, required)
+- **Body params:** `password` — new password to set (string, 10-256 chars, required)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/users/12/password" \
+  -H "Content-Type: application/json" \
+  -d '{"password": "changeme-strong-password"}'
+```
+
+### Groups
+
+#### `GET /api/groups`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/groups"
+```
+
+#### `POST /api/groups`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **Body params:** `name` — group name (string, 1-120 chars, required); `memberUserIds` — user ids to add as members (array of integers ≥1, up to 200 items, default [])
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/groups" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Storage Admins", "memberUserIds": [1, 2, 3]}'
+```
+
+#### `PUT /api/groups/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **Path params:** `id` — group id (integer, ≥1, required)
+- **Body params:** `name` — group name (string, 1-120 chars, required); `memberUserIds` — user ids to assign as members, replaces existing membership (array of integers ≥1, up to 200 items, default [])
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/groups/3" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Storage Admins", "memberUserIds": [1, 2]}'
+```
+
+#### `DELETE /api/groups/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`), admin role required (local account `role === 'admin'` and active governance role `admin`)
+- **Path params:** `id` — group id (integer, ≥1, required)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/groups/3"
+```
+
+### Host Targets
+
+#### `GET /api/host-targets`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/host-targets"
+```
+
+#### `POST /api/host-targets`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Body params:** `name` — display name for the saved host target (string, 1-120 chars, required); `host` — hostname/IP of the standalone host (string, 1-255 chars, required); `username` — Xen login username (string, 1-100 chars, required); `vaultCredentialId` — id of a saved vault credential (integer ≥1 or null, default null); `port` — Xen API port (integer 1-65535, default 443); `mode` — `standalone` or `pool-member` (default `standalone`); `poolConnectionId` — required saved connection id when `mode` is `pool-member`, otherwise ignored/null (integer ≥1); `notes` — free-text notes (string, up to 500 chars, default ''); `visibility` — `private` or `shared` (default `private`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/host-targets" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Edge Host 1", "host": "10.0.1.20", "username": "root", "mode": "standalone", "visibility": "private"}'
+```
+
+#### `PUT /api/host-targets/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Path params:** `id` — host target id (integer, ≥1, required)
+- **Body params:** `name` — display name for the saved host target (string, 1-120 chars, required); `host` — hostname/IP of the standalone host (string, 1-255 chars, required); `username` — Xen login username (string, 1-100 chars, required); `vaultCredentialId` — id of a saved vault credential (integer ≥1 or null, default null); `port` — Xen API port (integer 1-65535, default 443); `mode` — `standalone` or `pool-member` (default `standalone`); `poolConnectionId` — required saved connection id when `mode` is `pool-member`, otherwise ignored/null (integer ≥1); `notes` — free-text notes (string, up to 500 chars, default ''); `visibility` — `private` or `shared` (default `private`)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/host-targets/9" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Edge Host 1", "host": "10.0.1.20", "username": "root", "mode": "pool-member", "poolConnectionId": 4, "visibility": "private"}'
+```
+
+#### `DELETE /api/host-targets/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only, and this is a destructive action — requires admin governance role or a valid `approvalId` when the destructive-approval policy is enabled (`ensureMutationAllowed`)
+- **Path params:** `id` — host target id (integer, ≥1, required)
+- **Query params:** `approvalId` — governance approval id required for non-admin operators when destructive approval is enforced (string, optional)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/host-targets/9?approvalId=appr_123"
+```
+
+### Saved Workspaces
+
+#### `GET /api/workspaces/inventory`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`)
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/workspaces/inventory"
+```
+
+#### `POST /api/workspaces/inventory`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Body params:** `name` — workspace name (string, 1-120 chars, required); `scope` — inventory scope, one of `all`, `pool`, `template`, `vm`, `host`, `storage`, `vdi`, `vbd`, `network`, `vif`, `pif`, `alert`, `task` (default `all`); `query` — saved filter/search string (string, up to 200 chars, default ''); `targetConnectionId` — saved connection id this workspace targets (integer ≥1 or null, default null); `notes` — free-text notes (string, up to 400 chars, default ''); `visibility` — `private` or `shared` (default `private`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/workspaces/inventory" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Running VMs - Prod", "scope": "vm", "query": "power_state:running", "visibility": "shared"}'
+```
+
+#### `PUT /api/workspaces/inventory/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only (`ensureMutationAllowed`)
+- **Path params:** `id` — workspace id (string, 1-160 chars, required)
+- **Body params:** `name` — workspace name (string, 1-120 chars, required); `scope` — inventory scope, one of `all`, `pool`, `template`, `vm`, `host`, `storage`, `vdi`, `vbd`, `network`, `vif`, `pif`, `alert`, `task` (default `all`); `query` — saved filter/search string (string, up to 200 chars, default ''); `targetConnectionId` — saved connection id this workspace targets (integer ≥1 or null, default null); `notes` — free-text notes (string, up to 400 chars, default ''); `visibility` — `private` or `shared` (default `private`)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/workspaces/inventory/ws_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Running VMs - Prod", "scope": "vm", "query": "power_state:running", "visibility": "shared"}'
+```
+
+#### `DELETE /api/workspaces/inventory/:id`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); governance role must not be read-only, and this is a destructive action — requires admin governance role or a valid `approvalId` when the destructive-approval policy is enabled (`ensureMutationAllowed`)
+- **Path params:** `id` — workspace id (string, 1-160 chars, required)
+- **Query params:** `approvalId` — governance approval id required for non-admin operators when destructive approval is enforced (string, optional)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/workspaces/inventory/ws_abc123?approvalId=appr_123"
+```
 
 ## Security
 

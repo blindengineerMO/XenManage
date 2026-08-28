@@ -9,7 +9,7 @@ const SideNav = {
           <span class="tree-label" v-if="!collapsed">Dashboard</span>
         </div>
         <div class="tree-item" :class="{ active: $route.path === '/pools' }" @click="$router.push('/pools')">
-          <span class="mdi mdi-cluster"></span>
+          <span class="mdi mdi-source-branch"></span>
           <span class="tree-label" v-if="!collapsed">Pools</span>
           <span class="tree-count" v-if="!collapsed && inventory.pools.length">{{ inventory.pools.length }}</span>
         </div>

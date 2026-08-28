@@ -55,7 +55,7 @@ const SettingsView = {
               Governance
             </button>
             <button class="btn" @click="$router.push('/pools')">
-              <span class="mdi mdi-cluster"></span>
+              <span class="mdi mdi-source-branch"></span>
               Pools
             </button>
             <button class="btn" @click="$router.push('/hosts')">
