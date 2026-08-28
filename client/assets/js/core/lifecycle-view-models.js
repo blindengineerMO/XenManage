@@ -39,6 +39,54 @@ function inferLifecyclePlanDefaults(host, relatedTasks = [], relatedMessages = [
   };
 }
 
+function normalizeLifecycleSelectionRefs(values = []) {
+  return Array.isArray(values) ? values.filter(Boolean) : [];
+}
+
+function resolveLifecycleSelectionMaintenanceState(host) {
+  if (!host) return false;
+  if (host.maintenance_mode === true) return true;
+  return String(host?.other_config?.maintenance_mode || '').toLowerCase() === 'true';
+}
+
+function filterSelectedLifecycleRows(hostLifecycleRows = [], selectedRefs = []) {
+  const selected = new Set(normalizeLifecycleSelectionRefs(selectedRefs));
+  return (Array.isArray(hostLifecycleRows) ? hostLifecycleRows : []).filter((row) => selected.has(row.ref));
+}
+
+function buildLifecycleSelectionProfile(hostLifecycleRows = [], selectedRefs = []) {
+  const rows = filterSelectedLifecycleRows(hostLifecycleRows, selectedRefs);
+
+  if (!rows.length) {
+    return {
+      rows,
+      plannedRows: [],
+      maintenanceReadyRows: [],
+      maintenanceActiveRows: [],
+      summary: 'No lifecycle targets selected.',
+    };
+  }
+
+  const plannedRows = rows.filter((row) => Boolean(row.lifecyclePlan));
+  const maintenanceReadyRows = rows.filter((row) =>
+    row.lifecyclePlan?.targetStage === 'maintenance' && !resolveLifecycleSelectionMaintenanceState(row)
+  );
+  const maintenanceActiveRows = rows.filter((row) => resolveLifecycleSelectionMaintenanceState(row));
+
+  const parts = [];
+  if (plannedRows.length) parts.push(`${plannedRows.length} saved plan${plannedRows.length === 1 ? '' : 's'}`);
+  if (maintenanceReadyRows.length) parts.push(`${maintenanceReadyRows.length} ready for maintenance`);
+  if (maintenanceActiveRows.length) parts.push(`${maintenanceActiveRows.length} already in maintenance`);
+
+  return {
+    rows,
+    plannedRows,
+    maintenanceReadyRows,
+    maintenanceActiveRows,
+    summary: parts.join(' · ') || 'Selected lifecycle targets are ready for review.',
+  };
+}
+
 function buildHostLifecycleRowModel({
   host = null,
   lifecycleTasks = [],
@@ -357,5 +405,13 @@ function buildLifecyclePlannerModel({
       evacuateRunningVms: initialValue?.evacuationRequired !== false,
     },
     canExecuteMaintenance: Boolean(plannerHost && (plannerHost.lifecyclePlan || plannerSeed || plannerSourceTask)),
+  };
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    filterSelectedLifecycleRows,
+    buildLifecycleSelectionProfile,
+    resolveLifecycleSelectionMaintenanceState,
   };
 }
