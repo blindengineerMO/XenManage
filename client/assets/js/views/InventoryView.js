@@ -1,5 +1,11 @@
 const InventoryView = {
-  components: { DataTable, FloatingWindow, StatusBadge },
+  components: {
+    DataTable,
+    FloatingWindow,
+    StatusBadge,
+    InventorySavedWorkspacesWindow,
+    InventoryConnectionAtlasWindow,
+  },
   template: `
     <div class="animate-fade-in">
       <div v-if="loading" class="empty-state">
@@ -133,133 +139,37 @@ const InventoryView = {
           </div>
         </floating-window>
 
-        <floating-window :show="showSavedWorkspacesWindow"
-                         title="Saved Workspaces"
-                         :width="840"
-                         :height="560"
-                         @close="showSavedWorkspacesWindow = false">
-          <div class="detail-section" style="margin-top:0">
-            <div class="detail-section-title">Save Workspace Preset</div>
-            <div class="inventory-toolbar">
-              <input class="data-table-search"
-                     placeholder="Name this search preset..."
-                     v-model="workspaceName">
-              <select class="form-input"
-                      style="max-width:240px"
-                      v-model="workspaceTargetConnectionId">
-                <option value="">No target binding</option>
-                <option v-for="connection in safeConnections"
-                        :key="connection.id"
-                        :value="String(connection.id)">
-                  {{ connection.name || connection.host }}
-                </option>
-              </select>
-              <select class="form-input"
-                      style="max-width:240px"
-                      v-model="workspaceVisibility">
-                <option value="private">Private Workspace</option>
-                <option value="shared">Shared Workspace</option>
-              </select>
-              <button class="btn btn-primary btn-sm" @click="saveWorkspace" :disabled="!canSaveWorkspace || workspaceSaving">
-                <span class="mdi mdi-content-save-outline"></span>
-                {{ workspaceSaving ? 'Saving...' : 'Save Workspace' }}
-              </button>
-            </div>
-            <div class="text-muted mono" style="font-size:11px;margin-top:6px">Workspace presets now persist through the server and can optionally bind to a saved target for deliberate connection switching.</div>
-            <div class="form-error" v-if="workspaceError" style="text-align:left">{{ workspaceError }}</div>
-          </div>
+        <inventory-saved-workspaces-window
+          :show-saved-workspaces-window="showSavedWorkspacesWindow"
+          :workspace-name="workspaceName"
+          :workspace-target-connection-id="workspaceTargetConnectionId"
+          :workspace-visibility="workspaceVisibility"
+          :safe-connections="safeConnections"
+          :saved-workspaces="savedWorkspaces"
+          :workspace-saving="workspaceSaving"
+          :workspace-error="workspaceError"
+          :can-save-workspace="canSaveWorkspace"
+          @close="showSavedWorkspacesWindow = false"
+          @update-workspace-name="workspaceName = $event"
+          @update-workspace-target-connection-id="workspaceTargetConnectionId = $event"
+          @update-workspace-visibility="workspaceVisibility = $event"
+          @save-workspace="saveWorkspace"
+          @apply-workspace="applyWorkspace"
+          @open-workspace-target="openWorkspaceTarget"
+          @remove-workspace="removeWorkspace">
+        </inventory-saved-workspaces-window>
 
-          <div class="detail-section">
-            <div class="detail-section-title">Workspace Library</div>
-            <div class="stack-list" v-if="savedWorkspaces.length">
-              <div class="stack-item" v-for="workspace in savedWorkspaces" :key="workspace.id">
-                <div>
-                  <strong>{{ workspace.name }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ workspace.scope }} · {{ workspace.query || 'no query filter' }}</div>
-                  <div class="text-muted mono" style="font-size:11px">
-                    {{ resolveWorkspaceTargetLabel(workspace) }}
-                    <span v-if="workspace.updatedAt"> · updated {{ formatDateTime(workspace.updatedAt) }}</span>
-                  </div>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                    <span class="badge" :class="workspace.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(workspace.visibility) }}</span>
-                    <span class="badge badge-info" v-if="workspace.owner_display_name || workspace.owner_username">{{ ownershipLabel(workspace) }}</span>
-                  </div>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
-                  <button class="btn btn-sm" @click="applyWorkspace(workspace)">
-                    <span class="mdi mdi-target-variant"></span>
-                    Apply
-                  </button>
-                  <button class="btn btn-sm"
-                          v-if="workspace.targetConnectionId"
-                          @click="openWorkspaceTarget(workspace)">
-                    <span class="mdi mdi-login-variant"></span>
-                    Open Target
-                  </button>
-                  <button class="btn btn-sm" v-if="workspace.can_manage !== false" @click="removeWorkspace(workspace.id)">
-                    <span class="mdi mdi-delete-outline"></span>
-                    Remove
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-else class="empty-state" style="padding:18px 12px">Save frequent search scopes as reusable operator workspaces.</div>
-          </div>
-        </floating-window>
-
-        <floating-window :show="showConnectionAtlasWindow"
-                         title="Connection Atlas"
-                         :width="820"
-                         :height="560"
-                         @close="showConnectionAtlasWindow = false">
-          <div class="detail-section" style="margin-top:0">
-            <div class="detail-section-title">Saved Targets</div>
-            <div class="stack-list" v-if="safeConnections.length">
-              <div class="stack-item" v-for="connection in safeConnections" :key="connection.id">
-                <div>
-                  <strong>{{ connection.name || 'Saved Target' }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ connection.host || '-' }} · {{ connection.username || '-' }} · :{{ connection.port || 443 }}</div>
-                  <div class="text-muted" style="font-size:12px;margin-top:6px">
-                    {{ connection.is_default ? 'Default saved target' : 'Saved connection target' }}
-                    <span v-if="connection.last_connected_at"> · last used {{ formatDateTime(connection.last_connected_at) }}</span>
-                  </div>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                    <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
-                    <span class="badge badge-info" v-if="connection.owner_display_name || connection.owner_username">{{ ownershipLabel(connection) }}</span>
-                  </div>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
-                  <status-badge :status="isConnectionActive(connection) ? 'connected' : (connection.is_default ? 'success' : 'notice')"></status-badge>
-                  <button class="btn btn-sm"
-                          @click="setDefaultConnection(connection)"
-                          :disabled="connectionDefaultPendingId === connection.id || connection.is_default || connection.can_manage === false">
-                    <span class="mdi mdi-pin-outline"></span>
-                    {{ connection.is_default ? 'Default' : (connectionDefaultPendingId === connection.id ? 'Saving...' : 'Set Default') }}
-                  </button>
-                  <button class="btn btn-sm" @click="openConnectionTarget(connection)">
-                    <span class="mdi mdi-login-variant"></span>
-                    Open Login
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-else class="empty-state" style="padding:18px 12px">No saved connection targets yet.</div>
-            <div class="form-error" v-if="connectionActionError" style="text-align:left">{{ connectionActionError }}</div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section-title">Top Tags</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="badge badge-info inventory-tag-button"
-                      v-for="tag in topTags"
-                      :key="tag.label"
-                      @click="applyTag(tag.label)">
-                {{ tag.label }} · {{ tag.count }}
-              </button>
-            </div>
-            <div v-if="!topTags.length" class="text-muted mono" style="font-size:11px">No tags discovered in the current live inventory.</div>
-          </div>
-        </floating-window>
+        <inventory-connection-atlas-window
+          :show-connection-atlas-window="showConnectionAtlasWindow"
+          :safe-connections="safeConnections"
+          :top-tags="topTags"
+          :connection-default-pending-id="connectionDefaultPendingId"
+          :connection-action-error="connectionActionError"
+          @close="showConnectionAtlasWindow = false"
+          @apply-tag="applyTag"
+          @set-default-connection="setDefaultConnection"
+          @open-connection-target="openConnectionTarget">
+        </inventory-connection-atlas-window>
       </template>
     </div>
   `,
@@ -360,12 +270,6 @@ const InventoryView = {
   },
   methods: {
     formatDateTime,
-    visibilityLabel(visibility) {
-      return buildInventoryVisibilityLabel(visibility);
-    },
-    ownershipLabel(record) {
-      return buildInventoryOwnershipLabel(record);
-    },
     firstTag(tags) {
       return getInventoryFirstTag(tags);
     },
@@ -384,14 +288,8 @@ const InventoryView = {
       this.showResult = false;
       this.selectedResult = null;
     },
-    resolveWorkspaceTargetLabel(workspace) {
-      return resolveInventoryWorkspaceTargetLabel(workspace, this.safeConnections);
-    },
     findAttachedTarget(connection) {
       return findInventoryAttachedTarget(store.connectedTargets || [], connection);
-    },
-    isConnectionActive(connection) {
-      return isInventoryConnectionActive(store.connectedTargets || [], connection);
     },
     async loadSavedWorkspaces() {
       try {

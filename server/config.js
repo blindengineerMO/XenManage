@@ -1,8 +1,10 @@
 require('dotenv').config();
 const path = require('path');
 
-module.exports = {
-  env: process.env.NODE_ENV || 'development',
+const env = process.env.NODE_ENV || 'development';
+
+const config = {
+  env,
   port: parseInt(process.env.PORT, 10) || 3000,
   session: {
     secret: process.env.SESSION_SECRET || 'xenmange-dev-secret-change-me',
@@ -29,3 +31,21 @@ module.exports = {
     requestTimeout: 30000,
   },
 };
+
+// Session secrets and bootstrap credentials fall back to well-known, source-visible
+// defaults for local development convenience. Refuse to boot with those defaults in
+// production, the same way credential-vault.js refuses a missing VAULT_ENCRYPTION_KEY.
+if (env === 'production') {
+  const problems = [];
+  if (!process.env.SESSION_SECRET) {
+    problems.push('SESSION_SECRET must be set (refusing to sign session cookies with the built-in development default).');
+  }
+  if (!process.env.XENMANGE_BOOTSTRAP_PASSWORD) {
+    problems.push('XENMANGE_BOOTSTRAP_PASSWORD must be set (refusing to create the bootstrap admin account with a known default password).');
+  }
+  if (problems.length) {
+    throw new Error(`Insecure production configuration:\n- ${problems.join('\n- ')}`);
+  }
+}
+
+module.exports = config;

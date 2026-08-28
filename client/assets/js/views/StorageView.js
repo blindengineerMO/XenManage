@@ -1,5 +1,12 @@
 const StorageView = {
-  components: { DataTable, FloatingWindow, StatusBadge, StorageSrCreateForm, StorageSrConfigForm, StorageVdiForm, StorageVdiResizeForm },
+  components: {
+    DataTable,
+    FloatingWindow,
+    StatusBadge,
+    StoragePropertiesWindow,
+    StorageCreateSrWindow,
+    StorageWorkspaceDialogs,
+  },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -93,363 +100,73 @@ const StorageView = {
         </template>
       </data-table>
 
-      <floating-window :show="showProps" title="Storage Repository" :width="880" :height="620" @close="clearSelectedStorageDetail">
-        <div v-if="selectedSR">
-          <div class="property-grid">
-            <span class="text-muted">Name</span><span>{{ selectedSR.name_label || '-' }}</span>
-            <span class="text-muted">Description</span><span>{{ selectedSR.name_description || '-' }}</span>
-            <span class="text-muted">Type</span><span>{{ selectedSR.type || '-' }}</span>
-            <span class="text-muted">Physical Size</span><span class="mono">{{ formatBytes(selectedSR.physical_size) }}</span>
-            <span class="text-muted">Virtual Allocation</span><span class="mono">{{ formatBytes(selectedSR.virtual_allocation) }}</span>
-            <span class="text-muted">Local Cache</span><span>{{ selectedSR.local_cache_enabled ? 'Enabled' : 'Disabled' }}</span>
-            <span class="text-muted">Mapped VDIs</span><span>{{ summarizeCount('disks', vdis.length) }}</span>
-            <span class="text-muted">Attachment Paths</span><span>{{ summarizeCount('attachment paths', storageDetailProfile.attachmentPathCount) }}</span>
-            <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('workloads', storageDetailProfile.workloadCount) }}</span>
-            <span class="text-muted">Topology</span><span>{{ storageDetailProfile.topologyLabel }}</span>
-            <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedSR.uuid || '-' }}</span>
-            <span class="text-muted">Tags</span><span>{{ truncateList(selectedSR.tags) }}</span>
-            <span class="text-muted">Other Config</span><span>{{ storageDetailProfile.otherConfigSummary }}</span>
-          </div>
+      <storage-properties-window
+        :show="showProps"
+        :selected-sr="selectedSR"
+        :vdis="vdis"
+        :related-vms="relatedVMs"
+        :storage-detail-profile="storageDetailProfile"
+        :detail-loading="detailLoading"
+        :detail-error="detailError"
+        :detail-action-busy="detailActionBusy"
+        :detail-action-error="detailActionError"
+        :detail-action-message="detailActionMessage"
+        :focused-vdi-ref="focusedVdiRef"
+        :focused-vdi-uuid="focusedVdiUuid"
+        :focused-vbd-ref="focusedVbdRef"
+        :focused-storage-class="focusedStorageClass"
+        @close="clearSelectedStorageDetail"
+        @open-sr-identity="showSrIdentityWindow = true"
+        @open-sr-actions="showSrActionsWindow = true"
+        @open-sr-create-vdi="showSrCreateVdiWindow = true"
+        @open-sr-resize-vdi="showSrResizeVdiWindow = true"
+        @delete-vdi="deleteSelectedVdi"
+        @open-vm-workspace="openVmWorkspace"
+        @open-host-workspace="openHostWorkspace">
+      </storage-properties-window>
 
-          <div class="detail-section" v-if="storageDetailProfile.focusedContext">
-            <div class="detail-section-title">{{ storageDetailProfile.focusedContext.title }}</div>
-            <div class="capacity-callout">
-              <strong>{{ storageDetailProfile.focusedContext.summary }}</strong>
-              <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ storageDetailProfile.focusedContext.detail }}</div>
-            </div>
-          </div>
+      <storage-workspace-dialogs
+        :selected-sr="selectedSR"
+        :storage-detail-profile="storageDetailProfile"
+        :related-vms="relatedVMs"
+        :vdis="vdis"
+        :focused-vdi-ref="focusedVdiRef"
+        :detail-action-busy="detailActionBusy"
+        :local-cache-host-ref="localCacheHostRef"
+        :show-sr-identity-window="showSrIdentityWindow"
+        :show-sr-actions-window="showSrActionsWindow"
+        :show-sr-create-vdi-window="showSrCreateVdiWindow"
+        :show-sr-resize-vdi-window="showSrResizeVdiWindow"
+        @close-sr-identity="showSrIdentityWindow = false"
+        @close-sr-actions="showSrActionsWindow = false"
+        @close-sr-create-vdi="showSrCreateVdiWindow = false"
+        @close-sr-resize-vdi="showSrResizeVdiWindow = false"
+        @submit-sr-config="submitSelectedSrConfig"
+        @apply-detail-storage-action="applyDetailStorageAction"
+        @update:local-cache-host-ref="localCacheHostRef = $event"
+        @toggle-local-cache="toggleSelectedSrLocalCache"
+        @forget-sr="forgetSelectedSr"
+        @destroy-sr="destroySelectedSr"
+        @submit-detached-vdi="submitDetachedVdi"
+        @submit-resize-vdi="submitResizeVdi">
+      </storage-workspace-dialogs>
 
-          <div class="detail-section">
-            <div class="detail-section-title">Storage Operations</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-sm" type="button" @click="showSrIdentityWindow = true">
-                <span class="mdi mdi-card-text-outline"></span>
-                Repository Identity
-              </button>
-              <button class="btn btn-sm" type="button" @click="showSrActionsWindow = true">
-                <span class="mdi mdi-wrench-cog-outline"></span>
-                Repository Actions
-              </button>
-              <button class="btn btn-sm" type="button" @click="showSrCreateVdiWindow = true">
-                <span class="mdi mdi-database-plus-outline"></span>
-                Create Or Attach VDI
-              </button>
-              <button class="btn btn-sm" type="button" @click="showSrResizeVdiWindow = true">
-                <span class="mdi mdi-arrow-expand-horizontal"></span>
-                Resize Existing VDI
-              </button>
-            </div>
-            <div class="text-muted mono" style="font-size:11px;margin-top:10px">
-              {{ selectedSR.type || 'sr' }} · {{ selectedSR.local_cache_enabled ? 'local cache enabled' : 'local cache disabled' }} · {{ summarizeCount('disks', vdis.length) }}
-            </div>
-
-            <div class="form-error" v-if="detailActionError" style="text-align:left;margin-top:12px">{{ detailActionError }}</div>
-            <div class="stack-item" v-else-if="detailActionMessage" style="margin-top:12px">
-              <div>
-                <strong>Storage operation completed</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ detailActionMessage }}</div>
-              </div>
-              <span class="badge badge-running">ready</span>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section-title">Attached VDIs</div>
-            <div class="stack-list">
-              <div class="stack-item" v-if="detailLoading">
-                <span class="loading-spinner"></span>
-                <span class="mono">Loading storage relationships...</span>
-              </div>
-              <div class="stack-item" v-else-if="!vdis.length">
-                <span class="mdi mdi-database-off-outline text-muted"></span>
-                <span class="mono">No VDIs reported for this repository.</span>
-              </div>
-              <div class="stack-item" v-for="vdi in vdis.slice(0, 12)" :key="vdi.ref">
-                <div>
-                  <strong>{{ vdi.name_label || 'Unnamed VDI' }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">
-                    {{ formatBytes(vdi.virtual_size) }} · {{ vdi.type || 'disk' }} · {{ summarizeCount('attachments', getVdiAttachmentCount(vdi)) }}
-                  </div>
-                  <div class="text-muted mono" v-if="getVdiDeleteBlockedReason(vdi)" style="font-size:11px">
-                    {{ getVdiDeleteBlockedReason(vdi) }}
-                  </div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                  <span class="badge badge-running" v-if="isFocusedVdi(vdi)">focused</span>
-                  <span class="badge badge-warning" v-if="getVdiAttachmentCount(vdi)">attached</span>
-                  <span class="badge badge-info">{{ vdi.managed ? 'managed' : 'unmanaged' }}</span>
-                  <button class="btn btn-sm"
-                          :disabled="Boolean(detailActionBusy) || Boolean(getVdiDeleteBlockedReason(vdi))"
-                          @click="deleteSelectedVdi(vdi)">
-                    <span class="mdi mdi-delete-outline"></span>
-                    {{ detailActionBusy === `delete-vdi:${vdi.ref}` ? 'Deleting...' : 'Delete' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section-title">Attachment Topology</div>
-            <div class="stack-list">
-              <div class="stack-item" v-if="detailLoading">
-                <span class="loading-spinner"></span>
-                <span class="mono">Correlating VBD attachments with workloads and resident hosts...</span>
-              </div>
-              <div class="stack-item" v-else-if="detailError">
-                <div>
-                  <strong>Topology mapping unavailable</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ detailError }}</div>
-                </div>
-                <span class="badge badge-error">error</span>
-              </div>
-              <div class="stack-item" v-else-if="!storageDetailProfile.attachmentRows.length">
-                <span class="mdi mdi-connection text-muted"></span>
-                <span class="mono">No workload attachment topology was resolved for this repository.</span>
-              </div>
-              <div class="stack-item" v-for="row in storageDetailProfile.attachmentRows" :key="row.id">
-                <div>
-                  <strong>{{ row.vdiName }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ row.vbdRef || 'No VBD ref' }} · {{ row.vmName }}</div>
-                  <div class="text-muted mono" style="font-size:11px">{{ row.hostName }} · {{ row.detail }}</div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-                  <span class="badge badge-running" v-if="isFocusedAttachment(row)">focused attachment</span>
-                  <button class="btn btn-sm" v-if="row.vmRef" @click="openVmWorkspace(row)">
-                    <span class="mdi mdi-open-in-app"></span>
-                    Open VM
-                  </button>
-                  <button class="btn btn-sm" v-if="row.hostRef" @click="openHostWorkspace(row)">
-                    <span class="mdi mdi-server-outline"></span>
-                    Open Host
-                  </button>
-                  <status-badge :status="row.status"></status-badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showSrIdentityWindow"
-                       title="Repository Identity"
-                       :width="760"
-                       :height="520"
-                       @close="showSrIdentityWindow = false">
-        <div class="detail-section" v-if="selectedSR">
-          <div class="detail-title">Repository Metadata</div>
-          <p class="text-muted" style="margin-bottom:12px">Update the operator-facing repository name, description, and tag set without leaving the Storage detail workspace.</p>
-          <storage-sr-config-form
-            :initial-value="selectedSR"
-            :submit-label="'Save Repository Metadata'"
-            :saving="detailActionBusy === 'config'"
-            @submit="submitSelectedSrConfig">
-          </storage-sr-config-form>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showSrActionsWindow"
-                       title="Repository Actions"
-                       :width="760"
-                       :height="560"
-                       @close="showSrActionsWindow = false">
-        <div class="detail-section" v-if="selectedSR">
-          <div class="detail-title">Repository Action Rail</div>
-          <p class="text-muted" style="margin-bottom:12px">Refresh the selected SR so new LUNs, scan results, or detached disk records are visible immediately inside this workspace.</p>
-          <div class="stack-list" style="margin-bottom:12px">
-            <div class="stack-item">
-              <div>
-                <strong>{{ selectedSR.name_label || 'Selected repository' }}</strong>
-                <div class="text-muted mono" style="font-size:11px">
-                  {{ selectedSR.uuid || selectedSR.ref || 'SR ref unavailable' }} · {{ formatBytes(selectedSR.virtual_allocation) }} allocated
-                </div>
-              </div>
-              <span class="badge badge-info">{{ selectedSR.type || 'sr' }}</span>
-            </div>
-            <div class="stack-item" v-if="selectedSR.other_config?.last_rescan_at">
-              <div>
-                <strong>Last Rescan</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ selectedSR.other_config.last_rescan_at }}</div>
-              </div>
-              <span class="badge badge-running">tracked</span>
-            </div>
-            <div class="stack-item" v-if="selectedSR.other_config?.last_repair_at">
-              <div>
-                <strong>Last Repair</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ selectedSR.other_config.last_repair_at }}</div>
-              </div>
-              <span class="badge badge-info">tracked</span>
-            </div>
-            <div class="stack-item">
-              <div>
-                <strong>Local Cache</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ storageDetailProfile.localCacheSummary }}</div>
-              </div>
-              <span class="badge" :class="selectedSR.local_cache_enabled ? 'badge-running' : 'badge-info'">
-                {{ selectedSR.local_cache_enabled ? 'enabled' : 'disabled' }}
-              </span>
-            </div>
-          </div>
-          <div class="form-group" v-if="storageDetailProfile.accessHosts.length" style="margin-bottom:12px">
-            <label for="storage-local-cache-host">Cache Host Path</label>
-            <select id="storage-local-cache-host"
-                    class="form-input"
-                    v-model="localCacheHostRef"
-                    :disabled="Boolean(detailActionBusy) || !storageDetailProfile.accessHosts.length">
-              <option v-for="host in storageDetailProfile.accessHosts" :key="host.ref" :value="host.ref">
-                {{ host.name_label || host.address || host.ref }} · {{ host.address || host.uuid || 'no address' }}
-              </option>
-            </select>
-          </div>
-          <button class="form-btn"
-                  type="button"
-                  :disabled="Boolean(detailActionBusy)"
-                  @click="applyDetailStorageAction('rescan')">
-            <span class="mdi mdi-refresh-circle"></span>
-            {{ detailActionBusy === 'rescan' ? 'Rescanning...' : 'Rescan Repository' }}
-          </button>
-          <button class="btn btn-sm"
-                  type="button"
-                  style="margin-top:10px"
-                  :disabled="Boolean(detailActionBusy)"
-                  @click="applyDetailStorageAction('repair')">
-            <span class="mdi mdi-wrench-outline"></span>
-            {{ detailActionBusy === 'repair' ? 'Repairing...' : 'Repair Repository' }}
-          </button>
-          <button class="btn btn-sm"
-                  type="button"
-                  style="margin-top:10px"
-                  :disabled="Boolean(detailActionBusy) || Boolean(storageDetailProfile.localCacheBlockedReason)"
-                  @click="toggleSelectedSrLocalCache">
-            <span class="mdi mdi-cached"></span>
-            {{ detailActionBusy === 'local-cache' ? 'Applying Cache Change...' : (selectedSR.local_cache_enabled ? 'Disable Local Cache' : 'Enable Local Cache') }}
-          </button>
-          <div class="text-muted mono" v-if="storageDetailProfile.localCacheBlockedReason" style="font-size:11px;margin-top:10px">
-            {{ storageDetailProfile.localCacheBlockedReason }}
-          </div>
-          <button class="btn btn-sm"
-                  type="button"
-                  style="margin-top:10px"
-                  :disabled="Boolean(detailActionBusy)"
-                  @click="forgetSelectedSr">
-            <span class="mdi mdi-database-remove-outline"></span>
-            {{ detailActionBusy === 'forget-sr' ? 'Forgetting...' : 'Forget Repository' }}
-          </button>
-          <button class="btn btn-sm"
-                  type="button"
-                  style="margin-top:10px"
-                  :disabled="Boolean(detailActionBusy) || Boolean(storageDetailProfile.destroyBlockedReason)"
-                  @click="destroySelectedSr">
-            <span class="mdi mdi-delete-forever-outline"></span>
-            {{ detailActionBusy === 'destroy-sr' ? 'Destroying...' : 'Destroy Repository' }}
-          </button>
-          <div class="text-muted mono" v-if="storageDetailProfile.destroyBlockedReason" style="font-size:11px;margin-top:10px">
-            {{ storageDetailProfile.destroyBlockedReason }}
-          </div>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showSrCreateVdiWindow"
-                       title="Create Or Attach VDI"
-                       :width="760"
-                       :height="520"
-                       @close="showSrCreateVdiWindow = false">
-        <div class="detail-section" v-if="selectedSR">
-          <div class="detail-title">VDI Provisioning</div>
-          <p class="text-muted" style="margin-bottom:12px">Provision a standalone VDI on this repository or attach new capacity directly to a selected workload without leaving the Storage detail workspace.</p>
-          <storage-vdi-form
-            :sr="selectedSR"
-            :vm-options="relatedVMs"
-            :saving="detailActionBusy === 'create-vdi'"
-            :submit-label="'Create VDI'"
-            @submit="submitDetachedVdi">
-          </storage-vdi-form>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showSrResizeVdiWindow"
-                       title="Resize Existing VDI"
-                       :width="760"
-                       :height="520"
-                       @close="showSrResizeVdiWindow = false">
-        <div class="detail-section" v-if="selectedSR">
-          <div class="detail-title">VDI Capacity Change</div>
-          <p class="text-muted" style="margin-bottom:12px">Adjust the capacity of a VDI already tracked by this repository without leaving the Storage detail workspace.</p>
-          <storage-vdi-resize-form
-            :vdi-options="vdis"
-            :focused-vdi-ref="focusedVdiRef"
-            :attachment-counts="storageDetailProfile.attachmentCounts"
-            :saving="detailActionBusy === 'resize-vdi'"
-            :submit-label="'Resize VDI'"
-            @submit="submitResizeVdi">
-          </storage-vdi-resize-form>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showCreateSrWindow"
-                       title="Create Storage Repository"
-                       :width="860"
-                       :height="620"
-                       @close="showCreateSrWindow = false">
-        <div class="detail-section">
-          <div class="detail-title">Provision Or Probe Repository</div>
-          <p class="text-muted" style="margin-bottom:12px">Provision a new SR against NFS, iSCSI, local EXT, or local LVM, or probe an existing target to discover imported repository details before you create.</p>
-          <storage-sr-create-form
-            :hosts="availableHosts"
-            :saving="createSrBusy"
-            :probe-saving="createSrProbeBusy"
-            :submit-label="'Create Storage Repository'"
-            @submit="submitStorageRepository"
-            @probe="probeStorageRepository">
-          </storage-sr-create-form>
-          <div class="form-error" v-if="createSrError" style="text-align:left;margin-top:12px">{{ createSrError }}</div>
-          <div class="form-error" v-if="createSrProbeError" style="text-align:left;margin-top:12px">{{ createSrProbeError }}</div>
-          <div class="form-error" v-if="createSrImportError" style="text-align:left;margin-top:12px">{{ createSrImportError }}</div>
-          <div class="detail-section" v-if="createSrProbeResult" style="margin-top:16px">
-            <div class="detail-section-title">Probe Discovery</div>
-            <div class="stack-list">
-              <div class="stack-item">
-                <div>
-                  <strong>{{ createSrProbeResult.mode === 'probe_ext' ? 'Structured repository probe returned' : 'Legacy repository probe returned' }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ describeSrProbeSummary(createSrProbeResult) }}</div>
-                </div>
-                <span class="badge" :class="createSrProbeResult.mode === 'probe_ext' ? 'badge-running' : 'badge-warning'">
-                  {{ createSrProbeResult.mode === 'probe_ext' ? 'structured' : 'legacy xml' }}
-                </span>
-              </div>
-              <div class="stack-item" v-for="(result, index) in createSrProbeResult.results" :key="result.sr?.uuid || result.sr?.name_label || ('probe-' + index)">
-                <div>
-                  <strong>{{ result.sr?.name_label || ('Candidate ' + (index + 1)) }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">
-                    {{ result.complete ? 'Complete create-ready configuration discovered.' : 'Partial configuration returned. Refine the probe inputs and probe again.' }}
-                  </div>
-                  <div class="text-muted mono" style="font-size:11px">{{ formatProbeMap(result.configuration) || 'No configuration hints were returned.' }}</div>
-                  <div class="text-muted mono" v-if="formatProbeMap(result.extraInfo)" style="font-size:11px">{{ formatProbeMap(result.extraInfo) }}</div>
-                  <div class="text-muted mono" v-if="result.sr" style="font-size:11px">{{ formatProbeSrStat(result.sr) }}</div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                  <span class="badge badge-running" v-if="result.complete">complete</span>
-                  <span class="badge badge-warning" v-else>partial</span>
-                  <span class="badge badge-info" v-if="result.sr?.health">{{ result.sr.health }}</span>
-                  <button class="btn btn-sm btn-primary"
-                          type="button"
-                          v-if="canIntroduceProbedSr(result)"
-                          :disabled="Boolean(createSrImportBusyKey)"
-                          @click="introduceProbedSr(result, index)">
-                    <span class="mdi mdi-database-import-outline"></span>
-                    {{ createSrImportBusyKey === buildProbeResultKey(result, index) ? 'Introducing...' : 'Introduce Or Attach' }}
-                  </button>
-                </div>
-              </div>
-              <div class="capacity-callout" v-if="createSrProbeResult.rawXml">
-                <strong>Legacy backend probe output</strong>
-                <div class="text-muted mono" style="font-size:11px;margin-top:8px">This Xen host returned backend-specific XML rather than structured probe records. Review it to refine device configuration or identify an imported SR before creating a new repository.</div>
-                <pre class="mono" style="margin-top:10px;white-space:pre-wrap;max-height:220px;overflow:auto">{{ createSrProbeResult.rawXml }}</pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </floating-window>
+      <storage-create-sr-window
+        :show="showCreateSrWindow"
+        :available-hosts="availableHosts"
+        :create-sr-busy="createSrBusy"
+        :create-sr-probe-busy="createSrProbeBusy"
+        :create-sr-error="createSrError"
+        :create-sr-probe-error="createSrProbeError"
+        :create-sr-import-error="createSrImportError"
+        :create-sr-probe-result="createSrProbeResult"
+        :create-sr-probe-request="createSrProbeRequest"
+        :create-sr-import-busy-key="createSrImportBusyKey"
+        @close="showCreateSrWindow = false"
+        @submit="submitStorageRepository"
+        @probe="probeStorageRepository"
+        @introduce-probed-sr="introduceProbedSr">
+      </storage-create-sr-window>
     </div>
   `,
   data() {
@@ -1158,19 +875,6 @@ const StorageView = {
         this.detailActionBusy = '';
       }
     },
-    getVdiAttachmentCount(vdi) {
-      const refs = new Set(Array.isArray(vdi?.VBDs) ? vdi.VBDs : []);
-      if (!refs.size) return 0;
-
-      return this.relatedVMs.filter((vm) =>
-        Array.isArray(vm.VBDs) && vm.VBDs.some((ref) => refs.has(ref))
-      ).length;
-    },
-    getVdiDeleteBlockedReason(vdi) {
-      const attachmentCount = this.getVdiAttachmentCount(vdi);
-      if (!attachmentCount) return '';
-      return `Delete is limited to detached VDIs. ${attachmentCount} workload attachment${attachmentCount === 1 ? '' : 's'} still map to this disk.`;
-    },
     describeSrProbeSummary(result) {
       if (!result) return '';
 
@@ -1211,19 +915,6 @@ const StorageView = {
       }
 
       return parts.join(' · ');
-    },
-    isFocusedVdi(vdi) {
-      return recordMatchesRouteFocus(vdi, {
-        ref: this.focusedVdiRef,
-        uuid: this.focusedVdiUuid,
-        name: '',
-        kind: 'storage',
-        cls: '',
-        source: 'focus',
-      }, ['ref', 'uuid', 'name_label'], this.focusedVdiRef ? (vdi.VBDs || []) : []);
-    },
-    isFocusedAttachment(row) {
-      return normalizeFocusValue(row?.vbdRef) === normalizeFocusValue(this.focusedVbdRef);
     },
     openVmWorkspace(row) {
       if (!row?.vmRef) return;
