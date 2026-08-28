@@ -8114,6 +8114,49 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.locator('.vm-stat-chips').getByText('alpha-xen-west', { exact: true })).toBeVisible();
 });
 
+test('lifecycle workspace supports selected-row maintenance and plan-clear batching', async ({ page }) => {
+  const fixtures = await stubAuthenticatedRoutes(page);
+
+  await signInAndConnectDefaultTarget(page);
+
+  await page.getByText('Lifecycle').first().click();
+  await expect(page).toHaveURL(/\/lifecycle$/);
+
+  await page.locator('.dash-card').filter({ hasText: 'Compliance Queue' }).locator('.data-table').getByText('alpha-xen', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Edit Lifecycle Plan' })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit Lifecycle Plan' }).click();
+  const lifecyclePlanWindow = getFloatingWindowByTitle(page, 'Lifecycle Plan');
+  await lifecyclePlanWindow.getByLabel('Target Stage').selectOption('maintenance');
+  await lifecyclePlanWindow.getByLabel('Next Action').selectOption('reboot');
+  await lifecyclePlanWindow.getByLabel('Maintenance Window').fill('Sun 02:00');
+  await lifecyclePlanWindow.getByLabel('Owner').fill('Platform Ops');
+  await lifecyclePlanWindow.getByLabel('Evacuate workloads before work begins').evaluate((element) => { element.click(); });
+  await lifecyclePlanWindow.getByRole('button', { name: 'Save Lifecycle Plan' }).click();
+  await expect.poll(() => fixtures.lifecyclePlans.find((plan) => plan.hostRef === 'OpaqueRef:host1')?.targetStage || '').toBe('maintenance');
+  await lifecyclePlanWindow.locator('.fw-close').click();
+  await getFloatingWindowByTitle(page, 'Lifecycle Detail').locator('.fw-close').click();
+
+  await page.getByLabel('Select alpha-xen').check();
+  await expect(page.getByText('1 lifecycle targets selected')).toBeVisible();
+  await expect(page.getByText('1 saved plan · 1 ready for maintenance')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Enter Maintenance Selected (1)' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(true);
+  await expect(page.getByText('1 selected host entered maintenance mode from the lifecycle queue.')).toBeVisible();
+  await expect(page.getByText('1 already in maintenance')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Exit Maintenance Selected (1)' }).click();
+  await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(false);
+  await expect(page.getByText('1 selected host exited maintenance mode from the lifecycle queue.')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Clear Selected Plans (1)' }).click();
+  await expect.poll(() => fixtures.lifecyclePlans.find((plan) => plan.hostRef === 'OpaqueRef:host1') || null).toBeNull();
+  await expect(page.getByText('1 selected lifecycle plan was cleared from the maintenance planner queue.')).toBeVisible();
+});
+
 test('settings workspace saves runtime configuration and previews retention', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 

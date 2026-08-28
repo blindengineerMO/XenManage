@@ -342,3 +342,11 @@ function resolveFocusedNetworkTarget(networks = [], focus = null) {
 
   return null;
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildNetworkSelectionProfile,
+    buildSelectedNetworkDestroyBlockedReason,
+    buildBulkNetworkDestroyMessage,
+  };
+}

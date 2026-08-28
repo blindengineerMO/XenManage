@@ -43,7 +43,7 @@ const DataTable = {
               <td v-if="selectable" @click.stop>
                 <input type="checkbox"
                        :checked="isSelected(row, index)"
-                       :aria-label="'Select ' + String(row.summary || row.name_label || row.ref || index)"
+                       :aria-label="'Select ' + String(row.name_label || row.name || row.summary || row.ref || index)"
                        @click.stop="toggleRowSelection(row, index)">
               </td>
               <td v-for="column in columns" :key="column.key">

@@ -1,5 +1,6 @@
 const LifecycleView = {
   components: {
+    DataTable,
     FloatingWindow,
     StatusBadge,
     'lifecycle-plan-form': LifecyclePlanForm,
@@ -33,6 +34,14 @@ const LifecycleView = {
           </div>
         </div>
 
+        <div class="stack-item" v-if="workspaceMessage" style="margin-bottom:16px">
+          <div>
+            <strong>Workspace updated</strong>
+            <div class="text-muted mono" style="font-size:11px">{{ workspaceMessage }}</div>
+          </div>
+          <span class="badge badge-running">ready</span>
+        </div>
+
         <div class="dashboard-hero lifecycle-hero">
           <div>
             <div class="dash-card-label">Lifecycle Manager</div>
@@ -64,23 +73,76 @@ const LifecycleView = {
           </div>
         </div>
 
+        <div class="dash-card" v-if="selectedLifecycleProfile.rows.length" style="margin-bottom:16px">
+          <div class="dash-card-label">Batch Lifecycle Actions</div>
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+            <div>
+              <strong>{{ selectedLifecycleProfile.rows.length }} lifecycle targets selected</strong>
+              <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ selectedLifecycleProfile.summary }}</div>
+            </div>
+            <div class="dashboard-hero-rail" style="gap:8px">
+              <button class="btn btn-sm btn-primary"
+                      v-if="selectedLifecycleProfile.maintenanceReadyRows.length"
+                      :disabled="Boolean(bulkActionBusy)"
+                      @click="applyBulkLifecycleAction('maintenance-enter')">
+                <span class="mdi mdi-wrench-clock"></span>
+                {{ bulkActionBusy === 'maintenance-enter' ? 'Applying...' : `Enter Maintenance Selected (${selectedLifecycleProfile.maintenanceReadyRows.length})` }}
+              </button>
+              <button class="btn btn-sm"
+                      v-if="selectedLifecycleProfile.maintenanceActiveRows.length"
+                      :disabled="Boolean(bulkActionBusy)"
+                      @click="applyBulkLifecycleAction('maintenance-exit')">
+                <span class="mdi mdi-playlist-check"></span>
+                {{ bulkActionBusy === 'maintenance-exit' ? 'Applying...' : `Exit Maintenance Selected (${selectedLifecycleProfile.maintenanceActiveRows.length})` }}
+              </button>
+              <button class="btn btn-sm"
+                      v-if="selectedLifecycleProfile.plannedRows.length"
+                      :disabled="Boolean(bulkActionBusy)"
+                      @click="applyBulkLifecycleAction('clear-plans')">
+                <span class="mdi mdi-delete-outline"></span>
+                {{ bulkActionBusy === 'clear-plans' ? 'Clearing...' : `Clear Selected Plans (${selectedLifecycleProfile.plannedRows.length})` }}
+              </button>
+              <button class="btn btn-sm" :disabled="Boolean(bulkActionBusy)" @click="clearLifecycleSelection">Clear Selection</button>
+            </div>
+          </div>
+          <div class="form-error" v-if="bulkError" style="text-align:left;margin-top:12px">{{ bulkError }}</div>
+        </div>
+
         <div class="dashboard-panels">
           <div class="dash-card">
             <div class="dash-card-label">Compliance Queue</div>
-            <div class="stack-list" v-if="hostLifecycleRows.length">
-              <button class="stack-item stack-item-button"
-                      v-for="row in hostLifecycleRows"
-                      :key="row.ref"
-                      @click="openInspector(row)">
-                <div class="capacity-item-main">
-                  <strong>{{ row.name_label || row.hostname || 'Host' }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ row.address || row.uuid || row.ref }} · {{ row.maintenanceWindow }}</div>
-                  <div class="text-muted mono" style="font-size:11px">{{ row.planLabel }}</div>
-                  <div class="text-muted" style="font-size:12px;margin-top:6px">{{ row.summary }}</div>
+            <data-table v-if="hostLifecycleRows.length"
+                        :columns="columns"
+                        :data="hostLifecycleRows"
+                        :loading="false"
+                        :searchable="true"
+                        :selectable="true"
+                        :selected-keys="selectedLifecycleRefs"
+                        row-key="ref"
+                        @selection-change="handleLifecycleSelectionChange"
+                        @row-click="openInspector">
+              <template #cell-name_label="{ row }">
+                <div>
+                  <strong style="color:var(--text-primary)">{{ row.name_label || row.hostname || 'Host' }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ row.address || row.uuid || row.ref }}</div>
                 </div>
+              </template>
+              <template #cell-lifecycleStatus="{ row }">
                 <status-badge :status="row.lifecycleStatus"></status-badge>
-              </button>
-            </div>
+              </template>
+              <template #cell-maintenanceWindow="{ row }">
+                <span class="mono">{{ row.maintenanceWindow }}</span>
+              </template>
+              <template #cell-planLabel="{ row }">
+                <div>
+                  <div class="mono" style="font-size:11px">{{ row.planLabel }}</div>
+                  <div class="text-muted" style="font-size:12px;margin-top:4px">{{ row.summary }}</div>
+                </div>
+              </template>
+              <template #cell-nextAction="{ row }">
+                <span>{{ formatActionLabel(row.nextAction) }}</span>
+              </template>
+            </data-table>
             <div v-else class="empty-state" style="padding:20px 12px">No hosts reported.</div>
           </div>
 
@@ -404,7 +466,18 @@ const LifecycleView = {
       plannerSeed: null,
       plannerLaunchMode: 'plan',
       plannerSourceTask: null,
+      workspaceMessage: '',
+      selectedLifecycleRefs: [],
+      bulkActionBusy: '',
+      bulkError: null,
       lastAppliedFocusKey: '',
+      columns: [
+        { key: 'name_label', label: 'Host' },
+        { key: 'lifecycleStatus', label: 'Status' },
+        { key: 'maintenanceWindow', label: 'Maintenance Window' },
+        { key: 'planLabel', label: 'Lifecycle Plan' },
+        { key: 'nextAction', label: 'Next Action' },
+      ],
     };
   },
   computed: {
@@ -447,6 +520,12 @@ const LifecycleView = {
     },
     hostLifecycleRows() {
       return this.lifecycleWorkspaceModel.hostLifecycleRows;
+    },
+    selectedLifecycleRows() {
+      return filterSelectedLifecycleRows(this.hostLifecycleRows, this.selectedLifecycleRefs);
+    },
+    selectedLifecycleProfile() {
+      return buildLifecycleSelectionProfile(this.hostLifecycleRows, this.selectedLifecycleRefs);
     },
     selectedHost() {
       if (!this.selectedHostRef) return null;
@@ -532,6 +611,10 @@ const LifecycleView = {
       async handler() {
         await this.syncRouteFocus();
       },
+    },
+    hostLifecycleRows() {
+      const validRefs = new Set(this.hostLifecycleRows.map((row) => row.ref).filter(Boolean));
+      this.selectedLifecycleRefs = this.selectedLifecycleRefs.filter((ref) => validRefs.has(ref));
     },
   },
   methods: {
@@ -694,6 +777,33 @@ const LifecycleView = {
     },
     taskCompletionCriteria(task) {
       return Array.isArray(task?.completion_criteria) ? task.completion_criteria : [];
+    },
+    handleLifecycleSelectionChange(keys) {
+      this.selectedLifecycleRefs = Array.isArray(keys) ? keys : [];
+      this.bulkError = null;
+    },
+    clearLifecycleSelection() {
+      this.selectedLifecycleRefs = [];
+      this.bulkError = null;
+    },
+    buildBulkLifecycleMaintenancePayload(host) {
+      const hostPool = resolveHostPool(host, this.relatedPools);
+      const hostNetworkRecords = buildSelectedHostNetworkRecords(host, this.relatedNetworks, hostPool);
+      const maintenanceNetworkOptions = buildHostMaintenanceNetworkOptions(hostPool, hostNetworkRecords, this.relatedNetworks);
+      const draft = buildHostMaintenanceActionDraft(hostPool, maintenanceNetworkOptions);
+      return {
+        ...draft,
+        evacuateRunningVms: host.lifecyclePlan?.evacuationRequired !== false,
+      };
+    },
+    async resolveLifecyclePlanDeleteApproval(target) {
+      return resolveGovernanceApproval({
+        actionKey: 'lifecycle_plan_delete',
+        entityType: 'host',
+        entityRef: target.ref,
+        entityName: target.name_label || target.hostname || target.address || 'Host lifecycle plan',
+        route: '/lifecycle',
+      });
     },
     relatedAutomationTasks(host) {
       return this.lifecycleAutomationTasks.filter((task) => this.hostMatchesTask(host, task)).slice(0, 4);
@@ -932,6 +1042,89 @@ const LifecycleView = {
         this.plannerActionBusy = '';
       }
     },
+    async applyBulkLifecycleAction(action) {
+      const isEnter = action === 'maintenance-enter';
+      const isExit = action === 'maintenance-exit';
+      const isClearPlans = action === 'clear-plans';
+      if (!isEnter && !isExit && !isClearPlans) return;
+
+      const targets = isEnter
+        ? this.selectedLifecycleProfile.maintenanceReadyRows
+        : isExit
+          ? this.selectedLifecycleProfile.maintenanceActiveRows
+          : this.selectedLifecycleProfile.plannedRows;
+
+      if (!targets.length) {
+        this.bulkError = isEnter
+          ? 'No selected lifecycle targets are currently ready to enter maintenance mode.'
+          : isExit
+            ? 'No selected lifecycle targets are currently in maintenance mode.'
+            : 'No selected lifecycle plans are available to clear.';
+        return;
+      }
+
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(
+          isEnter
+            ? `Enter maintenance mode for ${targets.length} selected host${targets.length === 1 ? '' : 's'} from the lifecycle queue?`
+            : isExit
+              ? `Exit maintenance mode for ${targets.length} selected host${targets.length === 1 ? '' : 's'} from the lifecycle queue?`
+              : `Clear ${targets.length} selected lifecycle plan${targets.length === 1 ? '' : 's'}?`
+        );
+      if (!confirmed) return;
+
+      this.workspaceMessage = '';
+      this.bulkError = null;
+      this.bulkActionBusy = action;
+      let completed = 0;
+      let approvalDraft = null;
+
+      try {
+        for (const target of targets) {
+          try {
+            if (isEnter) {
+              await api.enterHostMaintenance(target.ref, this.buildBulkLifecycleMaintenancePayload(target));
+            } else if (isExit) {
+              await api.exitHostMaintenance(target.ref);
+            } else {
+              const approvalId = await this.resolveLifecyclePlanDeleteApproval(target);
+              await api.deleteLifecyclePlan(target.ref, approvalId ? { approvalId } : null);
+            }
+            completed += 1;
+          } catch (error) {
+            approvalDraft = error.code === 'APPROVAL_REQUIRED' ? error.approvalDraft : null;
+            this.bulkError = completed
+              ? `Processed ${completed} lifecycle target(s) before stopping: ${error.message || 'Unable to continue the selected lifecycle action.'}`
+              : (error.message || 'Unable to continue the selected lifecycle action.');
+            break;
+          }
+        }
+      } finally {
+        this.bulkActionBusy = '';
+      }
+
+      if (completed) {
+        await this.loadLifecycle();
+        if (isEnter) {
+          this.workspaceMessage = `${completed} selected host${completed === 1 ? '' : 's'} entered maintenance mode from the lifecycle queue.`;
+        } else if (isExit) {
+          this.workspaceMessage = `${completed} selected host${completed === 1 ? '' : 's'} exited maintenance mode from the lifecycle queue.`;
+        } else {
+          this.workspaceMessage = completed === 1
+            ? '1 selected lifecycle plan was cleared from the maintenance planner queue.'
+            : `${completed} selected lifecycle plans were cleared from the maintenance planner queue.`;
+        }
+      }
+
+      if (approvalDraft) {
+        await handoffToGovernanceApproval(
+          this.$router,
+          approvalDraft,
+          'Approval required before clearing one or more selected lifecycle plans.'
+        );
+      }
+    },
     async deletePlan(row) {
       const target = row?.ref ? row : this.selectedHost;
       if (!target?.ref) return;
@@ -939,13 +1132,7 @@ const LifecycleView = {
       this.planSaving = true;
       this.planError = null;
       try {
-        const approvalId = await resolveGovernanceApproval({
-          actionKey: 'lifecycle_plan_delete',
-          entityType: 'host',
-          entityRef: target.ref,
-          entityName: target.name_label || target.hostname || target.address || 'Host lifecycle plan',
-          route: '/lifecycle',
-        });
+        const approvalId = await this.resolveLifecyclePlanDeleteApproval(target);
         await api.deleteLifecyclePlan(target.ref, approvalId ? { approvalId } : null);
         await this.loadLifecycle();
       } catch (error) {
