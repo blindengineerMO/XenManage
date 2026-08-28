@@ -1,11 +1,9 @@
 const SettingsView = {
   components: {
     DataTable,
-    FloatingWindow,
     StatusBadge,
-    CredentialVaultForm,
+    SettingsWorkspaceDialogs,
     'system-config-section-form': SystemConfigSectionForm,
-    'retention-policy-form': RetentionPolicyForm,
   },
   template: `
     <div class="animate-fade-in">
@@ -381,76 +379,25 @@ const SettingsView = {
         <div class="form-error" v-if="pageError" style="margin-top:16px">{{ pageError }}</div>
       </template>
 
-      <floating-window :show="showPolicyEditor"
-                       title="Retention Policy"
-                       :width="720"
-                       :height="500"
-                       @close="closePolicyEditor">
-        <div v-if="selectedPolicy">
-          <div class="detail-section">
-            <div class="detail-section-title">{{ selectedPolicy.label }}</div>
-            <div class="capacity-callout">
-              <strong>{{ selectedPolicy.description }}</strong>
-              <div class="text-muted mono" style="font-size:11px;margin-top:8px">
-                Domain key {{ selectedPolicy.domain }} · Last run {{ selectedPolicy.lastRunAt ? formatDateTime(selectedPolicy.lastRunAt) : 'never' }}
-              </div>
-            </div>
-          </div>
-
-          <retention-policy-form
-            :initial-value="selectedPolicy"
-            :saving="policySaving"
-            submit-label="Save Retention Policy"
-            @submit="savePolicy">
-          </retention-policy-form>
-
-          <div class="form-actions" style="margin-top:12px">
-            <button class="btn" :disabled="previewLoading" @click="previewRetention(selectedPolicy.domain)">
-              <span class="mdi mdi-magnify-scan"></span>
-              Preview This Domain
-            </button>
-            <button class="btn btn-primary" :disabled="runLoading" @click="runRetention(selectedPolicy.domain)">
-              <span class="mdi mdi-broom"></span>
-              Run This Domain
-            </button>
-          </div>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showCredentialEditor"
-                       :title="editingCredentialId ? 'Edit Vault Credential' : 'Add Vault Credential'"
-                       :width="620"
-                       :height="520"
-                       @close="closeCredentialEditor">
-        <div>
-          <div class="detail-section" v-if="editingCredentialId">
-            <div class="detail-section-title">Credential Activity</div>
-            <div class="property-grid">
-              <span class="text-muted">Last Used</span><span>{{ credentialDraft?.lastUsedAt ? formatDateTime(credentialDraft.lastUsedAt) : 'Never' }}</span>
-              <span class="text-muted">Updated</span><span>{{ credentialDraft?.updatedAt ? formatDateTime(credentialDraft.updatedAt) : formatDateTime(credentialDraft?.createdAt) }}</span>
-              <span class="text-muted">Scope</span><span>{{ credentialDraft?.scope === 'shared' ? 'Shared' : 'Private' }}</span>
-              <span class="text-muted">Target Type</span><span>{{ credentialDraft?.targetType === 'host' ? 'Host' : 'Pool' }}</span>
-            </div>
-          </div>
-
-          <credential-vault-form
-            :initial-value="credentialDraft"
-            :saving="credentialSaving"
-            :mode="editingCredentialId ? 'edit' : 'create'"
-            :submit-label="editingCredentialId ? 'Save Credential Changes' : 'Save Vault Credential'"
-            @submit="saveCredential">
-          </credential-vault-form>
-
-          <div class="form-actions" v-if="editingCredentialId" style="margin-top:12px">
-            <button class="btn"
-                    :disabled="credentialDeleteId === editingCredentialId"
-                    @click="removeCredential(credentialDraft)">
-              <span class="mdi" :class="credentialDeleteId === editingCredentialId ? 'mdi-loading mdi-spin' : 'mdi-delete-outline'"></span>
-              {{ credentialDeleteId === editingCredentialId ? 'Removing...' : 'Delete Credential' }}
-            </button>
-          </div>
-        </div>
-      </floating-window>
+      <settings-workspace-dialogs
+        :show-policy-editor="showPolicyEditor"
+        :selected-policy="selectedPolicy"
+        :policy-saving="policySaving"
+        :preview-loading="previewLoading"
+        :run-loading="runLoading"
+        :show-credential-editor="showCredentialEditor"
+        :editing-credential-id="editingCredentialId"
+        :credential-draft="credentialDraft"
+        :credential-saving="credentialSaving"
+        :credential-delete-id="credentialDeleteId"
+        @close-policy-editor="closePolicyEditor"
+        @save-policy="savePolicy"
+        @preview-retention="previewRetention"
+        @run-retention="runRetention"
+        @close-credential-editor="closeCredentialEditor"
+        @save-credential="saveCredential"
+        @remove-credential="removeCredential">
+      </settings-workspace-dialogs>
     </div>
   `,
   data() {

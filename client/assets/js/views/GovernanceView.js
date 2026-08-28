@@ -1,13 +1,8 @@
 const GovernanceView = {
   components: {
-    FloatingWindow,
     StatusBadge,
     'governance-policy-form': GovernancePolicyForm,
-    'governance-quota-form': GovernanceQuotaForm,
-    'governance-approval-form': GovernanceApprovalForm,
-    'local-user-form': LocalUserForm,
-    'local-group-form': LocalGroupForm,
-    'user-password-form': UserPasswordForm,
+    GovernanceWorkspaceDialogs,
   },
   template: `
     <div class="animate-fade-in">
@@ -310,197 +305,49 @@ const GovernanceView = {
           </div>
         </div>
 
-        <floating-window :show="showQuotaEditor"
-                         title="Pool Quota"
-                         :width="720"
-                         :height="560"
-                         @close="closeQuotaEditor">
-          <div v-if="selectedQuotaRow">
-            <div class="detail-section" v-if="quotaError">
-              <div class="capacity-callout">
-                <strong>{{ quotaError }}</strong>
-              </div>
-            </div>
-            <governance-quota-form
-              :initial-value="selectedQuotaRow.quota || {}"
-              :pool-record="selectedQuotaRow"
-              :saving="quotaSaving"
-              submit-label="Save Pool Quota"
-              @submit="saveQuota">
-            </governance-quota-form>
-            <div class="form-actions" style="margin-top:12px" v-if="selectedQuotaRow.quota">
-              <button class="btn" @click="deleteQuota(selectedQuotaRow)" :disabled="quotaSaving">Remove Quota</button>
-            </div>
-          </div>
-        </floating-window>
-
-        <floating-window :show="showApprovalComposer"
-                         title="Approval Request"
-                         :width="720"
-                         :height="560"
-                         @close="closeApprovalComposer">
-          <div class="detail-section" v-if="approvalError">
-            <div class="capacity-callout">
-              <strong>{{ approvalError }}</strong>
-            </div>
-          </div>
-          <governance-approval-form
-            :initial-value="approvalDraft"
-            :saving="approvalSaving"
-            submit-label="Request Approval"
-            @submit="saveApprovalRequest">
-          </governance-approval-form>
-        </floating-window>
-
-        <floating-window :show="showUserComposer"
-                         title="Create Local User"
-                         :width="720"
-                         :height="580"
-                         @close="closeUserComposer">
-          <div class="detail-section" v-if="userError">
-            <div class="capacity-callout">
-              <strong>{{ userError }}</strong>
-            </div>
-          </div>
-          <local-user-form
-            :saving="userSaving"
-            submit-label="Create User"
-            mode="create"
-            :group-options="groups"
-            @submit="saveNewUser">
-          </local-user-form>
-        </floating-window>
-
-        <floating-window :show="showUserEditor"
-                         title="Edit Local User"
-                         :width="760"
-                         :height="620"
-                         @close="closeUserEditor">
-          <div v-if="selectedUser">
-            <div class="detail-section">
-              <div class="property-grid">
-                <div>
-                  <label>Last Login</label>
-                  <span>{{ formatDateTime(selectedUser.last_login_at) }}</span>
-                </div>
-                <div>
-                  <label>Created</label>
-                  <span>{{ formatDateTime(selectedUser.created_at) }}</span>
-                </div>
-                <div>
-                  <label>Groups</label>
-                  <span>{{ selectedUser.groups?.length ? selectedUser.groups.join(', ') : 'No groups assigned yet' }}</span>
-                </div>
-                <div>
-                  <label>Current Session</label>
-                  <span>{{ isCurrentSessionUser(selectedUser) ? 'Yes' : 'No' }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="detail-section" v-if="userError">
-              <div class="capacity-callout">
-                <strong>{{ userError }}</strong>
-              </div>
-            </div>
-
-            <local-user-form
-              :initial-value="selectedUser"
-              :saving="userSaving"
-              submit-label="Save User"
-              mode="edit"
-              :group-options="groups"
-              @submit="saveExistingUser">
-            </local-user-form>
-
-            <div class="form-actions" style="margin-top:12px">
-              <button class="btn" @click="openPasswordReset(selectedUser)" :disabled="passwordSaving">
-                <span class="mdi mdi-lock-reset"></span>
-                Reset Password
-              </button>
-            </div>
-          </div>
-        </floating-window>
-
-        <floating-window :show="showPasswordReset"
-                         title="Reset Local Password"
-                         :width="560"
-                         :height="360"
-                         @close="closePasswordReset">
-          <div class="detail-section" v-if="passwordError">
-            <div class="capacity-callout">
-              <strong>{{ passwordError }}</strong>
-            </div>
-          </div>
-          <div class="detail-section" v-if="selectedUser">
-            <div class="capacity-callout">
-              <strong>{{ selectedUser.display_name || selectedUser.username }}</strong>
-              <div class="text-muted mono" style="font-size:11px;margin-top:6px">{{ selectedUser.username }}</div>
-            </div>
-          </div>
-          <user-password-form
-            :saving="passwordSaving"
-            submit-label="Rotate Password"
-            @submit="submitPasswordReset">
-          </user-password-form>
-        </floating-window>
-
-        <floating-window :show="showGroupComposer"
-                         title="Create Local Group"
-                         :width="720"
-                         :height="520"
-                         @close="closeGroupComposer">
-          <div class="detail-section" v-if="groupError">
-            <div class="capacity-callout">
-              <strong>{{ groupError }}</strong>
-            </div>
-          </div>
-          <local-group-form
-            :saving="groupSaving"
-            submit-label="Create Group"
-            :user-options="users"
-            @submit="saveNewGroup">
-          </local-group-form>
-        </floating-window>
-
-        <floating-window :show="showGroupEditor"
-                         title="Edit Local Group"
-                         :width="760"
-                         :height="560"
-                         @close="closeGroupEditor">
-          <div v-if="selectedGroup">
-            <div class="detail-section">
-              <div class="property-grid">
-                <div>
-                  <label>Created</label>
-                  <span>{{ formatDateTime(selectedGroup.created_at) }}</span>
-                </div>
-                <div>
-                  <label>Members</label>
-                  <span>{{ selectedGroup.member_count || 0 }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="detail-section" v-if="groupError">
-              <div class="capacity-callout">
-                <strong>{{ groupError }}</strong>
-              </div>
-            </div>
-
-            <local-group-form
-              :initial-value="selectedGroup"
-              :saving="groupSaving"
-              submit-label="Save Group"
-              :user-options="users"
-              @submit="saveExistingGroup">
-            </local-group-form>
-
-            <div class="form-actions" style="margin-top:12px">
-              <button class="btn" @click="removeGroup(selectedGroup)" :disabled="groupSaving">Remove Group</button>
-            </div>
-          </div>
-        </floating-window>
+        <governance-workspace-dialogs
+          :show-quota-editor="showQuotaEditor"
+          :selected-quota-row="selectedQuotaRow"
+          :quota-error="quotaError"
+          :quota-saving="quotaSaving"
+          :show-approval-composer="showApprovalComposer"
+          :approval-error="approvalError"
+          :approval-draft="approvalDraft"
+          :approval-saving="approvalSaving"
+          :show-user-composer="showUserComposer"
+          :user-error="userError"
+          :user-saving="userSaving"
+          :groups="groups"
+          :show-user-editor="showUserEditor"
+          :selected-user="selectedUser"
+          :selected-user-is-current-session="selectedUserIsCurrentSession"
+          :password-saving="passwordSaving"
+          :show-password-reset="showPasswordReset"
+          :password-error="passwordError"
+          :show-group-composer="showGroupComposer"
+          :group-error="groupError"
+          :group-saving="groupSaving"
+          :users="users"
+          :show-group-editor="showGroupEditor"
+          :selected-group="selectedGroup"
+          @close-quota-editor="closeQuotaEditor"
+          @save-quota="saveQuota"
+          @delete-quota="deleteQuota"
+          @close-approval-composer="closeApprovalComposer"
+          @save-approval-request="saveApprovalRequest"
+          @close-user-composer="closeUserComposer"
+          @save-new-user="saveNewUser"
+          @close-user-editor="closeUserEditor"
+          @save-existing-user="saveExistingUser"
+          @open-password-reset="openPasswordReset"
+          @close-password-reset="closePasswordReset"
+          @submit-password-reset="submitPasswordReset"
+          @close-group-composer="closeGroupComposer"
+          @save-new-group="saveNewGroup"
+          @close-group-editor="closeGroupEditor"
+          @save-existing-group="saveExistingGroup"
+          @remove-group="removeGroup">
+        </governance-workspace-dialogs>
       </template>
     </div>
   `,
@@ -578,6 +425,9 @@ const GovernanceView = {
     },
     roleGuidance() {
       return buildGovernanceRoleGuidance(store.governance.currentRole, this.policy, this.summary);
+    },
+    selectedUserIsCurrentSession() {
+      return this.selectedUser ? this.isCurrentSessionUser(this.selectedUser) : false;
     },
   },
   async mounted() {

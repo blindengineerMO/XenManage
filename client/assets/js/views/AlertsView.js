@@ -1,12 +1,8 @@
 const AlertsView = {
   components: {
     DataTable,
-    FloatingWindow,
     StatusBadge,
-    'alert-state-form': AlertStateForm,
-    'alert-policy-form': AlertPolicyForm,
-    'remediation-task-form': RemediationTaskForm,
-    'remediation-template-form': RemediationTaskTemplateForm,
+    AlertsWorkspaceDialogs,
   },
   template: `
     <div class="animate-fade-in">
@@ -184,207 +180,44 @@ const AlertsView = {
         </div>
       </div>
 
-      <floating-window :show="showProps" title="Alert Detail" :width="780" :height="660" @close="closeProperties">
-        <div v-if="selectedMessage">
-          <div class="dashboard-hero" style="margin-bottom:12px;padding:18px">
-            <div>
-              <div class="dash-card-label">Alert Record</div>
-              <h3>{{ selectedMessage.summary }}</h3>
-              <p>{{ selectedMessage.body || 'No additional message body supplied for this alert.' }}</p>
-            </div>
-            <div class="dashboard-hero-rail">
-              <button class="btn btn-primary" @click="quickAcknowledge(selectedMessage, !selectedMessage.acknowledged)">
-                <span class="mdi mdi-check-decagram-outline"></span>
-                {{ selectedMessage.acknowledged ? 'Clear Ack' : 'Acknowledge' }}
-              </button>
-              <button class="btn" @click="quickSuppress(selectedMessage, 24)">
-                <span class="mdi mdi-bell-off-outline"></span>
-                Suppress 24h
-              </button>
-              <button class="btn" @click="openRelated(selectedMessage)">
-                <span class="mdi mdi-open-in-new"></span>
-                Open {{ selectedMessage.targetLabel }}
-              </button>
-              <button class="btn" v-if="resolveWorkflowRoute(selectedMessage).route" @click="openWorkflowForMessage(selectedMessage)">
-                <span class="mdi mdi-rocket-launch-outline"></span>
-                {{ resolveWorkflowRoute(selectedMessage).label }}
-              </button>
-              <button class="btn" @click="openRemediationComposer(selectedMessage)">
-                <span class="mdi mdi-clipboard-plus-outline"></span>
-                Create Follow-Through Task
-              </button>
-            </div>
-          </div>
-
-          <div class="property-grid">
-            <span class="text-muted">Effective Severity</span><status-badge :status="selectedMessage.effectiveSeverity"></status-badge>
-            <span class="text-muted">Detected Severity</span><span>{{ selectedMessage.baseSeverity }}</span>
-            <span class="text-muted">State</span><span>{{ selectedMessage.stateLabel }}</span>
-            <span class="text-muted">Class</span><span>{{ selectedMessage.cls || '-' }}</span>
-            <span class="text-muted">Object</span><span class="mono property-wrap">{{ selectedMessage.obj_uuid || selectedMessage.ref }}</span>
-            <span class="text-muted">Timestamp</span><span class="mono">{{ formatDateTime(selectedMessage.timestamp) }}</span>
-            <span class="text-muted">Acknowledged</span><span>{{ selectedMessage.acknowledged ? 'Yes' : 'No' }}</span>
-            <span class="text-muted">Acknowledged By</span><span>{{ selectedMessage.acknowledgedBy || '-' }}</span>
-            <span class="text-muted">Suppressed Until</span><span class="mono">{{ selectedMessage.suppressionUntil ? formatDateTime(selectedMessage.suppressionUntil) : '-' }}</span>
-            <span class="text-muted">Health Action</span><span>{{ formatActionLabel(selectedMessage.healthAction) }}</span>
-            <span class="text-muted">Policy Match</span><span>{{ selectedMessage.policyName || '-' }}</span>
-            <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedMessage.uuid || '-' }}</span>
-          </div>
-
-          <div class="detail-section" v-if="selectedMessage.policyName">
-            <div class="detail-section-title">Policy Context</div>
-            <div class="capacity-callout">
-              <p>
-                {{ selectedMessage.managedByPolicy ? 'This alert is currently being shaped by an active suppression policy.' : 'A policy matched this alert, but the current manual state now overrides it.' }}
-              </p>
-              <div class="text-muted mono" style="font-size:11px">{{ selectedMessage.policyName }}</div>
-            </div>
-          </div>
-
-          <div class="detail-section" v-if="selectedMessage.notes">
-            <div class="detail-section-title">Operator Notes</div>
-            <div class="capacity-callout">
-              <p>{{ selectedMessage.notes }}</p>
-            </div>
-          </div>
-
-          <div class="detail-section" v-if="workflowGuidance.length">
-            <div class="detail-section-title">Follow-Through Workspaces</div>
-            <div class="dashboard-hero-rail" style="justify-content:flex-start">
-              <button class="btn"
-                      v-for="link in workflowGuidance"
-                      :key="link.route + link.label"
-                      @click="$router.push(link.route)">
-                <span class="mdi mdi-arrow-top-right"></span>
-                {{ link.label }}
-              </button>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section-title">Remediation Queue</div>
-            <div class="capacity-callout">
-              <p>Create a tracked follow-through task when this alert should stay visible in Activity with an assignee, due date, and direct return links into the right workspace.</p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-primary btn-sm" @click="openRemediationComposer(selectedMessage)">
-                  <span class="mdi mdi-clipboard-plus-outline"></span>
-                  Create Remediation Task
-                </button>
-                <button class="btn btn-sm" v-if="resolveWorkflowRoute(selectedMessage).route" @click="openWorkflowForMessage(selectedMessage)">
-                  <span class="mdi mdi-arrow-top-right"></span>
-                  Open {{ resolveWorkflowRoute(selectedMessage).label }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section-title">Recommended Templates</div>
-            <div class="stack-list" v-if="recommendedTemplates.length">
-              <div class="stack-item" v-for="template in recommendedTemplates" :key="template.id">
-                <div>
-                  <strong>{{ template.name }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ describeRemediationTemplate(template) }}</div>
-                  <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ describeTemplateAutomation(template) }}</div>
-                  <div class="text-muted" style="font-size:12px;margin-top:6px">{{ template.defaultNotes || 'This template uses the standard alert guidance defaults.' }}</div>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                  <button class="btn btn-sm"
-                          :class="template.launchMode !== 'draft' ? 'btn-primary' : ''"
-                          @click="queueRemediationTemplate(template, selectedMessage)">
-                    <span class="mdi" :class="remediationTemplatePrimaryActionIcon(template)"></span>
-                    {{ remediationTemplatePrimaryActionLabel(template) }}
-                  </button>
-                  <button class="btn btn-sm" :class="template.launchMode === 'draft' ? 'btn-primary' : ''" @click="applyRemediationTemplate(template, selectedMessage)">
-                    <span class="mdi mdi-creation-outline"></span>
-                    Use Template
-                  </button>
-                  <button class="btn btn-sm" @click="openTemplateEditor(template)">
-                    <span class="mdi mdi-pencil-outline"></span>
-                    Edit
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-else class="empty-state" style="padding:18px 12px">
-              No remediation templates currently match this alert. Create one to standardize recurring follow-through work.
-            </div>
-            <div class="form-error" v-if="remediationError" style="text-align:left;margin-top:12px">{{ remediationError }}</div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section-title">Alert State</div>
-            <alert-state-form
-              :initial-value="selectedMessage"
-              :saving="saving"
-              @submit="saveSelectedAlertState">
-            </alert-state-form>
-          </div>
-
-          <div class="form-error" v-if="saveError" style="text-align:left">{{ saveError }}</div>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showPolicyEditor"
-                       title="Alert Policy"
-                       :width="740"
-                       :height="660"
-                       @close="closePolicyEditor">
-        <div class="detail-section" v-if="policyError">
-          <div class="capacity-callout">
-            <strong>{{ policyError }}</strong>
-          </div>
-        </div>
-        <alert-policy-form
-          :initial-value="editingPolicy"
-          :saving="policySaving"
-          :submit-label="editingPolicy && editingPolicy.id ? 'Save Alert Policy' : 'Create Alert Policy'"
-          @submit="savePolicy">
-        </alert-policy-form>
-        <div class="form-actions" style="margin-top:12px" v-if="editingPolicy?.id">
-          <button class="btn" @click="removePolicy(editingPolicy)" :disabled="policySaving">Delete Policy</button>
-        </div>
-      </floating-window>
-
-      <floating-window :show="showRemediationComposer"
-                       title="Create Remediation Task"
-                       :width="720"
-                       :height="650"
-                       @close="closeRemediationComposer">
-        <div class="detail-section" v-if="remediationError">
-          <div class="capacity-callout">
-            <strong>{{ remediationError }}</strong>
-          </div>
-        </div>
-        <remediation-task-form
-          v-if="remediationDraft"
-          :initial-value="remediationDraft"
-          :saving="remediationSaving"
-          submit-label="Create Remediation Task"
-          @submit="submitRemediationTask">
-        </remediation-task-form>
-      </floating-window>
-
-      <floating-window :show="showTemplateEditor"
-                       title="Remediation Template"
-                       :width="760"
-                       :height="720"
-                       @close="closeTemplateEditor">
-        <div class="detail-section" v-if="templateError">
-          <div class="capacity-callout">
-            <strong>{{ templateError }}</strong>
-          </div>
-        </div>
-        <remediation-template-form
-          :initial-value="editingTemplate"
-          :saving="templateSaving"
-          :submit-label="editingTemplate && editingTemplate.id ? 'Save Remediation Template' : 'Create Remediation Template'"
-          @submit="saveTemplate">
-        </remediation-template-form>
-        <div class="form-actions" style="margin-top:12px" v-if="editingTemplate?.id">
-          <button class="btn" @click="removeTemplate(editingTemplate)" :disabled="templateSaving">Delete Template</button>
-        </div>
-      </floating-window>
+      <alerts-workspace-dialogs
+        :show-props="showProps"
+        :selected-message="selectedMessage"
+        :workflow-guidance="workflowGuidance"
+        :recommended-templates="recommendedTemplates"
+        :remediation-error="remediationError"
+        :saving="saving"
+        :save-error="saveError"
+        :show-policy-editor="showPolicyEditor"
+        :policy-error="policyError"
+        :editing-policy="editingPolicy"
+        :policy-saving="policySaving"
+        :show-remediation-composer="showRemediationComposer"
+        :remediation-draft="remediationDraft"
+        :remediation-saving="remediationSaving"
+        :show-template-editor="showTemplateEditor"
+        :template-error="templateError"
+        :editing-template="editingTemplate"
+        :template-saving="templateSaving"
+        @close-properties="closeProperties"
+        @quick-acknowledge="handleQuickAcknowledge"
+        @quick-suppress="handleQuickSuppress"
+        @open-related="openRelated"
+        @open-workflow-for-message="openWorkflowForMessage"
+        @open-remediation-composer="openRemediationComposer"
+        @queue-remediation-template="handleQueueRemediationTemplate"
+        @apply-remediation-template="handleApplyRemediationTemplate"
+        @open-template-editor="openTemplateEditor"
+        @save-selected-alert-state="saveSelectedAlertState"
+        @close-policy-editor="closePolicyEditor"
+        @save-policy="savePolicy"
+        @remove-policy="removePolicy"
+        @close-remediation-composer="closeRemediationComposer"
+        @submit-remediation-task="submitRemediationTask"
+        @close-template-editor="closeTemplateEditor"
+        @save-template="saveTemplate"
+        @remove-template="removeTemplate">
+      </alerts-workspace-dialogs>
     </div>
   `,
   data() {
@@ -549,6 +382,14 @@ const AlertsView = {
       this.showProps = false;
       this.$router.push(workflow.route);
     },
+    handleQuickAcknowledge(payload) {
+      if (!payload?.message) return;
+      this.quickAcknowledge(payload.message, Boolean(payload.acknowledged));
+    },
+    handleQuickSuppress(payload) {
+      if (!payload?.message) return;
+      this.quickSuppress(payload.message, Number(payload.hours || 24));
+    },
     buildRemediationDraftFromAlert(message) {
       return buildAlertRemediationDraftFromAlert(message, store.username || '');
     },
@@ -564,6 +405,10 @@ const AlertsView = {
       this.remediationDraft = this.buildRemediationDraftFromTemplate(message, template);
       this.remediationError = null;
       this.showRemediationComposer = true;
+    },
+    handleApplyRemediationTemplate(payload) {
+      if (!payload?.template || !payload?.message) return;
+      this.applyRemediationTemplate(payload.template, payload.message);
     },
     async queueRemediationTemplate(template, message) {
       this.remediationSaving = true;
@@ -587,6 +432,10 @@ const AlertsView = {
       } finally {
         this.remediationSaving = false;
       }
+    },
+    async handleQueueRemediationTemplate(payload) {
+      if (!payload?.template || !payload?.message) return;
+      await this.queueRemediationTemplate(payload.template, payload.message);
     },
     closeRemediationComposer() {
       this.showRemediationComposer = false;

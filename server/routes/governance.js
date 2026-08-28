@@ -169,6 +169,13 @@ router.put('/role', validate(schemas.governanceRoleUpdate), (req, res) => {
     const account = getSessionAccount(req);
     const desiredRole = req.body.role;
 
+    // A session bound to a local user (req.session.userId set) must resolve to an
+    // active account to change role at all — fail closed rather than silently skipping
+    // the escalation check if the account was deactivated or deleted after login.
+    if (req.session?.userId && (!account || !account.active)) {
+      return res.status(403).json({ error: 'ROLE_ESCALATION_NOT_ALLOWED' });
+    }
+
     if (account && account.active && !governanceService.hasRole(account.role, desiredRole)) {
       return res.status(403).json({ error: 'ROLE_ESCALATION_NOT_ALLOWED' });
     }

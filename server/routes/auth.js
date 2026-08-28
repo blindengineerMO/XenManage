@@ -430,11 +430,28 @@ router.delete('/targets/:targetKey', requireAuth, (req, res) => {
   res.json(buildStatusPayload(req));
 });
 
+// A session bound to a local account (req.session.userId set) must keep pointing at an
+// active account on every request; otherwise a deactivated user's already-live session
+// would keep working (and could even self-escalate its governance role) until it expired.
+function isLocalAccountRevoked(req) {
+  if (!req.session?.userId) return false;
+  const account = userModel.getById(req.session.userId);
+  return !account || !account.active;
+}
+
+function rejectRevokedSession(req, res) {
+  req.session.destroy(() => {});
+  res.status(401).json({ error: 'NOT_AUTHENTICATED' });
+}
+
 // Middleware: require authentication for all /api routes below
 function requireAuth(req, res, next) {
   restoreAuthenticatedSessionState(req.session);
   if (!req.session.authenticated) {
     return res.status(401).json({ error: 'NOT_AUTHENTICATED' });
+  }
+  if (isLocalAccountRevoked(req)) {
+    return rejectRevokedSession(req, res);
   }
 
   const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
@@ -472,6 +489,9 @@ function requireXenConnection(req, res, next) {
   restoreAuthenticatedSessionState(req.session);
   if (!req.session.authenticated) {
     return res.status(401).json({ error: 'NOT_AUTHENTICATED' });
+  }
+  if (isLocalAccountRevoked(req)) {
+    return rejectRevokedSession(req, res);
   }
 
   const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
