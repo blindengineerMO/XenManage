@@ -257,7 +257,7 @@ const DashboardView = {
         templates: { key: 'templates', label: 'Templates', value: this.summary.templateCount || 0, icon: 'mdi-file-document-outline' },
         storage: { key: 'storage', label: 'Storage Repos', value: this.summary.srCount || 0, icon: 'mdi-harddisk' },
         networks: { key: 'networks', label: 'Networks', value: this.summary.networkCount || 0, icon: 'mdi-lan' },
-        pools: { key: 'pools', label: 'Pools', value: this.summary.poolCount || 0, icon: 'mdi-cluster' },
+        pools: { key: 'pools', label: 'Pools', value: this.summary.poolCount || 0, icon: 'mdi-source-branch' },
       };
 
       return this.summaryOrder.map((key) => cards[key]).filter(Boolean);

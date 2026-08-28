@@ -2,23 +2,25 @@ const DataTable = {
   props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey'],
   emits: ['row-click', 'selection-change'],
   template: `
-    <div class="data-table-wrap">
+    <div class="data-table-wrap" :style="tableStickyVars">
       <div class="data-table-toolbar" v-if="searchable">
         <input class="data-table-search" placeholder="Search..." v-model="searchQuery" @input="page = 1">
         <span class="text-muted mono" style="font-size:11px">{{ filteredData.length }} records</span>
       </div>
-      <div style="overflow-x:auto">
+      <div class="data-table-scroller">
         <table class="data-table">
           <thead>
             <tr>
-              <th v-if="selectable" style="width:36px">
+              <th v-if="selectable"
+                  class="data-table-sticky-select"
+                  style="width:44px">
                 <input type="checkbox"
                        :checked="allPageSelected"
                        :disabled="loading || paginatedData.length === 0"
                        @click.stop="toggleAllPageSelection">
               </th>
               <th v-for="column in columns" :key="column.key"
-                  :class="{ sorted: sortKey === column.key }"
+                  :class="headerClass(column)"
                   @click="onSort(column.key)">
                 {{ column.label }}
                 <span v-if="sortKey === column.key"
@@ -40,13 +42,13 @@ const DataTable = {
               </td>
             </tr>
             <tr v-for="(row, index) in paginatedData" :key="rowIdentifier(row, index)" @click="$emit('row-click', row)">
-              <td v-if="selectable" @click.stop>
+              <td v-if="selectable" class="data-table-sticky-select" @click.stop>
                 <input type="checkbox"
                        :checked="isSelected(row, index)"
                        :aria-label="'Select ' + String(row.name_label || row.name || row.summary || row.ref || index)"
                        @click.stop="toggleRowSelection(row, index)">
               </td>
-              <td v-for="column in columns" :key="column.key">
+              <td v-for="column in columns" :key="column.key" :class="cellClass(column)">
                 <slot :name="'cell-' + column.key" :row="row" :value="row[column.key]">
                   {{ row[column.key] }}
                 </slot>
@@ -80,6 +82,15 @@ const DataTable = {
   computed: {
     columnCount() {
       return (this.columns?.length || 0) + (this.selectable ? 1 : 0);
+    },
+    hasStickyActionColumn() {
+      const columns = Array.isArray(this.columns) ? this.columns : [];
+      return columns.length > 1 && columns[columns.length - 1]?.key === 'actions';
+    },
+    tableStickyVars() {
+      return {
+        '--data-table-sticky-first-left': this.selectable ? '44px' : '0px',
+      };
     },
     filteredData() {
       let rows = this.data || [];
@@ -117,6 +128,27 @@ const DataTable = {
     },
   },
   methods: {
+    isStickyFirstColumn(column = null) {
+      return Boolean(column) && Array.isArray(this.columns) && this.columns[0]?.key === column.key;
+    },
+    isStickyActionColumn(column = null) {
+      if (!this.hasStickyActionColumn || !column) return false;
+      const columns = Array.isArray(this.columns) ? this.columns : [];
+      return columns[columns.length - 1]?.key === column.key;
+    },
+    headerClass(column) {
+      return {
+        sorted: this.sortKey === column.key,
+        'data-table-sticky-start': this.isStickyFirstColumn(column),
+        'data-table-sticky-end': this.isStickyActionColumn(column),
+      };
+    },
+    cellClass(column) {
+      return {
+        'data-table-sticky-start': this.isStickyFirstColumn(column),
+        'data-table-sticky-end': this.isStickyActionColumn(column),
+      };
+    },
     rowIdentifier(row, index) {
       const key = this.rowKey || 'ref';
       return row?.[key] || row?.ref || index;
@@ -151,3 +183,7 @@ const DataTable = {
     },
   },
 };
+
+if (typeof module !== 'undefined') {
+  module.exports = DataTable;
+}

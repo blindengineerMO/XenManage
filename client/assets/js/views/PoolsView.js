@@ -5,7 +5,7 @@ const PoolsView = {
       <div class="section-head">
         <div>
           <h2 class="section-title">
-            <span class="mdi mdi-cluster"></span>
+            <span class="mdi mdi-source-branch"></span>
             Pools
           </h2>
           <p class="section-subtitle">Live pool topology plus registered pool targets for multi-pool administration.</p>
