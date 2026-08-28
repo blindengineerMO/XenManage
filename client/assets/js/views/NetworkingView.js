@@ -1,5 +1,5 @@
 const NetworkingView = {
-  components: { DataTable, FloatingWindow, StatusBadge, NetworkCreateForm, NetworkConfigForm, NetworkVlanCreateForm, NetworkBondCreateForm, NetworkVifAttachForm },
+  components: { DataTable, FloatingWindow, StatusBadge, NetworkCreateForm, NetworkConfigForm, NetworkVlanCreateForm, NetworkBondCreateForm, NetworkVifAttachForm, NetworkVifQosForm },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -169,6 +169,34 @@ const NetworkingView = {
                   @submit="submitSelectedNetworkVif">
                 </network-vif-attach-form>
               </div>
+
+              <div class="dash-card">
+                <div class="dash-card-label">Interface QoS</div>
+                <p class="text-muted" style="margin-bottom:12px">Tune Xen VIF bandwidth shaping for an attached workload path without leaving the selected network workspace.</p>
+                <div v-if="networkVifQosOptions.length">
+                  <div class="form-group">
+                    <label for="network-vif-qos-target">Attached Interface</label>
+                    <select id="network-vif-qos-target"
+                            class="form-input"
+                            v-model="selectedAttachmentVifRef"
+                            :disabled="Boolean(detailActionBusy)">
+                      <option v-for="option in networkVifQosOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
+                    {{ selectedNetworkVifQosSummary }}
+                  </div>
+                  <network-vif-qos-form
+                    :initial-value="selectedNetworkVifQosTarget"
+                    :submit-label="'Save Interface QoS'"
+                    :saving="detailActionBusy === 'config-vif'"
+                    @submit="submitSelectedNetworkVifQos">
+                  </network-vif-qos-form>
+                </div>
+                <div v-else class="empty-state" style="padding:18px 12px">Attach a workload interface to this network before editing per-VIF QoS policy.</div>
+              </div>
             </div>
 
             <div class="form-error" v-if="detailActionError" style="text-align:left;margin-top:12px">{{ detailActionError }}</div>
@@ -228,6 +256,7 @@ const NetworkingView = {
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                       <span class="badge badge-running" v-if="isFocusedVif(attachment)">focused interface</span>
+                      <span class="badge badge-info" v-if="attachment.qosConfigured">QoS</span>
                       <span class="badge" :class="attachment.currentlyAttached ? 'badge-running' : 'badge-halted'">
                         {{ attachment.currentlyAttached ? 'attached' : 'hot-unplugged' }}
                       </span>
@@ -285,6 +314,7 @@ const NetworkingView = {
       detailLoading: false,
       detailError: null,
       removingVifRef: '',
+      selectedAttachmentVifRef: '',
       focusedPifRef: '',
       focusedVifRef: '',
       focusedNetworkClass: '',
@@ -307,134 +337,46 @@ const NetworkingView = {
       return purpose.length ? purpose.join(', ') : '-';
     },
     networkVlanOptions() {
-      return this.networks.map((network) => ({
-        value: network.ref,
-        label: `${network.name_label || network.bridge || network.ref} · ${network.bridge || '-'} · ${this.formatVlanLabel(network)}`,
-      }));
+      return buildNetworkVlanOptions(this.networks);
     },
     networkVlanPifOptions() {
-      return this.availableHosts.flatMap((host) =>
-        (Array.isArray(host.PIFs) ? host.PIFs : []).map((ref, index) => ({
-          value: ref,
-          label: `${host.name_label || host.hostname || host.address || host.ref || 'Host'} · uplink ${index + 1} · ${ref}`,
-        }))
-      );
+      return buildNetworkVlanPifOptions(this.availableHosts);
     },
     networkVifVmOptions() {
-      return this.relatedVMs.map((vm) => ({
-        value: vm.ref,
-        label: `${vm.name_label || vm.ref} · ${vm.power_state || 'Unknown'} · ${vm.uuid || vm.ref}`,
-      }));
+      return buildNetworkVifVmOptions(this.relatedVMs);
+    },
+    networkVifQosOptions() {
+      return buildNetworkVifQosOptions(this.selectedNetworkVmAttachments);
     },
     selectedNetworkTopologyLabel() {
-      if (!this.selectedNetwork) return '-';
-      const uplinkCount = Array.isArray(this.selectedNetwork.PIFs) ? this.selectedNetwork.PIFs.length : 0;
-      const attachmentCount = Array.isArray(this.selectedNetwork.VIFs) ? this.selectedNetwork.VIFs.length : 0;
-      const hostCount = new Set(this.selectedNetworkHostUplinks.map((uplink) => uplink.hostRef || uplink.hostUuid || uplink.hostName)).size;
-      const parts = [
-        this.selectedNetworkVlanLabel,
-        `${uplinkCount} uplink${uplinkCount === 1 ? '' : 's'}`,
-        `${attachmentCount} interface${attachmentCount === 1 ? '' : 's'}`,
-      ];
-      if (hostCount) {
-        parts.push(`${hostCount} host${hostCount === 1 ? '' : 's'}`);
-      }
-      return parts.join(' · ');
+      return buildSelectedNetworkTopologyLabel(this.selectedNetwork, this.selectedNetworkHostUplinks, this.selectedNetworkVlanLabel);
     },
     focusedNetworkContext() {
-      if (!this.focusedNetworkClass) return null;
-
-      if (this.focusedNetworkClass === 'vif') {
-        return {
-          title: 'Focused Interface Handoff',
-          summary: 'This network was opened from a specific VM interface path.',
-          detail: `${this.focusedVifRef || 'Interface ref unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
-        };
-      }
-
-      if (this.focusedNetworkClass === 'pif') {
-        return {
-          title: 'Focused Uplink Handoff',
-          summary: 'This network was opened from a specific host uplink path.',
-          detail: `${this.focusedPifRef || 'Uplink ref unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
-        };
-      }
-
-      if (this.focusedNetworkClass === 'vlan') {
-        return {
-          title: 'Focused VLAN Handoff',
-          summary: 'This network was opened from a VLAN-targeted alert or follow-through route.',
-          detail: `${this.focusedPifRef || 'Representative uplink unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
-        };
-      }
-
-      if (this.focusedNetworkClass === 'bond') {
-        return {
-          title: 'Focused Bond Handoff',
-          summary: 'This network was opened from a bond-targeted alert or follow-through route.',
-          detail: `${this.focusedPifRef || 'Representative uplink unavailable'} · ${this.selectedNetworkVlanLabel} · ${this.selectedNetwork?.bridge || 'no bridge label'}`,
-        };
-      }
-
-      return null;
+      return buildFocusedNetworkContext(
+        this.focusedNetworkClass,
+        this.focusedPifRef,
+        this.focusedVifRef,
+        this.selectedNetworkVlanLabel,
+        this.selectedNetwork
+      );
     },
     selectedNetworkHostUplinks() {
-      if (!this.selectedNetwork) return [];
-
-      const uplinks = new Set(Array.isArray(this.selectedNetwork.PIFs) ? this.selectedNetwork.PIFs : []);
-      return this.relatedHosts.flatMap((host) =>
-        (Array.isArray(host.PIFs) ? host.PIFs : [])
-          .filter((ref) => uplinks.has(ref))
-          .map((ref, index) => ({
-            id: `${host.ref || host.uuid || host.address || 'host'}-${ref}-${index}`,
-            hostRef: host.ref || '',
-            hostUuid: host.uuid || '',
-            hostName: host.name_label || host.hostname || host.address || host.ref || 'Host',
-            hostAddress: host.address || host.hostname || host.uuid || '-',
-            interfaceRef: ref,
-            detail: `${this.selectedNetworkVlanLabel} · ${host.enabled ? 'enabled host' : 'disabled host'} · ${host.hostname || 'no hostname'} · ${host.uuid || host.ref || '-'}`,
-            status: host.enabled ? 'enabled' : 'warning',
-          }))
-      );
+      return buildSelectedNetworkHostUplinks(this.selectedNetwork, this.relatedHosts, this.selectedNetworkVlanLabel);
     },
     selectedNetworkVmAttachments() {
-      if (!this.selectedNetwork) return [];
-
-      const attachments = new Set(Array.isArray(this.selectedNetwork.VIFs) ? this.selectedNetwork.VIFs : []);
-      const vifMap = new Map(this.relatedVifs.map((vif) => [vif.ref, vif]));
-      return this.relatedVMs.flatMap((vm) =>
-        (Array.isArray(vm.VIFs) ? vm.VIFs : [])
-          .filter((ref) => attachments.has(ref))
-          .map((ref, index) => {
-            const vif = vifMap.get(ref) || {};
-            const currentlyAttached = Boolean(vif.currently_attached);
-            return {
-              id: `${vm.ref || vm.uuid || vm.name_label || 'vm'}-${ref}-${index}`,
-              vmRef: vm.ref || '',
-              vmUuid: vm.uuid || '',
-              vmName: vm.name_label || vm.ref || 'Virtual Machine',
-              interfaceRef: ref,
-              powerState: vm.power_state || 'Unknown',
-              device: String(vif.device || ''),
-              mac: String(vif.MAC || ''),
-              currentlyAttached,
-              detail: `${vif.device ? `device ${vif.device}` : 'device auto'} · ${vif.MAC || 'auto MAC'} · ${formatBytes(vm.memory_static_max)} · ${vm.uuid || vm.ref || '-'}`,
-              status: currentlyAttached ? (vm.power_state || 'info') : 'disconnected',
-            };
-          })
-      );
+      return buildSelectedNetworkVmAttachments(this.selectedNetwork, this.relatedVMs, this.relatedVifs);
+    },
+    selectedNetworkVifQosTarget() {
+      if (!this.selectedAttachmentVifRef) return null;
+      return this.relatedVifs.find((vif) => vif.ref === this.selectedAttachmentVifRef) || null;
+    },
+    selectedNetworkVifQosSummary() {
+      const target = this.selectedNetworkVifQosTarget;
+      if (!target) return 'Select an attached interface to review or update its QoS shaping policy.';
+      return this.summarizeVifQos(target, { emptyLabel: 'No QoS shaping is currently configured on this interface.' });
     },
     selectedNetworkDestroyBlockedReason() {
-      if (!this.selectedNetwork) return '';
-
-      const pifCount = Array.isArray(this.selectedNetwork.PIFs) ? this.selectedNetwork.PIFs.length : 0;
-      const vifCount = Array.isArray(this.selectedNetwork.VIFs) ? this.selectedNetwork.VIFs.length : 0;
-      if (!pifCount && !vifCount) return '';
-
-      const segments = [];
-      if (pifCount) segments.push(`${pifCount} host uplink${pifCount === 1 ? '' : 's'}`);
-      if (vifCount) segments.push(`${vifCount} workload interface${vifCount === 1 ? '' : 's'}`);
-      return `Destroy requires a detached managed network. ${segments.join(' and ')} still map to this network.`;
+      return buildSelectedNetworkDestroyBlockedReason(this.selectedNetwork);
     },
   },
   async mounted() {
@@ -457,9 +399,14 @@ const NetworkingView = {
     formatBytes,
     summarizeCount,
     truncateList,
-    formatVlanLabel(network) {
-      const value = String(network?.other_config?.vlan || '').trim();
-      return value ? `VLAN ${value}` : 'untagged';
+    summarizeVifQos: summarizeNetworkVifQos,
+    formatVlanLabel: formatNetworkVlanLabel,
+    syncSelectedAttachmentVifRef() {
+      this.selectedAttachmentVifRef = resolveSelectedNetworkAttachmentVifRef(
+        this.selectedNetworkVmAttachments,
+        this.focusedVifRef,
+        this.selectedAttachmentVifRef
+      );
     },
     async loadNetworks() {
       this.loading = true;
@@ -486,7 +433,7 @@ const NetworkingView = {
       try {
         const record = await api.createNetwork(payload);
         await this.loadNetworks();
-        this.workspaceMessage = `${record.name_label || payload.nameLabel} was created on ${record.bridge || payload.bridge}.`;
+        this.workspaceMessage = buildNetworkCreateMessage(record, payload);
         const created = this.networks.find((entry) => entry.ref === record.ref) || record;
         if (created?.ref) {
           await this.openProperties(created);
@@ -509,7 +456,7 @@ const NetworkingView = {
           || record.network
           || null;
         const targetPif = this.networkVlanPifOptions.find((entry) => entry.value === payload.pifRef) || null;
-        this.workspaceMessage = `VLAN ${record.tag || payload.tag} was created on ${targetPif?.label || payload.pifRef} for ${targetNetwork?.name_label || record.network?.name_label || payload.networkRef}.`;
+        this.workspaceMessage = buildNetworkVlanCreateMessage(record, payload, targetNetwork, targetPif);
         if (targetNetwork?.ref) {
           await this.openProperties(targetNetwork, {
             focusedPifRef: payload.pifRef,
@@ -533,7 +480,7 @@ const NetworkingView = {
         const targetNetwork = this.networks.find((entry) => entry.ref === (record.networkRef || payload.networkRef))
           || record.network
           || null;
-        this.workspaceMessage = `Bond ${record.mode || payload.mode} was created across ${(record.memberPifRefs || payload.pifRefs || []).length} uplinks for ${targetNetwork?.name_label || record.network?.name_label || payload.networkRef}.`;
+        this.workspaceMessage = buildNetworkBondCreateMessage(record, payload, targetNetwork);
         if (targetNetwork?.ref) {
           await this.openProperties(targetNetwork, {
             focusedPifRef: (payload.pifRefs || [])[0] || '',
@@ -571,7 +518,7 @@ const NetworkingView = {
         this.focusedVifRef = result?.vifRef || '';
         this.focusedNetworkClass = this.focusedVifRef ? 'vif' : this.focusedNetworkClass;
         await this.refreshSelectedNetworkDetail({ refreshRelationships: true });
-        this.detailActionMessage = `${targetVm?.name_label || payload.vmRef} was connected to ${this.selectedNetwork?.name_label || this.selectedNetwork.ref}.`;
+        this.detailActionMessage = buildNetworkVifAttachMessage(targetVm, payload, this.selectedNetwork);
       } catch (error) {
         this.detailActionError = error.message || 'Unable to attach a new workload interface on the selected network.';
       } finally {
@@ -609,7 +556,7 @@ const NetworkingView = {
           }
         }
         await this.refreshSelectedNetworkDetail({ refreshRelationships: true });
-        this.detailActionMessage = `${attachment.vmName || attachment.vmRef} interface ${attachment.interfaceRef} was removed from ${this.selectedNetwork?.name_label || this.selectedNetwork.ref}.`;
+        this.detailActionMessage = buildNetworkVifRemoveMessage(attachment, this.selectedNetwork);
       } catch (error) {
         this.detailActionError = error.message || 'Unable to remove the selected workload interface from this network.';
       } finally {
@@ -617,16 +564,40 @@ const NetworkingView = {
         this.removingVifRef = '';
       }
     },
+    async submitSelectedNetworkVifQos(payload) {
+      const vifRef = this.selectedAttachmentVifRef || this.selectedNetworkVifQosTarget?.ref || '';
+      if (!this.selectedNetwork?.ref || !vifRef) {
+        this.detailActionError = 'Select an attached interface before saving QoS policy changes.';
+        return;
+      }
+
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'config-vif';
+
+      try {
+        const record = await api.updateNetworkInterfaceConfig(vifRef, payload);
+        const attachment = this.selectedNetworkVmAttachments.find((entry) => entry.interfaceRef === vifRef) || null;
+        this.focusedVifRef = vifRef;
+        this.focusedNetworkClass = 'vif';
+        await this.refreshSelectedNetworkDetail({ refreshRelationships: true });
+        this.detailActionMessage = buildNetworkVifQosMessage(attachment, vifRef, this.selectedNetwork);
+        this.selectedAttachmentVifRef = record?.ref || vifRef;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to save QoS settings for the selected workload interface.';
+      } finally {
+        this.detailActionBusy = '';
+      }
+    },
     buildCurrentDetailFocusOptions(options = {}) {
-      const includeRelationships = options.includeRelationships !== false;
-      return {
+      return buildCurrentNetworkDetailFocusOptions({
         focusedPifRef: this.focusedPifRef,
         focusedVifRef: this.focusedVifRef,
         focusedNetworkClass: this.focusedNetworkClass,
-        hosts: includeRelationships ? this.relatedHosts : undefined,
-        vms: includeRelationships ? this.relatedVMs : undefined,
-        vifs: includeRelationships ? this.relatedVifs : undefined,
-      };
+        relatedHosts: this.relatedHosts,
+        relatedVMs: this.relatedVMs,
+        relatedVifs: this.relatedVifs,
+      }, options);
     },
     async refreshSelectedNetworkDetail(options = {}) {
       if (!this.selectedNetwork?.ref) return;
@@ -646,6 +617,7 @@ const NetworkingView = {
       this.relatedVMs = [];
       this.relatedVifs = [];
       this.disconnectingVifRef = '';
+      this.selectedAttachmentVifRef = '';
       this.focusedPifRef = '';
       this.focusedVifRef = '';
       this.removingVifRef = '';
@@ -665,7 +637,7 @@ const NetworkingView = {
       try {
         const record = await api.updateNetworkConfig(this.selectedNetwork.ref, payload);
         await this.refreshSelectedNetworkDetail();
-        this.detailActionMessage = `${record.name_label || payload.nameLabel || this.selectedNetwork.ref} network metadata was updated.`;
+        this.detailActionMessage = buildNetworkConfigMessage(record, payload, this.selectedNetwork);
       } catch (error) {
         this.detailActionError = error.message || 'Unable to save the selected network metadata.';
       } finally {
@@ -713,7 +685,7 @@ const NetworkingView = {
         await api.destroyNetwork(network.ref, approvalId ? { approvalId } : {});
         await this.loadNetworks();
         this.clearSelectedNetworkDetail();
-        this.workspaceMessage = `${network.name_label || network.ref} was destroyed and removed from the current network inventory view.`;
+        this.workspaceMessage = buildNetworkDestroyMessage(network);
       } catch (error) {
         if (error.code === 'APPROVAL_REQUIRED') {
           this.detailActionError = 'Governance approval is required before destroying this network.';
@@ -761,6 +733,7 @@ const NetworkingView = {
         this.detailError = error.message || 'Unable to load network relationship detail';
       } finally {
         this.detailLoading = false;
+        this.syncSelectedAttachmentVifRef();
       }
     },
     async disconnectSelectedNetworkVif(attachment) {
@@ -793,9 +766,7 @@ const NetworkingView = {
       try {
         const result = await api.disconnectVMNic(attachment.vmRef, attachment.interfaceRef, { force: true });
         await this.refreshSelectedNetworkDetail({ refreshRelationships: true });
-        this.detailActionMessage = result?.alreadyDisconnected
-          ? `${attachment.vmName || attachment.vmRef} interface ${attachment.interfaceRef} was already disconnected from live traffic on ${this.selectedNetwork?.name_label || this.selectedNetwork.ref}.`
-          : `${attachment.vmName || attachment.vmRef} interface ${attachment.interfaceRef} was hot-unplugged from ${this.selectedNetwork?.name_label || this.selectedNetwork.ref}.`;
+        this.detailActionMessage = buildNetworkVifDisconnectMessage(result, attachment, this.selectedNetwork);
       } catch (error) {
         this.detailActionError = error.message || 'Unable to hot-unplug the selected workload interface from this network.';
       } finally {
@@ -810,51 +781,22 @@ const NetworkingView = {
       return normalizeFocusValue(attachment?.interfaceRef) === normalizeFocusValue(this.focusedVifRef);
     },
     openHostWorkspace(uplink) {
-      if (!uplink?.hostRef) return;
+      const location = buildNetworkHostWorkspaceLocation(uplink);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/hosts', {
-        kind: 'host',
-        ref: uplink.hostRef,
-        uuid: uplink.hostUuid || '',
-        name: uplink.hostName || '',
-        cls: 'host',
-        source: 'network',
-      }));
+      this.$router.push(location);
     },
     openVmWorkspace(attachment) {
-      if (!attachment?.vmRef) return;
+      const location = buildNetworkVmWorkspaceLocation(attachment);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/vms', {
-        kind: 'vm',
-        ref: attachment.vmRef,
-        uuid: attachment.vmUuid || '',
-        name: attachment.vmName || '',
-        cls: 'vm',
-        source: 'network',
-      }));
+      this.$router.push(location);
     },
     findNetworkByFocus(focus) {
-      return this.networks.find((network) =>
-        recordMatchesRouteFocus(network, focus, ['ref', 'uuid', 'name_label', 'bridge'])
-      ) || null;
+      return findNetworkByFocus(this.networks, focus);
     },
     resolveFocusedNetworkTarget(focus) {
-      const direct = this.findNetworkByFocus(focus);
-      if (direct) {
-        return { network: direct, focusedPifRef: '', focusedVifRef: '', focusedNetworkClass: '' };
-      }
-
-      for (const network of this.networks) {
-        if (['pif', 'bond', 'vlan'].includes(focus.cls) && recordMatchesRouteFocus(network, focus, [], network.PIFs || [])) {
-          return { network, focusedPifRef: focus.ref || '', focusedVifRef: '', focusedNetworkClass: focus.cls || '' };
-        }
-
-        if (focus.cls === 'vif' && recordMatchesRouteFocus(network, focus, [], network.VIFs || [])) {
-          return { network, focusedPifRef: '', focusedVifRef: focus.ref || '', focusedNetworkClass: focus.cls || '' };
-        }
-      }
-
-      return null;
+      return resolveFocusedNetworkTarget(this.networks, focus);
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);

@@ -123,6 +123,9 @@ const schemas = {
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
     vifRef: Joi.string().required().pattern(/^OpaqueRef:/),
   }),
+  vifRefParam: Joi.object({
+    vifRef: Joi.string().required().pattern(/^OpaqueRef:/),
+  }),
   vmConsoleParams: Joi.object({
     ref: Joi.string().required().pattern(/^OpaqueRef:/),
     consoleRef: Joi.string().required().pattern(/^OpaqueRef:/),
@@ -220,9 +223,12 @@ const schemas = {
     startDelay: Joi.number().integer().min(0).max(2147483647).default(0),
     shutdownDelay: Joi.number().integer().min(0).max(2147483647).default(0),
     order: Joi.number().integer().min(0).max(2147483647).default(0),
-    vcpus: Joi.number().integer().min(1).max(128).required(),
+    vcpusAtStartup: Joi.number().integer().min(1).max(128).required(),
+    vcpusMax: Joi.number().integer().min(Joi.ref('vcpusAtStartup')).max(128).required(),
     memoryStaticMax: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
+    memoryDynamicMax: Joi.number().integer().min(1073741824).max(Joi.ref('memoryStaticMax')).default(Joi.ref('memoryStaticMax')),
     memoryStaticMin: Joi.number().integer().min(1073741824).max(Joi.ref('memoryStaticMax')).required(),
+    memoryDynamicMin: Joi.number().integer().min(Joi.ref('memoryStaticMin')).max(Joi.ref('memoryDynamicMax')).default(Joi.ref('memoryDynamicMax')),
     hardwarePlatformVersion: Joi.number().integer().min(0).max(2147483647).default(0),
     domainType: Joi.string().valid('unspecified', 'hvm', 'pv', 'pvh', 'pv_in_pvh').default('unspecified'),
     hasVendorDevice: Joi.boolean().default(true),
@@ -376,6 +382,17 @@ const schemas = {
       .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
       .default({}),
   }),
+  networkVifConfigUpdate: Joi.object({
+    qosAlgorithmType: Joi.string().trim().allow('').max(120).default(''),
+    qosAlgorithmParams: Joi.object()
+      .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
+      .default({}),
+  }).custom((value, helpers) => {
+    if (!String(value.qosAlgorithmType || '').trim() && Object.keys(value.qosAlgorithmParams || {}).length) {
+      return helpers.error('any.invalid');
+    }
+    return value;
+  }, 'VIF QoS configuration validation'),
   networkMutation: Joi.object({
     approvalId: Joi.string().allow('').max(120).default(''),
   }),
@@ -386,6 +403,7 @@ const schemas = {
       Joi.string().pattern(/^OpaqueRef:/),
       Joi.string().allow('')
     ).default(''),
+    vswitchController: Joi.string().allow('').ip({ version: ['ipv4', 'ipv6'], cidr: 'forbidden' }).max(120).default(''),
     igmpSnoopingEnabled: Joi.boolean(),
     migrationCompressionEnabled: Joi.boolean(),
     wlbEnabled: Joi.boolean(),

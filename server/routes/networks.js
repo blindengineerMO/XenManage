@@ -12,6 +12,14 @@ async function safeGetNetworkRecord(xenApi, ref) {
   }
 }
 
+async function safeGetVifRecord(xenApi, ref) {
+  try {
+    return await xenApi.getRecord('VIF', ref);
+  } catch (error) {
+    return null;
+  }
+}
+
 function createRouteError(code, message = code, status = 400) {
   const error = new Error(message);
   error.code = code;
@@ -40,6 +48,34 @@ router.get('/interfaces', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+router.put('/interfaces/:vifRef/config',
+  validate(schemas.vifRefParam, 'params'),
+  validate(schemas.networkVifConfigUpdate),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'network_vif_config_update', entityType: 'vif', entityRef: req.params.vifRef })) return;
+      const previousRecord = await safeGetVifRecord(req.xenApi, req.params.vifRef);
+      const record = await req.xenApi.updateVifConfig(req.params.vifRef, req.body);
+      auditLogService.record({
+        category: 'networking',
+        action: 'network_vif_config_updated',
+        actionLabel: 'Updated VIF QoS configuration',
+        entityType: 'vif',
+        entityRef: req.params.vifRef,
+        entityName: req.params.vifRef,
+        operator: req.session?.xenUser || 'system',
+        route: '/networking',
+        status: 'success',
+        before: previousRecord,
+        after: { ref: req.params.vifRef, ...record },
+        detail: `${req.params.vifRef} QoS policy was updated${record.qos_algorithm_type ? ` to ${record.qos_algorithm_type}` : ' and any existing QoS shaping was cleared'}.`,
+      });
+      res.json({ ref: req.params.vifRef, ...record });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
 
 router.post('/',
   validate(schemas.networkCreate),

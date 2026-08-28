@@ -503,9 +503,15 @@ describe('XenAPI', () => {
       ]));
     });
 
-    it('updateVMConfig should persist identity, user_version, start_delay, shutdown_delay, order, sizing, memory_static_min, hardware_platform_version, domain_type, has_vendor_device, affinity, appliance, snapshot_schedule, tags, blocked_operations, VCPUs_params, other_config, xenstore_data, NVRAM, and platform before returning the refreshed record', async () => {
+    it('updateVMConfig should persist identity, CPU sizing, the full memory envelope, advanced metadata, and placement links before returning the refreshed record', async () => {
       const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
-      const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          VCPUs_at_startup: '2',
+          VCPUs_max: '2',
+        })
+        .mockResolvedValueOnce({
         name_label: 'app-01-renamed',
         name_description: 'Updated operator-facing VM description.',
         user_version: 8,
@@ -513,10 +519,11 @@ describe('XenAPI', () => {
         shutdown_delay: 90,
         order: 3,
         VCPUs_at_startup: '4',
-        VCPUs_max: '4',
+        VCPUs_max: '6',
         memory_static_min: '4294967296',
+        memory_dynamic_min: '6442450944',
         memory_static_max: '8589934592',
-        memory_dynamic_max: '8589934592',
+        memory_dynamic_max: '7516192768',
         hardware_platform_version: 4,
         domain_type: 'pvh',
         has_vendor_device: false,
@@ -557,8 +564,11 @@ describe('XenAPI', () => {
         startDelay: 45,
         shutdownDelay: 90,
         order: 3,
-        vcpus: 4,
+        vcpusAtStartup: 4,
+        vcpusMax: 6,
         memoryStaticMin: 4294967296,
+        memoryDynamicMin: 6442450944,
+        memoryDynamicMax: 7516192768,
         memoryStaticMax: 8589934592,
         hardwarePlatformVersion: 4,
         domainType: 'pvh',
@@ -599,50 +609,59 @@ describe('XenAPI', () => {
       expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'VM', 'OpaqueRef:vm1', 'start_delay', 45);
       expect(setFieldSpy).toHaveBeenNthCalledWith(5, 'VM', 'OpaqueRef:vm1', 'shutdown_delay', 90);
       expect(setFieldSpy).toHaveBeenNthCalledWith(6, 'VM', 'OpaqueRef:vm1', 'order', 3);
-      expect(setFieldSpy).toHaveBeenNthCalledWith(7, 'VM', 'OpaqueRef:vm1', 'VCPUs_max', '4');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(7, 'VM', 'OpaqueRef:vm1', 'VCPUs_max', '6');
       expect(setFieldSpy).toHaveBeenNthCalledWith(8, 'VM', 'OpaqueRef:vm1', 'VCPUs_at_startup', '4');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(9, 'VM', 'OpaqueRef:vm1', 'memory_static_max', '8589934592');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(10, 'VM', 'OpaqueRef:vm1', 'memory_dynamic_max', '8589934592');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(11, 'VM', 'OpaqueRef:vm1', 'memory_static_min', '4294967296');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(12, 'VM', 'OpaqueRef:vm1', 'hardware_platform_version', 4);
-      expect(setFieldSpy).toHaveBeenNthCalledWith(13, 'VM', 'OpaqueRef:vm1', 'domain_type', 'pvh');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(14, 'VM', 'OpaqueRef:vm1', 'has_vendor_device', false);
-      expect(setFieldSpy).toHaveBeenNthCalledWith(15, 'VM', 'OpaqueRef:vm1', 'affinity', 'OpaqueRef:host2');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(16, 'VM', 'OpaqueRef:vm1', 'appliance', 'OpaqueRef:appliance2');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(17, 'VM', 'OpaqueRef:vm1', 'snapshot_schedule', 'OpaqueRef:vmss2');
-      expect(setFieldSpy).toHaveBeenNthCalledWith(18, 'VM', 'OpaqueRef:vm1', 'tags', ['prod', 'linux', 'tier-1']);
-      expect(setFieldSpy).toHaveBeenNthCalledWith(19, 'VM', 'OpaqueRef:vm1', 'blocked_operations', {
+      expect(callSpy).toHaveBeenNthCalledWith(1, 'VM', 'set_memory_limits', [
+        'OpaqueRef:vm1',
+        4294967296,
+        8589934592,
+        6442450944,
+        7516192768,
+      ]);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(9, 'VM', 'OpaqueRef:vm1', 'hardware_platform_version', 4);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(10, 'VM', 'OpaqueRef:vm1', 'domain_type', 'pvh');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(11, 'VM', 'OpaqueRef:vm1', 'has_vendor_device', false);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(12, 'VM', 'OpaqueRef:vm1', 'affinity', 'OpaqueRef:host2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(13, 'VM', 'OpaqueRef:vm1', 'appliance', 'OpaqueRef:appliance2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(14, 'VM', 'OpaqueRef:vm1', 'snapshot_schedule', 'OpaqueRef:vmss2');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(15, 'VM', 'OpaqueRef:vm1', 'tags', ['prod', 'linux', 'tier-1']);
+      expect(setFieldSpy).toHaveBeenNthCalledWith(16, 'VM', 'OpaqueRef:vm1', 'blocked_operations', {
         start: 'OPERATION_NOT_ALLOWED',
         pool_migrate: 'OPERATION_NOT_ALLOWED',
       });
-      expect(setFieldSpy).toHaveBeenNthCalledWith(20, 'VM', 'OpaqueRef:vm1', 'VCPUs_params', {
+      expect(setFieldSpy).toHaveBeenNthCalledWith(17, 'VM', 'OpaqueRef:vm1', 'VCPUs_params', {
         weight: '512',
         cap: '75',
       });
-      expect(setFieldSpy).toHaveBeenNthCalledWith(21, 'VM', 'OpaqueRef:vm1', 'other_config', {
+      expect(setFieldSpy).toHaveBeenNthCalledWith(18, 'VM', 'OpaqueRef:vm1', 'other_config', {
         owner: 'storage-team',
         patchWindow: 'sun-0200',
       });
-      expect(setFieldSpy).toHaveBeenNthCalledWith(22, 'VM', 'OpaqueRef:vm1', 'xenstore_data', {
+      expect(setFieldSpy).toHaveBeenNthCalledWith(19, 'VM', 'OpaqueRef:vm1', 'xenstore_data', {
         'vm-data/cloud-init': 'enabled',
         'guest/channel': 'ops',
       });
-      expect(setFieldSpy).toHaveBeenNthCalledWith(23, 'VM', 'OpaqueRef:vm1', 'NVRAM', {
+      expect(setFieldSpy).toHaveBeenNthCalledWith(20, 'VM', 'OpaqueRef:vm1', 'NVRAM', {
         'EFI/BootOrder': '0003,0004',
         'EFI/SecureBootMode': 'user',
       });
-      expect(setFieldSpy).toHaveBeenNthCalledWith(24, 'VM', 'OpaqueRef:vm1', 'platform', {
+      expect(setFieldSpy).toHaveBeenNthCalledWith(21, 'VM', 'OpaqueRef:vm1', 'platform', {
         secureboot: 'disabled',
         firmware: 'bios',
       });
-      expect(getRecordSpy).toHaveBeenCalledWith('VM', 'OpaqueRef:vm1');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(1, 'VM', 'OpaqueRef:vm1');
+      expect(getRecordSpy).toHaveBeenNthCalledWith(2, 'VM', 'OpaqueRef:vm1');
       expect(result).toEqual(expect.objectContaining({
         name_label: 'app-01-renamed',
         user_version: 8,
         start_delay: 45,
         shutdown_delay: 90,
         order: 3,
+        VCPUs_at_startup: '4',
+        VCPUs_max: '6',
         memory_static_min: '4294967296',
+        memory_dynamic_min: '6442450944',
+        memory_dynamic_max: '7516192768',
         hardware_platform_version: 4,
         domain_type: 'pvh',
         has_vendor_device: false,
@@ -675,6 +694,22 @@ describe('XenAPI', () => {
           firmware: 'bios',
         },
       }));
+    });
+
+    it('updateVMConfig should reject startup vcpu counts above the halted maximum', async () => {
+      await expect(
+        xenApi.updateVMConfig('OpaqueRef:vm1', {
+          nameLabel: 'app-01-invalid',
+          vcpusAtStartup: 8,
+          vcpusMax: 4,
+          memoryStaticMin: 4294967296,
+          memoryDynamicMin: 4294967296,
+          memoryDynamicMax: 8589934592,
+          memoryStaticMax: 8589934592,
+        })
+      ).rejects.toMatchObject({
+        code: 'VM_VCPU_LIMITS_INVALID',
+      });
     });
 
     it('exportVM should stream a full XVA package from the documented HTTP handler', async () => {
@@ -916,12 +951,14 @@ describe('XenAPI', () => {
       xenApi.sessionRef = 'OpaqueRef:session123';
     });
 
-    it('updatePoolConfig should persist pool name, description, default SR, migration compression, WLB enablement, IGMP snooping, tags, and other_config before returning the refreshed record', async () => {
+    it('updatePoolConfig should persist pool name, description, default SR, legacy vSwitch controller, migration compression, WLB enablement, IGMP snooping, tags, and other_config before returning the refreshed record', async () => {
       const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const callSpy = jest.spyOn(xenApi, 'call').mockResolvedValue(undefined);
       const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
         name_label: 'Production Pool West',
         name_description: 'Updated operator-facing pool summary for the west cluster.',
         default_SR: 'OpaqueRef:sr2',
+        vswitch_controller: '10.0.0.81',
         migration_compression: true,
         wlb_enabled: true,
         wlb_url: 'https://wlb-west.example.internal',
@@ -939,6 +976,7 @@ describe('XenAPI', () => {
         nameLabel: 'Production Pool West',
         nameDescription: 'Updated operator-facing pool summary for the west cluster.',
         defaultSrRef: 'OpaqueRef:sr2',
+        vswitchController: '10.0.0.81',
         migrationCompressionEnabled: true,
         wlbEnabled: true,
         igmpSnoopingEnabled: true,
@@ -952,6 +990,7 @@ describe('XenAPI', () => {
       expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'pool', 'OpaqueRef:pool1', 'name_label', 'Production Pool West');
       expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'pool', 'OpaqueRef:pool1', 'name_description', 'Updated operator-facing pool summary for the west cluster.');
       expect(setFieldSpy).toHaveBeenNthCalledWith(3, 'pool', 'OpaqueRef:pool1', 'default_SR', 'OpaqueRef:sr2');
+      expect(callSpy).toHaveBeenNthCalledWith(1, 'pool', 'set_vswitch_controller', ['10.0.0.81']);
       expect(setFieldSpy).toHaveBeenNthCalledWith(4, 'pool', 'OpaqueRef:pool1', 'IGMP_snooping_enabled', true);
       expect(setFieldSpy).toHaveBeenNthCalledWith(5, 'pool', 'OpaqueRef:pool1', 'migration_compression', true);
       expect(setFieldSpy).toHaveBeenNthCalledWith(6, 'pool', 'OpaqueRef:pool1', 'wlb_enabled', true);
@@ -965,6 +1004,7 @@ describe('XenAPI', () => {
         name_label: 'Production Pool West',
         name_description: 'Updated operator-facing pool summary for the west cluster.',
         default_SR: 'OpaqueRef:sr2',
+        vswitch_controller: '10.0.0.81',
         migration_compression: true,
         wlb_enabled: true,
         wlb_url: 'https://wlb-west.example.internal',
@@ -1579,6 +1619,42 @@ describe('XenAPI', () => {
       }));
     });
 
+    it('updateVifConfig should persist VIF QoS configuration before returning the refreshed record', async () => {
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const getRecordSpy = jest.spyOn(xenApi, 'getRecord').mockResolvedValue({
+        VM: 'OpaqueRef:vm1',
+        network: 'OpaqueRef:net1',
+        qos_algorithm_type: 'ratelimit',
+        qos_algorithm_params: {
+          kbps: '75000',
+          timeslice_us: '50000',
+        },
+      });
+
+      const result = await xenApi.updateVifConfig('OpaqueRef:vif1', {
+        qosAlgorithmType: 'ratelimit',
+        qosAlgorithmParams: {
+          kbps: '75000',
+          timeslice_us: '50000',
+        },
+      });
+
+      expect(setFieldSpy).toHaveBeenNthCalledWith(1, 'VIF', 'OpaqueRef:vif1', 'qos_algorithm_type', 'ratelimit');
+      expect(setFieldSpy).toHaveBeenNthCalledWith(2, 'VIF', 'OpaqueRef:vif1', 'qos_algorithm_params', {
+        kbps: '75000',
+        timeslice_us: '50000',
+      });
+      expect(getRecordSpy).toHaveBeenCalledWith('VIF', 'OpaqueRef:vif1');
+      expect(result).toEqual(expect.objectContaining({
+        ref: 'OpaqueRef:vif1',
+        qos_algorithm_type: 'ratelimit',
+        qos_algorithm_params: {
+          kbps: '75000',
+          timeslice_us: '50000',
+        },
+      }));
+    });
+
     it('destroyNetwork should call the documented network destroy message and return a success envelope', async () => {
       const destroySpy = jest.spyOn(xenApi, 'destroy').mockResolvedValue(undefined);
 
@@ -1703,7 +1779,8 @@ describe('XenAPI', () => {
       expect(cloneSpy).toHaveBeenCalledWith('OpaqueRef:template1', 'ubuntu-prod-01');
       expect(configSpy).toHaveBeenCalledWith('OpaqueRef:vm9', expect.objectContaining({
         nameLabel: 'ubuntu-prod-01',
-        vcpus: 4,
+        vcpusAtStartup: 4,
+        vcpusMax: 4,
         memoryStaticMax: 8589934592,
         tags: ['prod', 'linux'],
       }));

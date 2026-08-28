@@ -435,96 +435,25 @@ const AlertsView = {
   },
   computed: {
     decoratedMessages() {
-      return sortMessages(this.messages).map((message) => ({
-        ...message,
-        effectiveSeverity: getMessageSeverity(message),
-        summary: getMessageHeadline(message),
-        stateLabel: message.stateLabel || (message.suppressed ? 'suppressed' : message.acknowledged ? 'acknowledged' : 'open'),
-      }));
+      return decorateAlertMessages(this.messages);
     },
     filteredMessages() {
-      if (this.activeFilter === 'all') {
-        return this.decoratedMessages;
-      }
-
-      if (this.activeFilter === 'open') {
-        return this.decoratedMessages.filter((message) => !message.acknowledged && !message.suppressed);
-      }
-
-      if (this.activeFilter === 'acknowledged') {
-        return this.decoratedMessages.filter((message) => message.acknowledged);
-      }
-
-      if (this.activeFilter === 'suppressed') {
-        return this.decoratedMessages.filter((message) => message.suppressed);
-      }
-
-      if (this.activeFilter === 'policy') {
-        return this.decoratedMessages.filter((message) => Boolean(message.policyName));
-      }
-
-      return this.decoratedMessages.filter((message) => message.effectiveSeverity === this.activeFilter);
+      return filterAlertMessages(this.decoratedMessages, this.activeFilter);
     },
     selectedMessage() {
-      if (!this.selectedRef) return null;
-      return this.decoratedMessages.find((message) => message.ref === this.selectedRef) || null;
+      return findSelectedAlertMessage(this.decoratedMessages, this.selectedRef);
     },
     selectedAlerts() {
-      const selected = new Set(this.selectedRefs);
-      return this.decoratedMessages.filter((message) => selected.has(message.ref));
+      return buildSelectedAlertRows(this.decoratedMessages, this.selectedRefs);
     },
     alertCards() {
-      const counts = this.decoratedMessages.reduce((acc, message) => {
-        acc[message.effectiveSeverity] = (acc[message.effectiveSeverity] || 0) + 1;
-        if (message.acknowledged) acc.acknowledged += 1;
-        if (message.suppressed) acc.suppressed += 1;
-        if (message.policyName) acc.policy += 1;
-        if (!message.acknowledged && !message.suppressed) acc.open += 1;
-        return acc;
-      }, { critical: 0, warning: 0, info: 0, notice: 0, open: 0, acknowledged: 0, suppressed: 0, policy: 0 });
-
-      return [
-        {
-          key: 'open',
-          label: 'Open Alerts',
-          value: String(counts.open),
-          detail: counts.open ? `${counts.critical} critical and ${counts.warning} warning alerts still need attention` : 'No unacknowledged active alerts',
-          icon: 'mdi-bell-ring-outline',
-          valueClass: counts.open ? 'text-amber' : 'text-green',
-        },
-        {
-          key: 'critical',
-          label: 'Critical',
-          value: String(counts.critical),
-          detail: counts.critical ? 'Production-impacting signals should stay at the top of the queue' : 'No critical alerts detected',
-          icon: 'mdi-alert-octagon-outline',
-          valueClass: counts.critical ? 'text-red' : 'text-green',
-        },
-        {
-          key: 'policy',
-          label: 'Policy Managed',
-          value: String(counts.policy),
-          detail: counts.policy ? `${this.policies.length} suppression policies are influencing part of the queue` : 'No active policy matches in the current queue',
-          icon: 'mdi-shield-sun-outline',
-          valueClass: counts.policy ? 'text-cyan' : 'text-green',
-        },
-        {
-          key: 'suppressed',
-          label: 'Suppressed',
-          value: String(counts.suppressed),
-          detail: counts.suppressed ? 'Temporarily silenced alerts remain visible with expiration timestamps' : 'No alerts are currently suppressed',
-          icon: 'mdi-bell-off-outline',
-          valueClass: counts.suppressed ? 'text-cyan' : 'text-green',
-        },
-      ];
+      return buildAlertCards(this.decoratedMessages, this.policies);
     },
     workflowGuidance() {
-      if (!this.selectedMessage) return [];
-      return this.getFollowThroughLinks(this.selectedMessage);
+      return buildAlertFollowThroughLinks(this.selectedMessage);
     },
     recommendedTemplates() {
-      if (!this.selectedMessage) return [];
-      return this.getMatchingRemediationTemplates(this.selectedMessage);
+      return getAlertMatchingRemediationTemplates(this.remediationTemplates, this.selectedMessage);
     },
   },
   async mounted() {
@@ -545,133 +474,27 @@ const AlertsView = {
   },
   methods: {
     formatDateTime,
-    formatActionLabel(value) {
-      const map = {
-        none: 'No Action',
-        inspect: 'Inspect Related Object',
-        monitor: 'Monitor Trend',
-        review: 'Schedule Review',
-        evacuate: 'Prepare Evacuation',
-        snapshot: 'Create Protection Point',
-        lifecycle: 'Open Lifecycle Review',
-        capacity: 'Open Capacity Review',
-        resilience: 'Open Resilience Review',
-        governance: 'Open Governance Review',
-      };
-      return map[value] || 'No Action';
-    },
-    formatClassLabel(value) {
-      const map = {
-        host: 'Host',
-        sr: 'Storage Repository',
-        vdi: 'VDI',
-        vbd: 'VBD',
-        vm: 'VM',
-        pool: 'Pool',
-        network: 'Network',
-        vif: 'VIF',
-        pif: 'PIF',
-        bond: 'Bond',
-        vlan: 'VLAN',
-        task: 'Task',
-      };
-      return map[value] || 'Any Class';
-    },
-    formatTargetRouteLabel(route) {
-      const map = {
-        '/hosts': 'Hosts',
-        '/storage': 'Storage',
-        '/vms': 'Virtual Machines',
-        '/pools': 'Pools',
-        '/networking': 'Networking',
-        '/activity': 'Activity',
-        '/inventory': 'Inventory',
-        '/capacity': 'Capacity',
-        '/resilience': 'Resilience',
-        '/lifecycle': 'Lifecycle',
-        '/governance': 'Governance',
-      };
-      return map[route] || 'Any Workspace';
-    },
-    describePolicy(policy) {
-      const parts = [];
-      parts.push(policy.matchClass ? this.formatClassLabel(policy.matchClass) : 'Any Class');
-      if (policy.matchTargetRoute) parts.push(this.formatTargetRouteLabel(policy.matchTargetRoute));
-      parts.push(policy.matchSeverity ? `${policy.matchSeverity} only` : 'Any Severity');
-      if (policy.matchObject) parts.push(`object "${policy.matchObject}"`);
-      if (policy.matchText) parts.push(`${policy.textMatchMode === 'all' ? 'all terms' : 'contains'} "${policy.matchText}"`);
-      if (policy.suppressionHours) parts.push(`${policy.suppressionHours}h suppression`);
-      if (policy.healthAction && policy.healthAction !== 'none') parts.push(this.formatActionLabel(policy.healthAction));
-      return parts.join(' · ');
-    },
-    describeTemplateAutomation(template) {
-      const launchModeMap = {
-        queue: 'queue immediately',
-        'lifecycle-plan': 'launch lifecycle draft',
-        'lifecycle-maintenance': 'launch maintenance handoff',
-        'resilience-runbook': 'launch recovery runbook draft',
-        'resilience-drill': 'launch recovery drill handoff',
-        'vm-migration': 'launch VM migration handoff',
-      };
-      const launchMode = launchModeMap[String(template?.launchMode || 'draft').toLowerCase()] || 'open draft first';
-      return `Launch: ${launchMode} · Guard: ${this.formatTemplateRecurrence(template)}`;
-    },
-    describeRemediationTemplate(template) {
-      const parts = [];
-      parts.push(template.matchClass ? this.formatClassLabel(template.matchClass) : 'Any Class');
-      if (template.matchTargetRoute) parts.push(this.formatTargetRouteLabel(template.matchTargetRoute));
-      parts.push(template.matchSeverity ? `${template.matchSeverity} only` : 'Any Severity');
-      if (template.matchObject) parts.push(`object "${template.matchObject}"`);
-      if (template.matchText) parts.push(`${template.textMatchMode === 'all' ? 'all terms' : 'contains'} "${template.matchText}"`);
-      parts.push(this.formatActionLabel(template.actionType || 'review'));
-      if (template.defaultDueDays) parts.push(`due in ${template.defaultDueDays}d`);
-      return parts.join(' · ');
-    },
-    formatTemplateRecurrence(template) {
-      const mode = String(template?.recurrenceMode || 'manual').toLowerCase();
-      const scope = String(template?.recurrenceScope || 'object').toLowerCase();
-      const scopeLabel = scope === 'alert' ? 'alert' : scope === 'class' ? 'class signature' : 'object';
-      if (mode === 'once') return `once per ${scopeLabel}`;
-      if (mode === 'daily') return `daily per ${scopeLabel}`;
-      if (mode === 'weekly') return `weekly per ${scopeLabel}`;
-      if (mode === 'cooldown') return `${Number(template?.cooldownDays || 1)}d cooldown per ${scopeLabel}`;
-      return 'no duplicate guard';
-    },
-    matchesRemediationTemplate(template, message) {
-      if (!template?.enabled || !template?.name || !message) return false;
-
-      const messageClass = String(message.cls || '').toLowerCase();
-      const targetRoute = message.targetRoute || '';
-      const severity = String(message.effectiveSeverity || message.baseSeverity || '').toLowerCase();
-      const identityHaystack = `${message?.ref || ''} ${message?.summary || ''} ${message?.uuid || ''} ${message?.obj_uuid || ''}`.toLowerCase();
-      const textHaystack = `${message?.summary || ''} ${message?.body || ''} ${message?.uuid || ''} ${message?.obj_uuid || ''}`.toLowerCase();
-
-      if (template.matchClass && template.matchClass !== messageClass) return false;
-      if (template.matchTargetRoute && template.matchTargetRoute !== targetRoute) return false;
-      if (template.matchSeverity && template.matchSeverity !== severity) return false;
-      if (template.matchObject && !identityHaystack.includes(String(template.matchObject).toLowerCase())) return false;
-
-      if (template.matchText) {
-        const query = String(template.matchText || '').toLowerCase();
-        if (template.textMatchMode === 'all') {
-          const terms = query.split(/[\s,]+/).map((term) => term.trim()).filter(Boolean);
-          if (!terms.length || !terms.every((term) => textHaystack.includes(term))) return false;
-        } else if (!textHaystack.includes(query)) {
-          return false;
-        }
-      }
-
-      return true;
-    },
-    getMatchingRemediationTemplates(message) {
-      return (this.remediationTemplates || [])
-        .filter((template) => this.matchesRemediationTemplate(template, message))
-        .sort((left, right) => {
-          const leftScore = (left.matchClass ? 2 : 0) + (left.matchTargetRoute ? 2 : 0) + (left.matchSeverity ? 2 : 0) + (left.matchObject ? 3 : 0) + (left.matchText ? 3 : 0);
-          const rightScore = (right.matchClass ? 2 : 0) + (right.matchTargetRoute ? 2 : 0) + (right.matchSeverity ? 2 : 0) + (right.matchObject ? 3 : 0) + (right.matchText ? 3 : 0);
-          return rightScore - leftScore;
-        });
-    },
+    formatActionLabel: formatAlertActionLabel,
+    formatClassLabel: formatAlertClassLabel,
+    formatTargetRouteLabel: formatAlertTargetRouteLabel,
+    describePolicy: describeAlertPolicy,
+    describeTemplateAutomation: describeAlertTemplateAutomation,
+    describeRemediationTemplate: describeAlertRemediationTemplate,
+    formatTemplateRecurrence: formatAlertTemplateRecurrence,
+    matchesRemediationTemplate: matchesAlertRemediationTemplate,
+    resolveWorkflowRoute: resolveAlertWorkflowRoute,
+    getFollowThroughLinks: buildAlertFollowThroughLinks,
+    buildAlertFocusLocation: buildAlertFocusLocation,
+    applyTemplateTokens: applyAlertTemplateTokens,
+    applyTemplateTokenList: applyAlertTemplateTokenList,
+    buildRemediationTaskFocus: buildAlertRemediationTaskFocus,
+    resolveRemediationLaunchLocation: resolveAlertRemediationLaunchLocation,
+    remediationTemplatePrimaryActionLabel: getAlertRemediationTemplatePrimaryActionLabel,
+    remediationTemplatePrimaryActionIcon: getAlertRemediationTemplatePrimaryActionIcon,
+    applyLifecyclePlanSeed: applyAlertLifecyclePlanSeed,
+    applyResilienceRunbookSeed: applyAlertResilienceRunbookSeed,
+    applyVmMigrationSeed: applyAlertVmMigrationSeed,
+    formatDueDateFromDays: formatAlertDueDateFromDays,
     async loadWorkspace() {
       this.loading = true;
       this.bulkError = null;
@@ -718,291 +541,19 @@ const AlertsView = {
     },
     openRelated(message) {
       this.showProps = false;
-      this.$router.push(this.buildAlertFocusLocation(message));
-    },
-    buildAlertFocusLocation(message) {
-      const cls = String(message.cls || '').toLowerCase();
-      const objectRef = String(message.object_ref || '').trim();
-      const objectUuid = String(message.obj_uuid || '').trim();
-      const kindMap = {
-        host: 'host',
-        sr: 'storage',
-        vdi: 'storage',
-        vbd: 'storage',
-        vm: 'vm',
-        pool: 'pool',
-        network: 'network',
-        vif: 'network',
-        pif: 'network',
-        bond: 'network',
-        vlan: 'network',
-        task: 'task',
-        alert: 'alert',
-      };
-
-      return buildFocusedRoute(message.targetRoute || '/inventory', {
-        kind: kindMap[cls] || '',
-        ref: objectRef || (objectUuid.startsWith('OpaqueRef:') ? objectUuid : ''),
-        uuid: objectUuid && !objectUuid.startsWith('OpaqueRef:') ? objectUuid : '',
-        name: message.summary || message.name || '',
-        cls,
-        source: 'alert',
-      });
-    },
-    resolveWorkflowRoute(message) {
-      const actionMap = {
-        lifecycle: { route: '/lifecycle', label: 'Lifecycle Review' },
-        capacity: { route: '/capacity', label: 'Capacity Review' },
-        resilience: { route: '/resilience', label: 'Resilience Review' },
-        governance: { route: '/governance', label: 'Governance Review' },
-      };
-
-      if (actionMap[message.healthAction]) {
-        return actionMap[message.healthAction];
-      }
-
-      const cls = String(message.cls || '').toLowerCase();
-      if (cls === 'host') return { route: '/lifecycle', label: 'Lifecycle Review' };
-      if (cls === 'sr' || cls === 'vdi' || cls === 'vbd') return { route: '/capacity', label: 'Capacity Review' };
-      if (cls === 'vm') return { route: '/governance', label: 'Governance Review' };
-      if (cls === 'pool') return { route: '/resilience', label: 'Resilience Review' };
-      return { route: '', label: '' };
-    },
-    getFollowThroughLinks(message) {
-      const links = [];
-      const seen = new Set();
-
-      const addLink = (route, label, detail) => {
-        if (!route || seen.has(route)) return;
-        seen.add(route);
-        links.push({ route, label, detail });
-      };
-
-      addLink(message.targetRoute || '/inventory', message.targetLabel || 'Related View', 'Open the closest live inventory surface for the affected object.');
-
-      const workflow = this.resolveWorkflowRoute(message);
-      if (workflow.route) {
-        addLink(workflow.route, workflow.label, 'Continue directly into the recommended remediation workspace for this alert.');
-      }
-
-      const cls = String(message.cls || '').toLowerCase();
-      if (cls === 'host') {
-        addLink('/capacity', 'Capacity Review', 'Check host pressure, imbalance, and noisy-neighbor impact before maintenance.');
-        addLink('/resilience', 'Resilience Review', 'Review failover posture and evacuation readiness for the affected host.');
-      } else if (cls === 'sr' || cls === 'vdi' || cls === 'vbd') {
-        addLink('/storage', 'Storage View', 'Inspect the affected repository, VDI, or attachment topology.');
-        addLink('/resilience', 'Resilience Review', 'Confirm restore-point safety if storage degradation could impact protection posture.');
-      } else if (cls === 'vm') {
-        addLink('/vms', 'VM View', 'Open the VM detail workspace to inspect config, devices, and lifecycle state.');
-        addLink('/resilience', 'Resilience Review', 'Check protection coverage and recovery posture for the affected workload.');
-      } else if (cls === 'network' || cls === 'pif' || cls === 'vif' || cls === 'bond' || cls === 'vlan') {
-        addLink('/networking', 'Network View', 'Inspect the affected bridge, uplink, or workload interface path in the relationship pane.');
-      } else if (cls === 'pool') {
-        addLink('/pools', 'Pool View', 'Inspect pool membership and control-plane settings for the affected cluster.');
-        addLink('/governance', 'Governance Review', 'Review quota and approval posture if the alert signals policy pressure.');
-      }
-
-      return links;
+      this.$router.push(buildAlertFocusLocation(message));
     },
     openWorkflowForMessage(message) {
-      const workflow = this.resolveWorkflowRoute(message);
+      const workflow = resolveAlertWorkflowRoute(message);
       if (!workflow.route) return;
       this.showProps = false;
       this.$router.push(workflow.route);
     },
     buildRemediationDraftFromAlert(message) {
-      const workflow = this.resolveWorkflowRoute(message);
-      const cls = String(message?.cls || '').toLowerCase();
-      const actionType = message?.healthAction && message.healthAction !== 'none'
-        ? message.healthAction
-        : (workflow.route === '/capacity'
-          ? 'capacity'
-          : workflow.route === '/resilience'
-            ? 'resilience'
-            : workflow.route === '/governance'
-              ? 'governance'
-              : workflow.route === '/lifecycle'
-                ? 'lifecycle'
-                : 'review');
-      const targetRoute = workflow.route || message?.targetRoute || '/activity';
-      const summary = getMessageHeadline(message);
-      const relatedLabel = this.formatClassLabel(cls).toLowerCase();
-
-      return buildRemediationTaskDraft({
-        nameLabel: `${this.formatActionLabel(actionType)}: ${summary}`,
-        nameDescription: `${message?.body || 'Continue operator review for this alert.'}\n\nValidate the affected ${relatedLabel} and capture the outcome in Activity before closing the follow-through work.`,
-        actionType,
-        assignee: store.username || '',
-        dueDate: '',
-        alertRef: message?.ref || '',
-        alertUuid: message?.uuid || '',
-        alertSummary: summary,
-        targetRoute,
-        relatedObject: message?.object_ref || message?.obj_uuid || message?.ref || '',
-        relatedClass: cls,
-      });
-    },
-    applyTemplateTokens(templateText, message) {
-      const source = String(templateText || '').trim();
-      if (!source) return '';
-
-      const summary = getMessageHeadline(message);
-      const workflow = this.resolveWorkflowRoute(message);
-      const severity = String(message.effectiveSeverity || message.baseSeverity || 'notice').toLowerCase();
-      return source
-        .replace(/\{summary\}/gi, summary)
-        .replace(/\{class\}/gi, String(message.cls || '').toLowerCase() || 'alert')
-        .replace(/\{object\}/gi, message.obj_uuid || message.ref || '')
-        .replace(/\{severity\}/gi, severity)
-        .replace(/\{workspace\}/gi, workflow.label || this.formatTargetRouteLabel(message.targetRoute || '') || 'workspace');
-    },
-    applyTemplateTokenList(entries, message) {
-      return (Array.isArray(entries) ? entries : [])
-        .map((entry) => this.applyTemplateTokens(entry, message))
-        .map((entry) => String(entry || '').trim())
-        .filter(Boolean);
-    },
-    buildRemediationTaskFocus(task, fallbackName = '') {
-      return {
-        kind: 'task',
-        ref: task?.ref || '',
-        uuid: task?.uuid || '',
-        name: task?.name_label || fallbackName || '',
-        cls: 'task',
-        source: 'alert',
-      };
-    },
-    resolveRemediationLaunchLocation(task, payload = {}) {
-      const focus = this.buildRemediationTaskFocus(task, payload.nameLabel || payload.templateName || '');
-      const launchMode = String(task?.template_launch_mode || payload.templateLaunchMode || 'draft').trim().toLowerCase();
-
-      if (launchMode === 'lifecycle-plan' && task?.lifecycle_plan_seed?.enabled) {
-        return buildFocusedRoute('/lifecycle', focus, { seedAction: 'lifecycle-plan' });
-      }
-      if (launchMode === 'lifecycle-maintenance' && task?.lifecycle_plan_seed?.enabled) {
-        return buildFocusedRoute('/lifecycle', focus, { seedAction: 'lifecycle-maintenance' });
-      }
-      if (launchMode === 'resilience-runbook' && task?.resilience_runbook_seed?.enabled) {
-        return buildFocusedRoute('/resilience', focus, { seedAction: 'resilience-runbook' });
-      }
-      if (launchMode === 'resilience-drill' && task?.resilience_runbook_seed?.enabled) {
-        return buildFocusedRoute('/resilience', focus, { seedAction: 'resilience-drill' });
-      }
-      if (launchMode === 'vm-migration' && task?.vm_migration_seed?.enabled) {
-        return buildFocusedRoute('/vms', focus, { seedAction: 'vm-migration' });
-      }
-
-      return buildFocusedRoute('/activity', focus);
-    },
-    remediationTemplatePrimaryActionLabel(template) {
-      const launchMode = String(template?.launchMode || 'draft').trim().toLowerCase();
-      if (launchMode === 'queue') return 'Queue Now';
-      if (launchMode === 'lifecycle-plan') return 'Launch Lifecycle Draft';
-      if (launchMode === 'lifecycle-maintenance') return 'Launch Maintenance Handoff';
-      if (launchMode === 'resilience-runbook') return 'Launch Runbook Draft';
-      if (launchMode === 'resilience-drill') return 'Launch Recovery Drill';
-      if (launchMode === 'vm-migration') return 'Launch VM Migration';
-      return 'Use Template';
-    },
-    remediationTemplatePrimaryActionIcon(template) {
-      const launchMode = String(template?.launchMode || 'draft').trim().toLowerCase();
-      if (launchMode === 'queue') return 'mdi-rocket-launch-outline';
-      if (launchMode === 'lifecycle-plan') return 'mdi-calendar-edit-outline';
-      if (launchMode === 'lifecycle-maintenance') return 'mdi-wrench-clock';
-      if (launchMode === 'resilience-runbook') return 'mdi-book-edit-outline';
-      if (launchMode === 'resilience-drill') return 'mdi-clipboard-pulse-outline';
-      if (launchMode === 'vm-migration') return 'mdi-swap-horizontal-bold';
-      return 'mdi-creation-outline';
-    },
-    applyLifecyclePlanSeed(seed, message) {
-      if (!seed || seed.enabled === false) return null;
-
-      const nextSeed = {
-        ...seed,
-        enabled: true,
-        maintenanceWindow: this.applyTemplateTokens(seed.maintenanceWindow || '', message),
-        patchGroup: this.applyTemplateTokens(seed.patchGroup || '', message),
-        owner: this.applyTemplateTokens(seed.owner || '', message),
-        notes: this.applyTemplateTokens(seed.notes || '', message),
-      };
-
-      if (Number(seed.dueDays || 0) > 0) {
-        nextSeed.dueDate = this.formatDueDateFromDays(seed.dueDays);
-      }
-
-      return nextSeed;
-    },
-    applyResilienceRunbookSeed(seed, message) {
-      if (!seed || seed.enabled === false) return null;
-      return {
-        ...seed,
-        enabled: true,
-        owner: this.applyTemplateTokens(seed.owner || '', message),
-        notes: this.applyTemplateTokens(seed.notes || '', message),
-        runbookSteps: this.applyTemplateTokenList(seed.runbookSteps || [], message),
-      };
-    },
-    applyVmMigrationSeed(seed, message) {
-      if (!seed || seed.enabled === false) return null;
-      return {
-        ...seed,
-        enabled: true,
-        notes: this.applyTemplateTokens(seed.notes || '', message),
-        vifNetworkMap: Array.isArray(seed.vifNetworkMap)
-          ? seed.vifNetworkMap.map((entry) => ({ ...entry }))
-          : [],
-      };
-    },
-    formatDueDateFromDays(days) {
-      const count = Number(days || 0);
-      if (!count) return '';
-      const next = new Date();
-      next.setDate(next.getDate() + count);
-      const offsetDate = new Date(next.getTime() - next.getTimezoneOffset() * 60000);
-      return offsetDate.toISOString().slice(0, 10);
+      return buildAlertRemediationDraftFromAlert(message, store.username || '');
     },
     buildRemediationDraftFromTemplate(message, template) {
-      const base = this.buildRemediationDraftFromAlert(message);
-      const lifecyclePlanSeed = this.applyLifecyclePlanSeed(template.lifecyclePlanSeed, message);
-      const resilienceRunbookSeed = this.applyResilienceRunbookSeed(template.resilienceRunbookSeed, message);
-      const vmMigrationSeed = this.applyVmMigrationSeed(template.vmMigrationSeed, message);
-
-      if (lifecyclePlanSeed) {
-        lifecyclePlanSeed.sourceTemplateId = template.id || '';
-        lifecyclePlanSeed.sourceTemplateName = template.name || '';
-      }
-
-      if (resilienceRunbookSeed) {
-        resilienceRunbookSeed.sourceTemplateId = template.id || '';
-        resilienceRunbookSeed.sourceTemplateName = template.name || '';
-      }
-
-      if (vmMigrationSeed) {
-        vmMigrationSeed.sourceTemplateId = template.id || '';
-        vmMigrationSeed.sourceTemplateName = template.name || '';
-      }
-
-      return buildRemediationTaskDraft({
-        ...base,
-        nameLabel: this.applyTemplateTokens(template.taskNameTemplate || base.nameLabel, message) || base.nameLabel,
-        nameDescription: this.applyTemplateTokens(template.defaultNotes || base.nameDescription, message) || base.nameDescription,
-        actionType: template.actionType || base.actionType,
-        assignee: template.defaultAssignee || base.assignee,
-        dueDate: this.formatDueDateFromDays(template.defaultDueDays),
-        targetRoute: template.defaultTargetRoute || base.targetRoute,
-        workspaceSummary: this.applyTemplateTokens(template.workspaceSummaryTemplate || '', message),
-        evidenceChecklist: this.applyTemplateTokenList(template.evidenceChecklist, message),
-        completionCriteria: this.applyTemplateTokenList(template.completionCriteria, message),
-        templateId: template.id || '',
-        templateName: template.name || '',
-        templateLaunchMode: template.launchMode || 'draft',
-        recurrenceMode: template.recurrenceMode || 'manual',
-        recurrenceScope: template.recurrenceScope || 'object',
-        cooldownDays: Number(template.cooldownDays || 0),
-        lifecyclePlanSeed,
-        resilienceRunbookSeed,
-        vmMigrationSeed,
-      });
+      return buildAlertRemediationDraftFromTemplate(message, template, store.username || '');
     },
     openRemediationComposer(message) {
       this.remediationDraft = this.buildRemediationDraftFromAlert(message);
@@ -1267,9 +818,7 @@ const AlertsView = {
       }
     },
     findAlertByFocus(focus) {
-      return this.decoratedMessages.find((message) =>
-        recordMatchesRouteFocus(message, focus, ['ref', 'uuid', 'summary', 'name'])
-      ) || null;
+      return findAlertMessageByFocus(this.decoratedMessages, focus);
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);

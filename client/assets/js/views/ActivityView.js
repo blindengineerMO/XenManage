@@ -538,138 +538,31 @@ const ActivityView = {
       return sortTasks(this.tasks);
     },
     sortedAuditEntries() {
-      return [...this.auditEntries].sort((left, right) =>
-        new Date(right.happenedAt || 0) - new Date(left.happenedAt || 0)
-      );
+      return sortActivityAuditEntries(this.auditEntries);
     },
     filteredTasks() {
-      if (this.activeFilter === 'all') {
-        return this.sortedTasks;
-      }
-      return this.sortedTasks.filter((task) => (task.status || '').toLowerCase() === this.activeFilter);
+      return filterActivityTasks(this.tasks, this.activeFilter);
     },
     filteredAuditEntries() {
-      if (this.activeFilter === 'all') {
-        return this.sortedAuditEntries;
-      }
-      return this.sortedAuditEntries.filter((entry) => {
-        const status = String(entry.status || '').toLowerCase();
-        if (this.activeFilter === 'failure') {
-          return status === 'failure' || status === 'critical' || status === 'error';
-        }
-        return status === this.activeFilter;
-      });
+      return filterActivityAuditEntries(this.auditEntries, this.activeFilter);
     },
     filteredLogs() {
-      let entries = [...this.logs];
-
-      if (this.logSource !== 'all') {
-        entries = entries.filter((entry) => entry.source === this.logSource);
-      }
-
-      if (this.activeFilter !== 'all') {
-        entries = entries.filter((entry) => {
-          const severity = String(entry.severity || '').toLowerCase();
-          const status = String(entry.status || '').toLowerCase();
-          if (this.activeFilter === 'failure') {
-            return ['failure', 'critical', 'error'].includes(severity) || ['failure', 'critical', 'error'].includes(status);
-          }
-          return severity === this.activeFilter || status === this.activeFilter;
-        });
-      }
-
-      return entries;
+      return filterActivityLogs(this.logs, this.logSource, this.activeFilter);
     },
     recentChanges() {
       return this.filteredAuditEntries;
     },
     summaryCards() {
-      const pendingTasks = this.tasks.filter((task) => ['pending', 'queued'].includes(String(task.status || '').toLowerCase())).length;
-      const remediationTasks = this.tasks.filter((task) => this.isRemediationTask(task)).length;
-      const operators = new Set(this.auditEntries.map((entry) => entry.operator || 'system'));
-      const openRemediation = this.tasks.filter((task) => this.isRemediationTask(task) && !this.taskSlaMeta(task).isClosed);
-      const overdueRemediation = openRemediation.filter((task) => this.taskSlaMeta(task).isOverdue).length;
-      const dueSoonRemediation = openRemediation.filter((task) => this.taskSlaMeta(task).isDueSoon).length;
-      const agingRemediation = openRemediation.filter((task) => this.taskSlaMeta(task).isAging && !this.taskSlaMeta(task).isOverdue).length;
-
-      return [
-        {
-          key: 'changes',
-          label: 'Central Logs',
-          value: String(this.logs.length),
-          detail: this.logs.length ? `${this.logs[0].message || 'Recent log entry'} is the latest federated event` : 'No centralized log entries captured yet',
-          icon: 'mdi-clipboard-text-clock-outline',
-          valueClass: this.logs.length ? 'text-cyan' : '',
-        },
-        {
-          key: 'operators',
-          label: 'Operators',
-          value: String(operators.size),
-          detail: operators.size ? `${[...operators][0]} is present in the current audit window` : 'No named operators have generated activity yet',
-          icon: 'mdi-account-group-outline',
-          valueClass: operators.size ? 'text-green' : '',
-        },
-        {
-          key: 'tasks',
-          label: 'Tasks',
-          value: String(this.tasks.length),
-          detail: pendingTasks
-            ? `${pendingTasks} active task${pendingTasks === 1 ? '' : 's'} still running, including ${remediationTasks} remediation follow-through item${remediationTasks === 1 ? '' : 's'}`
-            : `${remediationTasks} remediation follow-through item${remediationTasks === 1 ? '' : 's'} recorded in the queue`,
-          icon: 'mdi-progress-clock',
-          valueClass: pendingTasks ? 'text-amber' : 'text-green',
-        },
-        {
-          key: 'sla',
-          label: 'Queue Watch',
-          value: String(overdueRemediation),
-          detail: overdueRemediation
-            ? `${overdueRemediation} overdue · ${dueSoonRemediation} due soon · ${agingRemediation} aging without due dates`
-            : `${dueSoonRemediation} due soon · ${agingRemediation} aging without due dates`,
-          icon: 'mdi-timer-alert-outline',
-          valueClass: overdueRemediation ? 'text-red' : (dueSoonRemediation || agingRemediation ? 'text-amber' : 'text-green'),
-        },
-      ];
+      return buildActivitySummaryCards(this.tasks, this.auditEntries, this.logs);
     },
     operatorRows() {
-      const map = new Map();
-
-      for (const entry of this.sortedAuditEntries) {
-        const operator = entry.operator || 'system';
-        const current = map.get(operator) || { operator, count: 0, latestAt: '', categories: new Set() };
-        current.count += 1;
-        if (!current.latestAt || new Date(entry.happenedAt || 0) > new Date(current.latestAt || 0)) {
-          current.latestAt = entry.happenedAt;
-        }
-        current.categories.add(entry.category || 'operations');
-        map.set(operator, current);
-      }
-
-      return [...map.values()]
-        .map((row) => ({
-          ...row,
-          categories: `${row.categories.size} categor${row.categories.size === 1 ? 'y' : 'ies'}`,
-        }))
-        .sort((left, right) => right.count - left.count)
-        .slice(0, 8);
+      return buildActivityOperatorRows(this.auditEntries);
     },
     logSourceRows() {
-      return this.logSources
-        .filter((source) => source.value !== 'all')
-        .map((source) => {
-          const count = this.logs.filter((entry) => entry.source === source.value).length;
-          return {
-            source: source.value,
-            label: source.label,
-            count,
-            tone: count ? 'active' : 'idle',
-          };
-        });
+      return buildActivityLogSourceRows(this.logSources, this.logs);
     },
     detailTitle() {
-      if (this.selectedItemType === 'audit') return 'Audit Detail';
-      if (this.selectedItemType === 'log') return 'Log Detail';
-      return 'Task Detail';
+      return getActivityDetailTitle(this.selectedItemType);
     },
   },
   async mounted() {
@@ -691,124 +584,27 @@ const ActivityView = {
   methods: {
     formatDateTime,
     formatTaskProgress,
+    isRemediationTask: isRemediationActivityTask,
+    isTemplateDeploymentTask: isTemplateDeploymentActivityTask,
+    formatTemplateLaunchMode: formatActivityTemplateLaunchMode,
+    formatTaskRecurrence: formatActivityTaskRecurrence,
+    taskEvidenceChecklist: getActivityTaskEvidenceChecklist,
+    taskCompletionCriteria: getActivityTaskCompletionCriteria,
+    taskResult: getActivityTaskResult,
+    taskSourceLabel: getActivityTaskSourceLabel,
+    taskSourceTitle: getActivityTaskSourceTitle,
+    formatActionTypeLabel: formatActivityActionTypeLabel,
+    formatAuditActionLabel: formatActivityAuditActionLabel,
+    summarizeChangedFields: summarizeActivityChangedFields,
+    buildTaskFocus: buildActivityTaskFocus,
+    findTaskByFocus(focus) {
+      return findActivityTaskByFocus(this.tasks, focus);
+    },
     taskSlaMeta(task) {
-      const meta = getTaskDueMeta(task);
-      if (this.isRemediationTask(task)) return meta;
-      if (this.isTemplateDeploymentTask(task)) {
-        const status = String(task.status || '').toLowerCase();
-        if (status === 'success') {
-          return {
-            ...meta,
-            tone: 'success',
-            label: 'Validated',
-            detail: task.validation_notes || task.result || 'Deployment validation completed successfully.',
-          };
-        }
-        if (status === 'failure') {
-          return {
-            ...meta,
-            tone: 'critical',
-            label: 'Validation Failed',
-            detail: task.validation_notes || task.result || 'Deployment validation failed and needs operator follow-through.',
-          };
-        }
-        if (status === 'warning') {
-          return {
-            ...meta,
-            tone: 'warning',
-            label: 'Needs Review',
-            detail: task.validation_notes || task.result || 'Deployment is waiting for operator review.',
-          };
-        }
-        return {
-          ...meta,
-          tone: 'info',
-          label: 'Awaiting Validation',
-          detail: task.validation_notes || task.result || 'Deployment provisioning finished and validation is still pending.',
-        };
-      }
-      return {
-        ...meta,
-        label: 'Background',
-        tone: 'info',
-        detail: 'Xen background tasks are tracked by status and progress rather than operator due dates.',
-      };
+      return buildActivityTaskSlaMeta(task);
     },
     taskSlaBadgeClass(task) {
       return getTaskSlaBadgeClass(this.taskSlaMeta(task));
-    },
-    formatTemplateLaunchMode(value) {
-      const map = {
-        queue: 'Queue Immediately',
-        'lifecycle-plan': 'Launch Lifecycle Draft',
-        'lifecycle-maintenance': 'Launch Maintenance Handoff',
-        'resilience-runbook': 'Launch Recovery Runbook Draft',
-        'resilience-drill': 'Launch Recovery Drill Handoff',
-        'vm-migration': 'Launch VM Migration Handoff',
-      };
-      return map[String(value || 'draft').toLowerCase()] || 'Open Draft First';
-    },
-    formatTaskRecurrence(task) {
-      const mode = String(task?.recurrence_mode || 'manual').toLowerCase();
-      const scope = String(task?.recurrence_scope || 'object').toLowerCase();
-      const scopeLabel = scope === 'alert' ? 'alert' : scope === 'class' ? 'class signature' : 'object';
-      if (mode === 'once') return `Once per ${scopeLabel}`;
-      if (mode === 'daily') return `Daily per ${scopeLabel}`;
-      if (mode === 'weekly') return `Weekly per ${scopeLabel}`;
-      if (mode === 'cooldown') return `${Number(task?.recurrence_cooldown_days || 1)}d cooldown per ${scopeLabel}`;
-      return 'None';
-    },
-    taskEvidenceChecklist(task) {
-      return Array.isArray(task?.evidence_checklist) ? task.evidence_checklist : [];
-    },
-    taskCompletionCriteria(task) {
-      return Array.isArray(task?.completion_criteria) ? task.completion_criteria : [];
-    },
-    taskResult(task) {
-      if (task.result) return String(task.result);
-      if (this.isTemplateDeploymentTask(task) && task.validation_notes) return String(task.validation_notes);
-      if (task.error_info && task.error_info.length) return task.error_info.map(String).join(' | ');
-      return '-';
-    },
-    isRemediationTask(task) {
-      return String(task?.task_kind || task?.source || '').toLowerCase() === 'remediation';
-    },
-    isTemplateDeploymentTask(task) {
-      return String(task?.task_kind || task?.source || '').toLowerCase() === 'template_deployment';
-    },
-    taskSourceLabel(task) {
-      if (this.isRemediationTask(task)) return 'remediation';
-      if (this.isTemplateDeploymentTask(task)) return 'template deployment';
-      return 'background task';
-    },
-    taskSourceTitle(task) {
-      if (this.isRemediationTask(task)) return 'Remediation Task';
-      if (this.isTemplateDeploymentTask(task)) return 'Template Deployment Run';
-      return 'Xen Background Task';
-    },
-    formatActionTypeLabel(value) {
-      const map = {
-        inspect: 'Inspect Related Object',
-        monitor: 'Monitor Trend',
-        review: 'Schedule Review',
-        evacuate: 'Prepare Evacuation',
-        snapshot: 'Create Protection Point',
-        lifecycle: 'Lifecycle Review',
-        capacity: 'Capacity Review',
-        resilience: 'Resilience Review',
-        governance: 'Governance Review',
-      };
-      return map[String(value || '').toLowerCase()] || 'Review';
-    },
-    formatAuditActionLabel(entry) {
-      if (entry.actionLabel) return entry.actionLabel;
-      return String(entry.action || 'activity').replace(/_/g, ' ');
-    },
-    summarizeChangedFields(entry) {
-      if (!entry.changedFields || !entry.changedFields.length) {
-        return 'No field-level diff summary was captured for this entry.';
-      }
-      return entry.changedFields.map((change) => change.field).join(', ');
     },
     toPrettyJson(value) {
       if (!value) return '-';
@@ -862,42 +658,16 @@ const ActivityView = {
       this.selectedLogIds = Array.isArray(keys) ? keys : [];
     },
     formatLogSourceLabel(value) {
-      const source = this.logSources.find((entry) => entry.value === value);
-      return source?.label || value || 'Source';
+      return formatActivityLogSourceLabel(value, this.logSources);
     },
     resolveAuditRecordLocation(entry) {
-      if (!entry) return null;
-
-      const entityType = String(entry.entityType || '').toLowerCase();
-      const routeMap = {
-        vm: { path: '/vms', kind: 'vm', cls: 'vm' },
-        host: { path: '/hosts', kind: 'host', cls: 'host' },
-        pool: { path: '/pools', kind: 'pool', cls: 'pool' },
-        network: { path: '/networking', kind: 'network', cls: 'network' },
-        sr: { path: '/storage', kind: 'storage', cls: 'sr' },
-        vdi: { path: '/storage', kind: 'storage', cls: 'vdi' },
-        vbd: { path: '/storage', kind: 'storage', cls: 'vbd' },
-        alert: { path: '/alerts', kind: 'alert', cls: 'alert' },
-        task: { path: '/activity', kind: 'task', cls: 'task' },
-        template: { path: '/templates', kind: 'template', cls: 'template' },
-      };
-
-      const target = routeMap[entityType];
-      if (!target) return null;
-
-      return buildFocusedRoute(target.path, {
-        kind: target.kind,
-        ref: entry.entityRef || '',
-        name: entry.entityName || entry.summary || '',
-        cls: target.cls,
-        source: 'activity',
-      });
+      return resolveActivityAuditRecordLocation(entry);
     },
     canOpenAuditRecord(entry) {
-      return Boolean(this.resolveAuditRecordLocation(entry));
+      return Boolean(resolveActivityAuditRecordLocation(entry));
     },
     openAuditRecord(entry) {
-      const location = this.resolveAuditRecordLocation(entry);
+      const location = resolveActivityAuditRecordLocation(entry);
       if (!location) return;
       this.showProps = false;
       this.$router.push(location);
@@ -908,137 +678,79 @@ const ActivityView = {
       this.$router.push(entry.route);
     },
     resolveTaskAlertLocation(task) {
-      if (!task?.related_alert_ref && !task?.related_alert_uuid && !task?.related_alert_summary) return null;
-      return buildFocusedRoute('/alerts', {
-        kind: 'alert',
-        ref: task.related_alert_ref || '',
-        uuid: task.related_alert_uuid || '',
-        name: task.related_alert_summary || task.name_label || '',
-        cls: 'alert',
-        source: 'activity',
-      });
+      return resolveActivityTaskAlertLocation(task);
     },
     canOpenTaskAlert(task) {
-      return Boolean(this.resolveTaskAlertLocation(task));
+      return Boolean(resolveActivityTaskAlertLocation(task));
     },
     openTaskAlert(task) {
-      const location = this.resolveTaskAlertLocation(task);
+      const location = resolveActivityTaskAlertLocation(task);
       if (!location) return;
       this.showProps = false;
       this.$router.push(location);
     },
     canDraftLifecyclePlan(task) {
-      return Boolean(task?.lifecycle_plan_seed?.enabled);
+      return canDraftActivityLifecyclePlan(task);
     },
     canLaunchLifecycleMaintenance(task) {
-      return this.canDraftLifecyclePlan(task);
+      return canDraftActivityLifecyclePlan(task);
     },
     canDraftResilienceRunbook(task) {
-      return Boolean(task?.resilience_runbook_seed?.enabled);
+      return canDraftActivityResilienceRunbook(task);
     },
     canLaunchResilienceDrill(task) {
-      return this.canDraftResilienceRunbook(task);
+      return canDraftActivityResilienceRunbook(task);
     },
     canDraftVmMigration(task) {
-      return Boolean(task?.vm_migration_seed?.enabled);
-    },
-    buildTaskFocus(task) {
-      return {
-        kind: 'task',
-        ref: task?.ref || '',
-        uuid: task?.uuid || '',
-        name: task?.name_label || '',
-        cls: 'task',
-        source: 'activity',
-      };
+      return canDraftActivityVmMigration(task);
     },
     openTaskLifecycleDraft(task) {
-      if (!this.canDraftLifecyclePlan(task)) return;
+      const location = buildActivityTaskLifecycleDraftLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/lifecycle', this.buildTaskFocus(task), {
-        seedAction: 'lifecycle-plan',
-      }));
+      this.$router.push(location);
     },
     openTaskLifecycleMaintenance(task) {
-      if (!this.canLaunchLifecycleMaintenance(task)) return;
+      const location = buildActivityTaskLifecycleMaintenanceLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/lifecycle', this.buildTaskFocus(task), {
-        seedAction: 'lifecycle-maintenance',
-      }));
+      this.$router.push(location);
     },
     openTaskResilienceDraft(task) {
-      if (!this.canDraftResilienceRunbook(task)) return;
+      const location = buildActivityTaskResilienceDraftLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/resilience', this.buildTaskFocus(task), {
-        seedAction: 'resilience-runbook',
-      }));
+      this.$router.push(location);
     },
     openTaskResilienceDrill(task) {
-      if (!this.canLaunchResilienceDrill(task)) return;
+      const location = buildActivityTaskResilienceDrillLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/resilience', this.buildTaskFocus(task), {
-        seedAction: 'resilience-drill',
-      }));
+      this.$router.push(location);
     },
     openTaskVmMigrationDraft(task) {
-      if (!this.canDraftVmMigration(task)) return;
+      const location = buildActivityTaskVmMigrationLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/vms', this.buildTaskFocus(task), {
-        seedAction: 'vm-migration',
-      }));
+      this.$router.push(location);
     },
     openTaskTargetWorkspace(task) {
-      if (!task?.target_route) return;
-
-      const cls = String(task.related_class || '').toLowerCase();
-      const relatedObject = String(task.related_object || '').trim();
-      const relatedObjectRef = relatedObject.startsWith('OpaqueRef:') ? relatedObject : '';
-      const relatedObjectUuid = relatedObjectRef ? '' : relatedObject;
-      const kindMap = {
-        host: 'host',
-        sr: 'storage',
-        vdi: 'storage',
-        vbd: 'storage',
-        vm: 'vm',
-        pool: 'pool',
-        network: 'network',
-        vif: 'network',
-        pif: 'network',
-        bond: 'network',
-        vlan: 'network',
-      };
-
+      const location = buildActivityTaskWorkspaceLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute(task.target_route, {
-        kind: kindMap[cls] || '',
-        ref: relatedObjectRef,
-        uuid: relatedObjectUuid,
-        name: task.related_alert_summary || task.name_label || '',
-        cls,
-        source: 'activity',
-      }));
+      this.$router.push(location);
     },
     openDeploymentVm(task) {
-      if (!task?.vm_ref) return;
+      const location = buildActivityDeploymentVmLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/vms', {
-        kind: 'vm',
-        ref: task.vm_ref,
-        name: task.vm_name || task.name_label || '',
-        cls: 'vm',
-        source: 'activity',
-      }));
+      this.$router.push(location);
     },
     openDeploymentTemplate(task) {
-      if (!task?.template_ref) return;
+      const location = buildActivityDeploymentTemplateLocation(task);
+      if (!location) return;
       this.showProps = false;
-      this.$router.push(buildFocusedRoute('/templates', {
-        kind: 'template',
-        ref: task.template_ref,
-        name: task.template_name || '',
-        cls: 'template',
-        source: 'activity',
-      }));
+      this.$router.push(location);
     },
     async saveRemediationTask(payload) {
       if (!this.selectedTask?.ref || !this.isRemediationTask(this.selectedTask)) return;
@@ -1060,11 +772,6 @@ const ActivityView = {
       } finally {
         this.remediationSaving = false;
       }
-    },
-    findTaskByFocus(focus) {
-      return this.tasks.find((task) =>
-        recordMatchesRouteFocus(task, focus, ['ref', 'uuid', 'name_label'])
-      ) || null;
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);

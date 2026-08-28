@@ -559,124 +559,25 @@ const GovernanceView = {
   },
   computed: {
     roles() {
-      return [
-        { value: 'read-only', label: 'Read Only', detail: 'Browse inventory and reports without changing infrastructure state.' },
-        { value: 'operator', label: 'Operator', detail: 'Perform standard changes, with destructive actions gated by approval when policy requires it.' },
-        { value: 'admin', label: 'Admin', detail: 'Full access to policy, approval, quota, and user-administration workflows.' },
-      ];
+      return buildGovernanceRoles();
     },
     canManageUsers() {
-      return store.authMode === 'local' && store.governance.currentRole === 'admin';
+      return canManageGovernanceUsers(store.authMode, store.governance.currentRole);
     },
     summaryCards() {
-      return [
-        {
-          key: 'role',
-          label: 'Current Role',
-          value: this.formatRole(store.governance.currentRole),
-          detail: `Default role is ${this.formatRole(this.policy.defaultRole)}`,
-          icon: 'mdi-shield-account-outline',
-          valueClass: store.governance.currentRole === 'read-only' ? 'text-amber' : 'text-green',
-        },
-        {
-          key: 'approvals',
-          label: 'Pending Approvals',
-          value: String(this.summary.pendingApprovalCount || 0),
-          detail: `${this.summary.approvedApprovalCount || 0} approved requests remain in the current queue`,
-          icon: 'mdi-clipboard-check-outline',
-          valueClass: (this.summary.pendingApprovalCount || 0) ? 'text-amber' : 'text-green',
-        },
-        {
-          key: 'quotas',
-          label: 'Enforced Quotas',
-          value: String(this.summary.enforcedQuotaCount || 0),
-          detail: `${this.summary.poolCount || 0} pools currently inspected for quota posture`,
-          icon: 'mdi-gauge',
-          valueClass: (this.summary.enforcedQuotaCount || 0) ? 'text-cyan' : 'text-amber',
-        },
-        {
-          key: 'policy',
-          label: 'Destructive Gate',
-          value: this.policy.requireDestructiveApproval ? 'Approval Required' : 'Direct Operator Access',
-          detail: `Approval tokens expire after ${this.policy.approvalTtlMinutes || 240} minutes`,
-          icon: 'mdi-shield-lock-outline',
-          valueClass: this.policy.requireDestructiveApproval ? 'text-green' : 'text-amber',
-        },
-        {
-          key: 'users',
-          label: 'Active Users',
-          value: String(this.userSummary.activeUsers || 0),
-          detail: `${this.userSummary.activeAdmins || 0} active administrators across ${this.userSummary.totalUsers || 0} local accounts`,
-          icon: 'mdi-account-multiple-outline',
-          valueClass: (this.userSummary.activeUsers || 0) > 1 ? 'text-cyan' : 'text-amber',
-        },
-        {
-          key: 'groups',
-          label: 'Access Groups',
-          value: String(this.userSummary.totalGroups || this.groups.length || 0),
-          detail: `${this.groups.filter((group) => (group.member_count || 0) > 0).length} groups currently have assigned members`,
-          icon: 'mdi-account-group-outline',
-          valueClass: (this.userSummary.totalGroups || this.groups.length || 0) ? 'text-green' : 'text-amber',
-        },
-      ];
+      return buildGovernanceSummaryCards({
+        summary: this.summary,
+        policy: this.policy,
+        userSummary: this.userSummary,
+        groups: this.groups,
+        currentRole: store.governance.currentRole,
+      });
     },
     accessCoverageRows() {
-      const operatorCount = this.users.filter((user) => user.role === 'operator').length;
-      const readOnlyCount = this.users.filter((user) => user.role === 'read-only').length;
-      const activeOperatorCount = this.users.filter((user) => user.role === 'operator' && user.active).length;
-      const activeReadOnlyCount = this.users.filter((user) => user.role === 'read-only' && user.active).length;
-
-      return [
-        {
-          title: 'Administrator Coverage',
-          detail: this.userSummary.activeAdmins
-            ? 'At least one active admin account can recover policy, approvals, and access-control settings.'
-            : 'No active admin coverage remains. Recover control before continuing operations.',
-          value: `${this.userSummary.activeAdmins || 0} admin${(this.userSummary.activeAdmins || 0) === 1 ? '' : 's'}`,
-          badgeClass: this.userSummary.activeAdmins ? 'badge-success' : 'badge-error',
-        },
-        {
-          title: 'Operator Footprint',
-          detail: `${activeOperatorCount} active operators can run day-to-day infrastructure changes without full policy ownership.`,
-          value: `${operatorCount} operators`,
-          badgeClass: 'badge-info',
-        },
-        {
-          title: 'Read-Only Access',
-          detail: `${activeReadOnlyCount} viewers can inspect dashboards, inventory, and audit data without mutation rights.`,
-          value: `${readOnlyCount} viewers`,
-          badgeClass: 'badge-warning',
-        },
-        {
-          title: 'Group Catalog',
-          detail: `${this.groups.length} local group${this.groups.length === 1 ? '' : 's'} organize operator membership across the control plane.`,
-          value: `${this.groups.reduce((sum, group) => sum + Number(group.member_count || 0), 0)} memberships`,
-          badgeClass: this.groups.length ? 'badge-info' : 'badge-warning',
-        },
-      ];
+      return buildGovernanceAccessCoverageRows(this.users, this.groups, this.userSummary);
     },
     roleGuidance() {
-      return [
-        {
-          title: 'Read Only Sessions',
-          detail: 'Use read-only mode for dashboard, audit, and inventory walkthroughs where infrastructure state should stay untouched.',
-          status: store.governance.currentRole === 'read-only' ? 'info' : 'success',
-        },
-        {
-          title: 'Operator Sessions',
-          detail: this.policy.requireDestructiveApproval
-            ? 'Operators can work normally, but shutdown, reboot, and suspend flows require approved governance tokens first.'
-            : 'Operators currently have direct access to destructive actions because approval gating is disabled.',
-          status: this.policy.requireDestructiveApproval ? 'warning' : 'info',
-        },
-        {
-          title: 'Quota Guardrails',
-          detail: this.summary.enforcedQuotaCount
-            ? 'Pool quota enforcement is active and will block template deployments that exceed configured envelopes.'
-            : 'No pool quotas are currently enforced; deployments only depend on live infrastructure state.',
-          status: this.summary.enforcedQuotaCount ? 'success' : 'warning',
-        },
-      ];
+      return buildGovernanceRoleGuidance(store.governance.currentRole, this.policy, this.summary);
     },
   },
   async mounted() {
@@ -689,29 +590,13 @@ const GovernanceView = {
   },
   methods: {
     formatDateTime,
-    formatRole(value) {
-      if (value === 'read-only') return 'Read Only';
-      if (value === 'operator') return 'Operator';
-      return 'Admin';
-    },
-    roleBadgeClass(value) {
-      if (value === 'admin') return 'badge-info';
-      if (value === 'operator') return 'badge-success';
-      return 'badge-warning';
-    },
+    formatRole: formatGovernanceRole,
+    roleBadgeClass: getGovernanceRoleBadgeClass,
     isCurrentSessionUser(user) {
-      return String(user?.id || '') === String(store.user?.id || '');
+      return isCurrentGovernanceSessionUser(user, store.user);
     },
-    mapApprovalStatus(value) {
-      if (value === 'approved' || value === 'used') return 'success';
-      if (value === 'rejected' || value === 'expired') return 'warning';
-      return 'pending';
-    },
-    formatApprovalAction(value) {
-      return String(value || 'approval')
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-    },
+    mapApprovalStatus: mapGovernanceApprovalStatus,
+    formatApprovalAction: formatGovernanceApprovalAction,
     async loadGovernance() {
       this.loading = true;
       try {

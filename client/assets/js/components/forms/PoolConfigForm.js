@@ -41,6 +41,7 @@ function buildPoolConfigDraft(value = {}) {
     nameLabel: value.name_label || value.nameLabel || '',
     nameDescription: value.name_description || value.nameDescription || '',
     defaultSrRef: value.default_SR || value.defaultSrRef || '',
+    vswitchController: value.vswitch_controller || value.vswitchController || '',
     igmpSnoopingEnabled: Boolean(value.IGMP_snooping_enabled ?? value.igmpSnoopingEnabled),
     migrationCompressionEnabled: Boolean(value.migration_compression ?? value.migrationCompressionEnabled),
     wlbEnabled: Boolean(value.wlb_enabled ?? value.wlbEnabled),
@@ -94,6 +95,17 @@ const PoolConfigForm = {
 
       <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
         This editor updates the operator-facing pool label, description, default SR, migration policy, WLB posture, IGMP snooping policy, tags, and custom metadata. Use one <code>key=value</code> pair per line for pool-specific metadata.
+      </div>
+
+      <div class="form-group">
+        <label for="pool-config-vswitch-controller">Legacy vSwitch Controller</label>
+        <input id="pool-config-vswitch-controller"
+               class="form-input"
+               v-model="draft.vswitchController"
+               placeholder="10.42.0.80">
+        <div class="login-meta-note">
+          Deprecated upstream since XenServer 7.2. Use this only when the connected pool still relies on the legacy pool-level Open vSwitch controller field instead of <code>SDN_controller</code> workflows.
+        </div>
       </div>
 
       <div class="form-group">
@@ -190,6 +202,7 @@ const PoolConfigForm = {
         nameLabel: this.draft.nameLabel.trim(),
         nameDescription: this.draft.nameDescription.trim(),
         defaultSrRef: String(this.draft.defaultSrRef || '').trim(),
+        vswitchController: String(this.draft.vswitchController || '').trim(),
         igmpSnoopingEnabled: Boolean(this.draft.igmpSnoopingEnabled),
         migrationCompressionEnabled: Boolean(this.draft.migrationCompressionEnabled),
         wlbEnabled: Boolean(this.draft.wlbEnabled),

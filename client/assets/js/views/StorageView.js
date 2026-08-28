@@ -83,19 +83,19 @@ const StorageView = {
         <span class="badge badge-running">ready</span>
       </div>
 
-      <div class="dash-card" v-if="selectedSrRows.length" style="margin-bottom:16px">
+      <div class="dash-card" v-if="storageSelectionProfile.rows.length" style="margin-bottom:16px">
         <div class="dash-card-label">Batch Storage Actions</div>
         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
           <div>
-            <strong>{{ selectedSrRows.length }} repositories selected</strong>
-            <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ selectedSrSelectionSummary }}</div>
+            <strong>{{ storageSelectionProfile.rows.length }} repositories selected</strong>
+            <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ storageSelectionProfile.summary }}</div>
           </div>
           <div class="dashboard-hero-rail" style="gap:8px">
             <button class="btn btn-sm btn-primary"
                     :disabled="Boolean(bulkActionBusy)"
                     @click="applyBulkStorageAction('rescan')">
               <span class="mdi mdi-refresh-circle"></span>
-              {{ bulkActionBusy === 'rescan' ? 'Rescanning...' : `Rescan Selected (${selectedSrRows.length})` }}
+              {{ bulkActionBusy === 'rescan' ? 'Rescanning...' : `Rescan Selected (${storageSelectionProfile.rows.length})` }}
             </button>
             <button class="btn btn-sm" :disabled="Boolean(bulkActionBusy)" @click="clearSrSelection">Clear Selection</button>
           </div>
@@ -136,19 +136,19 @@ const StorageView = {
             <span class="text-muted">Virtual Allocation</span><span class="mono">{{ formatBytes(selectedSR.virtual_allocation) }}</span>
             <span class="text-muted">Local Cache</span><span>{{ selectedSR.local_cache_enabled ? 'Enabled' : 'Disabled' }}</span>
             <span class="text-muted">Mapped VDIs</span><span>{{ summarizeCount('disks', vdis.length) }}</span>
-            <span class="text-muted">Attachment Paths</span><span>{{ summarizeCount('attachment paths', selectedSrAttachmentPathCount) }}</span>
-            <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('workloads', selectedSrWorkloadCount) }}</span>
-            <span class="text-muted">Topology</span><span>{{ selectedSrTopologyLabel }}</span>
+            <span class="text-muted">Attachment Paths</span><span>{{ summarizeCount('attachment paths', storageDetailProfile.attachmentPathCount) }}</span>
+            <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('workloads', storageDetailProfile.workloadCount) }}</span>
+            <span class="text-muted">Topology</span><span>{{ storageDetailProfile.topologyLabel }}</span>
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedSR.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedSR.tags) }}</span>
-            <span class="text-muted">Other Config</span><span>{{ selectedSrOtherConfigSummary }}</span>
+            <span class="text-muted">Other Config</span><span>{{ storageDetailProfile.otherConfigSummary }}</span>
           </div>
 
-          <div class="detail-section" v-if="focusedStorageContext">
-            <div class="detail-section-title">{{ focusedStorageContext.title }}</div>
+          <div class="detail-section" v-if="storageDetailProfile.focusedContext">
+            <div class="detail-section-title">{{ storageDetailProfile.focusedContext.title }}</div>
             <div class="capacity-callout">
-              <strong>{{ focusedStorageContext.summary }}</strong>
-              <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ focusedStorageContext.detail }}</div>
+              <strong>{{ storageDetailProfile.focusedContext.summary }}</strong>
+              <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ storageDetailProfile.focusedContext.detail }}</div>
             </div>
           </div>
 
@@ -196,20 +196,20 @@ const StorageView = {
                   <div class="stack-item">
                     <div>
                       <strong>Local Cache</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedSrLocalCacheSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ storageDetailProfile.localCacheSummary }}</div>
                     </div>
                     <span class="badge" :class="selectedSR.local_cache_enabled ? 'badge-running' : 'badge-info'">
                       {{ selectedSR.local_cache_enabled ? 'enabled' : 'disabled' }}
                     </span>
                   </div>
                 </div>
-                <div class="form-group" v-if="selectedSrAccessHosts.length" style="margin-bottom:12px">
+                <div class="form-group" v-if="storageDetailProfile.accessHosts.length" style="margin-bottom:12px">
                   <label for="storage-local-cache-host">Cache Host Path</label>
                   <select id="storage-local-cache-host"
                           class="form-input"
                           v-model="localCacheHostRef"
-                          :disabled="Boolean(detailActionBusy) || !selectedSrAccessHosts.length">
-                    <option v-for="host in selectedSrAccessHosts" :key="host.ref" :value="host.ref">
+                          :disabled="Boolean(detailActionBusy) || !storageDetailProfile.accessHosts.length">
+                    <option v-for="host in storageDetailProfile.accessHosts" :key="host.ref" :value="host.ref">
                       {{ host.name_label || host.address || host.ref }} · {{ host.address || host.uuid || 'no address' }}
                     </option>
                   </select>
@@ -232,13 +232,13 @@ const StorageView = {
                 <button class="btn btn-sm"
                         type="button"
                         style="margin-top:10px"
-                        :disabled="Boolean(detailActionBusy) || Boolean(selectedSrLocalCacheBlockedReason)"
+                        :disabled="Boolean(detailActionBusy) || Boolean(storageDetailProfile.localCacheBlockedReason)"
                         @click="toggleSelectedSrLocalCache">
                   <span class="mdi mdi-cached"></span>
                   {{ detailActionBusy === 'local-cache' ? 'Applying Cache Change...' : (selectedSR.local_cache_enabled ? 'Disable Local Cache' : 'Enable Local Cache') }}
                 </button>
-                <div class="text-muted mono" v-if="selectedSrLocalCacheBlockedReason" style="font-size:11px;margin-top:10px">
-                  {{ selectedSrLocalCacheBlockedReason }}
+                <div class="text-muted mono" v-if="storageDetailProfile.localCacheBlockedReason" style="font-size:11px;margin-top:10px">
+                  {{ storageDetailProfile.localCacheBlockedReason }}
                 </div>
                 <button class="btn btn-sm"
                         type="button"
@@ -251,13 +251,13 @@ const StorageView = {
                 <button class="btn btn-sm"
                         type="button"
                         style="margin-top:10px"
-                        :disabled="Boolean(detailActionBusy) || Boolean(selectedSrDestroyBlockedReason)"
+                        :disabled="Boolean(detailActionBusy) || Boolean(storageDetailProfile.destroyBlockedReason)"
                         @click="destroySelectedSr">
                   <span class="mdi mdi-delete-forever-outline"></span>
                   {{ detailActionBusy === 'destroy-sr' ? 'Destroying...' : 'Destroy Repository' }}
                 </button>
-                <div class="text-muted mono" v-if="selectedSrDestroyBlockedReason" style="font-size:11px;margin-top:10px">
-                  {{ selectedSrDestroyBlockedReason }}
+                <div class="text-muted mono" v-if="storageDetailProfile.destroyBlockedReason" style="font-size:11px;margin-top:10px">
+                  {{ storageDetailProfile.destroyBlockedReason }}
                 </div>
               </div>
 
@@ -279,7 +279,7 @@ const StorageView = {
                 <storage-vdi-resize-form
                   :vdi-options="vdis"
                   :focused-vdi-ref="focusedVdiRef"
-                  :attachment-counts="storageVdiAttachmentCounts"
+                  :attachment-counts="storageDetailProfile.attachmentCounts"
                   :saving="detailActionBusy === 'resize-vdi'"
                   :submit-label="'Resize VDI'"
                   @submit="submitResizeVdi">
@@ -347,11 +347,11 @@ const StorageView = {
                 </div>
                 <span class="badge badge-error">error</span>
               </div>
-              <div class="stack-item" v-else-if="!selectedSrAttachmentRows.length">
+              <div class="stack-item" v-else-if="!storageDetailProfile.attachmentRows.length">
                 <span class="mdi mdi-connection text-muted"></span>
                 <span class="mono">No workload attachment topology was resolved for this repository.</span>
               </div>
-              <div class="stack-item" v-for="row in selectedSrAttachmentRows" :key="row.id">
+              <div class="stack-item" v-for="row in storageDetailProfile.attachmentRows" :key="row.id">
                 <div>
                   <strong>{{ row.vdiName }}</strong>
                   <div class="text-muted mono" style="font-size:11px">{{ row.vbdRef || 'No VBD ref' }} · {{ row.vmName }}</div>
@@ -419,165 +419,22 @@ const StorageView = {
     };
   },
   computed: {
-    selectedSrRows() {
-      const selected = new Set(Array.isArray(this.selectedSrRefs) ? this.selectedSrRefs : []);
-      return this.srs.filter((sr) => selected.has(sr.ref));
+    storageSelectionProfile() {
+      return buildStorageSelectionProfile(this.srs, this.selectedSrRefs);
     },
-    selectedSrSelectionSummary() {
-      if (!this.selectedSrRows.length) return 'No storage repositories selected.';
-      const totalCapacity = this.selectedSrRows.reduce((sum, sr) => sum + Number(sr.physical_size || 0), 0);
-      const totalAllocation = this.selectedSrRows.reduce((sum, sr) => sum + Number(sr.virtual_allocation || 0), 0);
-      return `${this.formatBytes(totalAllocation)} allocated of ${this.formatBytes(totalCapacity)} across ${this.selectedSrRows.length} ${this.selectedSrRows.length === 1 ? 'repository' : 'repositories'}`;
-    },
-    selectedSrAttachmentRows() {
-      if (!this.vdis.length) return [];
-
-      return this.vdis.flatMap((vdi) => {
-        const vbdRefs = Array.isArray(vdi.VBDs) ? vdi.VBDs : [];
-        const attachedVms = this.relatedVMs.filter((vm) =>
-          Array.isArray(vm.VBDs) && vm.VBDs.some((ref) => vbdRefs.includes(ref))
-        );
-
-        if (!attachedVms.length) {
-          return [{
-            id: `${vdi.ref || vdi.uuid || 'vdi'}-unattached`,
-            vdiRef: vdi.ref || '',
-            vdiUuid: vdi.uuid || '',
-            vdiName: vdi.name_label || vdi.ref || 'Unnamed VDI',
-            vbdRef: vbdRefs[0] || '',
-            vmRef: '',
-            vmUuid: '',
-            vmName: 'No mapped workload',
-            hostName: 'Unplaced / not discovered',
-            detail: `${formatBytes(vdi.virtual_size)} · ${vdi.type || 'disk'} · no VM attachment match`,
-            status: 'warning',
-          }];
-        }
-
-        return attachedVms.map((vm) => {
-          const matchedVbdRef = (vm.VBDs || []).find((ref) => vbdRefs.includes(ref)) || '';
-          const host = this.relatedHosts.find((candidate) =>
-            candidate.ref === vm.resident_on || candidate.uuid === vm.resident_on
-          ) || null;
-
-          return {
-            id: `${vdi.ref || vdi.uuid || 'vdi'}-${vm.ref || vm.uuid || 'vm'}-${matchedVbdRef || 'vbd'}`,
-            vdiRef: vdi.ref || '',
-            vdiUuid: vdi.uuid || '',
-            vdiName: vdi.name_label || vdi.ref || 'Unnamed VDI',
-            vbdRef: matchedVbdRef,
-            vmRef: vm.ref || '',
-            vmUuid: vm.uuid || '',
-            vmName: vm.name_label || vm.ref || 'Virtual Machine',
-            hostRef: host?.ref || '',
-            hostUuid: host?.uuid || '',
-            hostName: host ? (host.name_label || host.address || host.ref || 'Host') : 'Host not mapped',
-            detail: `${formatBytes(vdi.virtual_size)} · ${vm.power_state || 'Unknown'} · ${host?.address || host?.uuid || vm.resident_on || 'no host ref'}`,
-            status: vm.power_state || 'info',
-          };
-        });
+    storageDetailProfile() {
+      return buildStorageDetailProfile({
+        selectedSR: this.selectedSR,
+        vdis: this.vdis,
+        relatedVMs: this.relatedVMs,
+        relatedHosts: this.relatedHosts,
+        detailLoading: this.detailLoading,
+        localCacheHostRef: this.localCacheHostRef,
+        focusedVdiRef: this.focusedVdiRef,
+        focusedVdiUuid: this.focusedVdiUuid,
+        focusedVbdRef: this.focusedVbdRef,
+        focusedStorageClass: this.focusedStorageClass,
       });
-    },
-    storageVdiAttachmentCounts() {
-      return Object.fromEntries(this.vdis.map((vdi) => [vdi.ref, this.getVdiAttachmentCount(vdi)]));
-    },
-    selectedSrAccessHosts() {
-      if (!this.selectedSR?.PBDs?.length || !this.relatedHosts.length) return [];
-      const pbdRefs = new Set(this.selectedSR.PBDs || []);
-      return this.relatedHosts.filter((host) =>
-        Array.isArray(host.PBDs) && host.PBDs.some((pbdRef) => pbdRefs.has(pbdRef))
-      );
-    },
-    selectedSrLocalCacheBlockedReason() {
-      if (!this.selectedSR) return 'No storage repository is selected.';
-      if (this.detailLoading) return 'Storage and host relationship data are still loading before cache controls can be applied.';
-      if (this.selectedSR.shared) return 'Local storage caching only applies to non-shared storage repositories.';
-      if (!this.selectedSrAccessHosts.length) return 'No attached host paths were discovered for this repository.';
-      if (!this.localCacheHostRef) return 'Select a host path before changing the local cache assignment.';
-      return '';
-    },
-    selectedSrLocalCacheSummary() {
-      if (!this.selectedSR) return 'No storage repository is selected.';
-      if (this.selectedSR.shared) return 'Shared repositories are not eligible for host-local caching.';
-      if (!this.selectedSrAccessHosts.length) return 'No attached host paths were discovered for this repository.';
-      const host = this.selectedSrAccessHosts.find((entry) => entry.ref === this.localCacheHostRef) || this.selectedSrAccessHosts[0];
-      if (this.selectedSR.local_cache_enabled) {
-        return `Enabled for ${host?.name_label || host?.address || host?.ref || 'the selected host path'}.`;
-      }
-      return `Available on ${host?.name_label || host?.address || host?.ref || 'the selected host path'} but not currently enabled.`;
-    },
-    selectedSrOtherConfigSummary() {
-      if (!this.selectedSR) return '-';
-      const entries = Object.entries(this.selectedSR.other_config || {})
-        .filter(([key, value]) => !['last_rescan_at', 'last_repair_at'].includes(String(key || '').trim()) && String(key || '').trim() && String(value || '').trim());
-      if (!entries.length) return '-';
-
-      const summary = entries.slice(0, 2).map(([key, value]) => `${key}=${value}`).join(' · ');
-      if (entries.length <= 2) return summary;
-      return `${summary} +${entries.length - 2} more`;
-    },
-    selectedSrWorkloadCount() {
-      return new Set(this.selectedSrAttachmentRows.filter((row) => row.vmRef).map((row) => row.vmRef)).size;
-    },
-    selectedSrAttachmentPathCount() {
-      return new Set(
-        this.selectedSrAttachmentRows
-          .map((row) => row.vbdRef)
-          .filter((ref) => Boolean(ref))
-      ).size;
-    },
-    selectedSrTopologyLabel() {
-      if (!this.selectedSR) return '-';
-
-      const diskCount = this.vdis.length;
-      const attachmentCount = this.selectedSrAttachmentPathCount;
-      const workloadCount = this.selectedSrWorkloadCount;
-      const hostCount = new Set(
-        this.selectedSrAttachmentRows
-          .map((row) => row.hostRef || row.hostUuid || (row.hostName !== 'Host not mapped' ? row.hostName : ''))
-          .filter((value) => Boolean(value))
-      ).size;
-
-      const parts = [
-        `${diskCount} disk${diskCount === 1 ? '' : 's'}`,
-        `${attachmentCount} attachment path${attachmentCount === 1 ? '' : 's'}`,
-        `${workloadCount} workload${workloadCount === 1 ? '' : 's'}`,
-      ];
-
-      if (hostCount) {
-        parts.push(`${hostCount} host${hostCount === 1 ? '' : 's'}`);
-      }
-
-      return parts.join(' · ');
-    },
-    focusedStorageContext() {
-      if (!this.focusedStorageClass) return null;
-
-      if (this.focusedStorageClass === 'vdi') {
-        return {
-          title: 'Focused VDI Handoff',
-          summary: 'This repository was opened from a specific virtual disk path.',
-          detail: `${this.focusedVdiRef || this.focusedVdiUuid || 'Virtual disk ref unavailable'} · ${this.selectedSrTopologyLabel}`,
-        };
-      }
-
-      if (this.focusedStorageClass === 'vbd') {
-        return {
-          title: 'Focused VBD Handoff',
-          summary: 'This repository was opened from a specific attachment path.',
-          detail: `${this.focusedVbdRef || 'Attachment ref unavailable'} · ${this.selectedSrTopologyLabel}`,
-        };
-      }
-
-      return null;
-    },
-    selectedSrDestroyBlockedReason() {
-      if (!this.selectedSR) return 'No storage repository is selected.';
-      if (this.detailLoading) return 'Storage relationships are still loading before destroy safety checks can finish.';
-      if (this.vdis.length) {
-        return `Destroy requires an empty repository. ${this.vdis.length} ${this.vdis.length === 1 ? 'disk' : 'disks'} still map to this storage repository.`;
-      }
-      return '';
     },
   },
   async mounted() {
@@ -779,7 +636,7 @@ const StorageView = {
       }
     },
     syncSelectedSrLocalCacheHost() {
-      const hosts = this.selectedSrAccessHosts;
+      const hosts = this.storageDetailProfile.accessHosts;
       if (!hosts.length) {
         this.localCacheHostRef = '';
         return;
@@ -839,7 +696,7 @@ const StorageView = {
     async applyBulkStorageAction(action) {
       if (action !== 'rescan') return;
 
-      const targets = this.selectedSrRows;
+      const targets = this.storageSelectionProfile.rows;
       if (!targets.length) {
         this.bulkError = 'No selected storage repositories are available for rescanning.';
         return;
@@ -910,8 +767,8 @@ const StorageView = {
         return;
       }
 
-      if (this.selectedSrLocalCacheBlockedReason) {
-        this.detailActionError = this.selectedSrLocalCacheBlockedReason;
+      if (this.storageDetailProfile.localCacheBlockedReason) {
+        this.detailActionError = this.storageDetailProfile.localCacheBlockedReason;
         return;
       }
 
@@ -925,7 +782,7 @@ const StorageView = {
           hostRef: this.localCacheHostRef,
           enabled: nextEnabled,
         });
-        const targetHost = this.selectedSrAccessHosts.find((host) => host.ref === this.localCacheHostRef) || null;
+        const targetHost = this.storageDetailProfile.accessHosts.find((host) => host.ref === this.localCacheHostRef) || null;
         await this.refreshSelectedSrDetail();
         this.detailActionMessage = nextEnabled
           ? `${record.name_label || this.selectedSR.ref} is now the local cache SR for ${targetHost?.name_label || this.localCacheHostRef}.`
@@ -981,8 +838,8 @@ const StorageView = {
         return;
       }
 
-      if (this.selectedSrDestroyBlockedReason) {
-        this.detailActionError = this.selectedSrDestroyBlockedReason;
+      if (this.storageDetailProfile.destroyBlockedReason) {
+        this.detailActionError = this.storageDetailProfile.destroyBlockedReason;
         return;
       }
 

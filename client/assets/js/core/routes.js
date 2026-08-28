@@ -1,0 +1,18 @@
+const appRoutes = [
+  { path: '/login', component: LoginView },
+  { path: '/', component: DashboardView },
+  { path: '/pools', component: PoolsView },
+  { path: '/templates', component: TemplatesView },
+  { path: '/vms', component: VMsView },
+  { path: '/hosts', component: HostsView },
+  { path: '/storage', component: StorageView },
+  { path: '/networking', component: NetworkingView },
+  { path: '/inventory', component: InventoryView },
+  { path: '/governance', component: GovernanceView },
+  { path: '/settings', component: SettingsView },
+  { path: '/lifecycle', component: LifecycleView },
+  { path: '/capacity', component: CapacityView },
+  { path: '/resilience', component: ResilienceView },
+  { path: '/alerts', component: AlertsView },
+  { path: '/activity', component: ActivityView },
+];

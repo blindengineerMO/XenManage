@@ -102,8 +102,10 @@ function normalizeVmDomainType(value = {}, fallback = 'unspecified') {
 }
 
 function buildVmConfigDraft(value = {}) {
-  const memoryBytes = Number(value.memory_static_max || value.memoryStaticMax || 0);
-  const memoryStaticMinBytes = Number(value.memory_static_min || value.memoryStaticMin || value.memory_dynamic_min || memoryBytes || 0);
+  const memoryStaticMaxBytes = Number(value.memory_static_max || value.memoryStaticMax || value.memory_dynamic_max || 0);
+  const memoryDynamicMaxBytes = Number(value.memory_dynamic_max || value.memoryDynamicMax || memoryStaticMaxBytes || 0);
+  const memoryDynamicMinBytes = Number(value.memory_dynamic_min || value.memoryDynamicMin || value.memory_static_min || memoryDynamicMaxBytes || 0);
+  const memoryStaticMinBytes = Number(value.memory_static_min || value.memoryStaticMin || memoryDynamicMinBytes || memoryStaticMaxBytes || 0);
   const blockedOperations = value.blocked_operations || value.blockedOperations || {};
   const platform = value.platform || {};
   return {
@@ -113,8 +115,11 @@ function buildVmConfigDraft(value = {}) {
     startDelay: Math.max(0, Number(value.start_delay ?? value.startDelay ?? 0) || 0),
     shutdownDelay: Math.max(0, Number(value.shutdown_delay ?? value.shutdownDelay ?? 0) || 0),
     order: Math.max(0, Number(value.order ?? value.bootOrder ?? 0) || 0),
-    vcpus: Number(value.VCPUs_at_startup || value.vcpus || 1) || 1,
-    memoryGiB: Math.max(1, Math.round(memoryBytes / (1024 ** 3)) || 1),
+    vcpusAtStartup: Number(value.VCPUs_at_startup || value.vcpusAtStartup || value.vcpus || 1) || 1,
+    vcpusMax: Number(value.VCPUs_max || value.vcpusMax || value.VCPUs_at_startup || value.vcpus || 1) || 1,
+    memoryStaticMaxGiB: Math.max(1, Math.round(memoryStaticMaxBytes / (1024 ** 3)) || 1),
+    memoryDynamicMaxGiB: Math.max(1, Math.round(memoryDynamicMaxBytes / (1024 ** 3)) || 1),
+    memoryDynamicMinGiB: Math.max(1, Math.round(memoryDynamicMinBytes / (1024 ** 3)) || 1),
     memoryStaticMinGiB: Math.max(1, Math.round(memoryStaticMinBytes / (1024 ** 3)) || 1),
     hardwarePlatformVersion: Math.max(0, Number(value.hardware_platform_version ?? value.hardwarePlatformVersion ?? 0) || 0),
     domainType: normalizeVmDomainType(value),
@@ -176,18 +181,39 @@ const VMConfigForm = {
         </div>
 
         <div class="form-group">
-          <label for="vm-config-vcpus">vCPUs</label>
-          <input id="vm-config-vcpus" class="form-input" v-model.number="draft.vcpus" type="number" min="1" max="128" required>
+          <label for="vm-config-vcpus-startup">Startup vCPUs</label>
+          <input id="vm-config-vcpus-startup" class="form-input" v-model.number="draft.vcpusAtStartup" type="number" min="1" max="128" required>
         </div>
 
         <div class="form-group">
-          <label for="vm-config-memory">Memory (GiB)</label>
-          <input id="vm-config-memory" class="form-input" v-model.number="draft.memoryGiB" type="number" min="1" step="1" required>
+          <label for="vm-config-vcpus-max">Max vCPUs</label>
+          <input id="vm-config-vcpus-max" class="form-input" v-model.number="draft.vcpusMax" type="number" min="1" max="128" required>
+          <div class="text-muted mono" style="font-size:11px;margin-top:6px">
+            Xen requires the startup vCPU count to stay at or below the halted-VM maximum.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="vm-config-memory-static-max">Static Max Memory (GiB)</label>
+          <input id="vm-config-memory-static-max" class="form-input" v-model.number="draft.memoryStaticMaxGiB" type="number" min="1" step="1" required>
+        </div>
+
+        <div class="form-group">
+          <label for="vm-config-memory-dynamic-max">Dynamic Max Memory (GiB)</label>
+          <input id="vm-config-memory-dynamic-max" class="form-input" v-model.number="draft.memoryDynamicMaxGiB" type="number" min="1" step="1" required>
+        </div>
+
+        <div class="form-group">
+          <label for="vm-config-memory-dynamic-min">Dynamic Min Memory (GiB)</label>
+          <input id="vm-config-memory-dynamic-min" class="form-input" v-model.number="draft.memoryDynamicMinGiB" type="number" min="1" step="1" required>
         </div>
 
         <div class="form-group">
           <label for="vm-config-memory-static-min">Static Min Memory (GiB)</label>
           <input id="vm-config-memory-static-min" class="form-input" v-model.number="draft.memoryStaticMinGiB" type="number" min="1" step="1" required>
+          <div class="text-muted mono" style="font-size:11px;margin-top:6px">
+            Static limits define the boot envelope, while dynamic limits define the ballooning range Xen can use while the guest is running.
+          </div>
         </div>
 
         <div class="form-group">
@@ -437,8 +463,30 @@ const VMConfigForm = {
       return `${schedule.name_label || schedule.uuid || schedule.ref} · ${frequency} · retain ${retainedSnapshots}`;
     },
     handleSubmit() {
-      if (Number(this.draft.memoryStaticMinGiB || 0) > Number(this.draft.memoryGiB || 0)) {
-        this.validationError = 'Static Min Memory cannot exceed the configured Memory (GiB) value.';
+      const vcpusAtStartup = Math.max(1, Number(this.draft.vcpusAtStartup || 1));
+      const vcpusMax = Math.max(1, Number(this.draft.vcpusMax || vcpusAtStartup));
+      const memoryStaticMaxGiB = Math.max(1, Number(this.draft.memoryStaticMaxGiB || 1));
+      const memoryDynamicMaxGiB = Math.max(1, Number(this.draft.memoryDynamicMaxGiB || memoryStaticMaxGiB));
+      const memoryDynamicMinGiB = Math.max(1, Number(this.draft.memoryDynamicMinGiB || memoryDynamicMaxGiB));
+      const memoryStaticMinGiB = Math.max(1, Number(this.draft.memoryStaticMinGiB || memoryDynamicMinGiB));
+
+      if (vcpusAtStartup > vcpusMax) {
+        this.validationError = 'Startup vCPUs cannot exceed Max vCPUs.';
+        return;
+      }
+
+      if (memoryDynamicMaxGiB > memoryStaticMaxGiB) {
+        this.validationError = 'Dynamic Max Memory cannot exceed Static Max Memory.';
+        return;
+      }
+
+      if (memoryDynamicMinGiB > memoryDynamicMaxGiB) {
+        this.validationError = 'Dynamic Min Memory cannot exceed Dynamic Max Memory.';
+        return;
+      }
+
+      if (memoryStaticMinGiB > memoryDynamicMinGiB) {
+        this.validationError = 'Static Min Memory cannot exceed Dynamic Min Memory.';
         return;
       }
 
@@ -491,9 +539,12 @@ const VMConfigForm = {
         startDelay: Math.max(0, Number(this.draft.startDelay || 0)),
         shutdownDelay: Math.max(0, Number(this.draft.shutdownDelay || 0)),
         order: Math.max(0, Number(this.draft.order || 0)),
-        vcpus: Number(this.draft.vcpus || 1),
-        memoryStaticMax: Math.max(1, Number(this.draft.memoryGiB || 1)) * (1024 ** 3),
-        memoryStaticMin: Math.max(1, Number(this.draft.memoryStaticMinGiB || this.draft.memoryGiB || 1)) * (1024 ** 3),
+        vcpusAtStartup,
+        vcpusMax,
+        memoryStaticMax: memoryStaticMaxGiB * (1024 ** 3),
+        memoryDynamicMax: memoryDynamicMaxGiB * (1024 ** 3),
+        memoryDynamicMin: memoryDynamicMinGiB * (1024 ** 3),
+        memoryStaticMin: memoryStaticMinGiB * (1024 ** 3),
         hardwarePlatformVersion: Math.max(0, Number(this.draft.hardwarePlatformVersion || 0)),
         domainType: String(this.draft.domainType || 'unspecified').trim() || 'unspecified',
         hasVendorDevice: Boolean(this.draft.hasVendorDevice),

@@ -169,6 +169,7 @@ class XenAPI {
     nameLabel,
     nameDescription = '',
     defaultSrRef = '',
+    vswitchController = '',
     igmpSnoopingEnabled,
     migrationCompressionEnabled,
     wlbEnabled,
@@ -180,6 +181,7 @@ class XenAPI {
     if (String(defaultSrRef || '').trim()) {
       await this.setField('pool', ref, 'default_SR', defaultSrRef);
     }
+    await this.call('pool', 'set_vswitch_controller', [String(vswitchController || '').trim()]);
     if (typeof igmpSnoopingEnabled === 'boolean') {
       await this.setField('pool', ref, 'IGMP_snooping_enabled', igmpSnoopingEnabled);
     }
@@ -687,6 +689,23 @@ class XenAPI {
 
   async getVIFs() {
     return this.getClassRecords('VIF');
+  }
+
+  async updateVifConfig(ref, {
+    qosAlgorithmType = '',
+    qosAlgorithmParams = {},
+  } = {}) {
+    const normalizedQosAlgorithmType = String(qosAlgorithmType || '').trim();
+    const normalizedQosAlgorithmParams = normalizeStringMap(qosAlgorithmParams);
+
+    await this.setField('VIF', ref, 'qos_algorithm_type', normalizedQosAlgorithmType);
+    await this.setField('VIF', ref, 'qos_algorithm_params', normalizedQosAlgorithmParams);
+
+    const record = await this.getRecord('VIF', ref);
+    return {
+      ref,
+      ...record,
+    };
   }
 
   async createNetwork({
@@ -1363,7 +1382,8 @@ class XenAPI {
     await this.updateVMConfig(vmRef, {
       nameLabel,
       nameDescription,
-      vcpus,
+      vcpusAtStartup: vcpus,
+      vcpusMax: vcpus,
       memoryStaticMax,
       tags,
     });
@@ -1393,12 +1413,36 @@ class XenAPI {
     return this.getRecord('VM_metrics', metricsRef);
   }
 
-  async updateVMConfig(ref, { nameLabel, nameDescription = '', userVersion = 0, startDelay = 0, shutdownDelay = 0, order = 0, vcpus, memoryStaticMax, memoryStaticMin, hardwarePlatformVersion = 0, domainType = 'unspecified', hasVendorDevice = true, affinity = '', applianceRef = '', snapshotScheduleRef = '', tags = [], blockedOperations = {}, vcpusParams = {}, otherConfig = {}, xenstoreData = {}, nvram = {}, platform = {} }) {
-    const normalizedMemoryStaticMax = Number(memoryStaticMax || 0);
-    const normalizedMemoryStaticMin = Math.min(
-      normalizedMemoryStaticMax,
-      Math.max(0, Number(memoryStaticMin || normalizedMemoryStaticMax || 0))
-    );
+  async updateVMConfig(ref, { nameLabel, nameDescription = '', userVersion = 0, startDelay = 0, shutdownDelay = 0, order = 0, vcpusAtStartup, vcpusMax, memoryStaticMax, memoryDynamicMax, memoryDynamicMin, memoryStaticMin, hardwarePlatformVersion = 0, domainType = 'unspecified', hasVendorDevice = true, affinity = '', applianceRef = '', snapshotScheduleRef = '', tags = [], blockedOperations = {}, vcpusParams = {}, otherConfig = {}, xenstoreData = {}, nvram = {}, platform = {} }) {
+    const normalizedVcpusAtStartup = Math.max(1, Number(vcpusAtStartup || 1));
+    const normalizedVcpusMax = Math.max(1, Number(vcpusMax || normalizedVcpusAtStartup));
+    const normalizedMemoryStaticMax = Math.max(0, Number(memoryStaticMax || 0));
+    const normalizedMemoryDynamicMax = Math.max(0, Number(memoryDynamicMax || normalizedMemoryStaticMax || 0));
+    const normalizedMemoryStaticMin = Math.max(0, Number(memoryStaticMin || normalizedMemoryDynamicMax || normalizedMemoryStaticMax || 0));
+    const normalizedMemoryDynamicMin = Math.max(0, Number(memoryDynamicMin || normalizedMemoryDynamicMax || 0));
+
+    if (normalizedVcpusAtStartup > normalizedVcpusMax) {
+      throw createXenApiError(
+        'VM_VCPU_LIMITS_INVALID',
+        'VM startup vCPUs must not exceed max vCPUs.'
+      );
+    }
+
+    if (
+      !normalizedMemoryStaticMax
+      || normalizedMemoryStaticMin > normalizedMemoryDynamicMin
+      || normalizedMemoryDynamicMin > normalizedMemoryDynamicMax
+      || normalizedMemoryDynamicMax > normalizedMemoryStaticMax
+    ) {
+      throw createXenApiError(
+        'VM_MEMORY_LIMITS_INVALID',
+        'VM memory limits must satisfy static min <= dynamic min <= dynamic max <= static max.'
+      );
+    }
+
+    const currentRecord = await this.getRecord('VM', ref);
+    const currentVcpusAtStartup = Math.max(1, Number(currentRecord?.VCPUs_at_startup || 1));
+    const currentVcpusMax = Math.max(currentVcpusAtStartup, Number(currentRecord?.VCPUs_max || currentVcpusAtStartup));
 
     await this.setField('VM', ref, 'name_label', nameLabel);
     await this.setField('VM', ref, 'name_description', nameDescription);
@@ -1406,11 +1450,24 @@ class XenAPI {
     await this.setField('VM', ref, 'start_delay', Number(startDelay || 0));
     await this.setField('VM', ref, 'shutdown_delay', Number(shutdownDelay || 0));
     await this.setField('VM', ref, 'order', Number(order || 0));
-    await this.setField('VM', ref, 'VCPUs_max', String(vcpus));
-    await this.setField('VM', ref, 'VCPUs_at_startup', String(vcpus));
-    await this.setField('VM', ref, 'memory_static_max', String(normalizedMemoryStaticMax));
-    await this.setField('VM', ref, 'memory_dynamic_max', String(normalizedMemoryStaticMax));
-    await this.setField('VM', ref, 'memory_static_min', String(normalizedMemoryStaticMin));
+
+    if (normalizedVcpusMax < currentVcpusAtStartup) {
+      await this.setField('VM', ref, 'VCPUs_at_startup', String(normalizedVcpusAtStartup));
+      await this.setField('VM', ref, 'VCPUs_max', String(normalizedVcpusMax));
+    } else if (normalizedVcpusAtStartup > currentVcpusMax) {
+      await this.setField('VM', ref, 'VCPUs_max', String(normalizedVcpusMax));
+      await this.setField('VM', ref, 'VCPUs_at_startup', String(normalizedVcpusAtStartup));
+    } else {
+      await this.setField('VM', ref, 'VCPUs_max', String(normalizedVcpusMax));
+      await this.setField('VM', ref, 'VCPUs_at_startup', String(normalizedVcpusAtStartup));
+    }
+    await this.call('VM', 'set_memory_limits', [
+      ref,
+      normalizedMemoryStaticMin,
+      normalizedMemoryStaticMax,
+      normalizedMemoryDynamicMin,
+      normalizedMemoryDynamicMax,
+    ]);
     await this.setField('VM', ref, 'hardware_platform_version', Number(hardwarePlatformVersion || 0));
     await this.setField('VM', ref, 'domain_type', String(domainType || 'unspecified').trim() || 'unspecified');
     await this.setField('VM', ref, 'has_vendor_device', Boolean(hasVendorDevice));

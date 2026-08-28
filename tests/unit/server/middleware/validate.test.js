@@ -100,6 +100,95 @@ describe('Validation Middleware', () => {
     });
   });
 
+  describe('vmConfigUpdate schema', () => {
+    it('should default omitted dynamic limits to the static envelope', () => {
+      req.body = {
+        nameLabel: 'app-01',
+        vcpusAtStartup: 4,
+        vcpusMax: 6,
+        memoryStaticMin: 4294967296,
+        memoryStaticMax: 8589934592,
+      };
+      validate(schemas.vmConfigUpdate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.memoryDynamicMax).toBe(8589934592);
+      expect(req.body.memoryDynamicMin).toBe(8589934592);
+    });
+
+    it('should reject dynamic ranges that fall below the static minimum', () => {
+      req.body = {
+        nameLabel: 'app-01',
+        vcpusAtStartup: 4,
+        vcpusMax: 6,
+        memoryStaticMin: 4294967296,
+        memoryDynamicMin: 3221225472,
+        memoryDynamicMax: 6442450944,
+        memoryStaticMax: 8589934592,
+      };
+      validate(schemas.vmConfigUpdate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should reject startup vcpus above the configured maximum', () => {
+      req.body = {
+        nameLabel: 'app-01',
+        vcpusAtStartup: 8,
+        vcpusMax: 4,
+        memoryStaticMin: 4294967296,
+        memoryStaticMax: 8589934592,
+      };
+      validate(schemas.vmConfigUpdate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('poolConfigUpdate schema', () => {
+    it('should accept a valid legacy vSwitch controller endpoint', () => {
+      req.body = {
+        nameLabel: 'Production Pool West',
+        vswitchController: '10.0.0.81',
+      };
+      validate(schemas.poolConfigUpdate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.vswitchController).toBe('10.0.0.81');
+    });
+
+    it('should reject an invalid legacy vSwitch controller endpoint', () => {
+      req.body = {
+        nameLabel: 'Production Pool West',
+        vswitchController: 'not-an-ip',
+      };
+      validate(schemas.poolConfigUpdate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('networkVifConfigUpdate schema', () => {
+    it('should accept a VIF QoS algorithm with parameter lines', () => {
+      req.body = {
+        qosAlgorithmType: 'ratelimit',
+        qosAlgorithmParams: {
+          kbps: '50000',
+        },
+      };
+      validate(schemas.networkVifConfigUpdate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.qosAlgorithmType).toBe('ratelimit');
+      expect(req.body.qosAlgorithmParams).toEqual({ kbps: '50000' });
+    });
+
+    it('should reject QoS parameters when the QoS algorithm is empty', () => {
+      req.body = {
+        qosAlgorithmType: '',
+        qosAlgorithmParams: {
+          kbps: '50000',
+        },
+      };
+      validate(schemas.networkVifConfigUpdate)(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
   describe('vm snapshot schemas', () => {
     it('should validate snapshot creation payloads', () => {
       req.body = {
