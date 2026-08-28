@@ -64,6 +64,7 @@ function compileTemplates(source) {
 function buildAppBundle() {
   const sourceFiles = [
     'assets/js/core/foundation.js',
+    'assets/js/core/demo-metrics.js',
     'assets/js/core/state.js',
     'assets/js/core/host-view-helpers.js',
     'assets/js/core/host-view-models.js',
