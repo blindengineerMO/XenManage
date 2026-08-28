@@ -179,11 +179,13 @@ function buildStatusPayload(req) {
   const connectedTargets = buildConnectedTargetPayload(req.session);
   const activeTarget = connectedTargets.find((target) => target.active) || connectedTargets[0] || null;
   const connected = connectedTargets.length > 0;
+  const authMode = req.session?.authMode
+    || (req.session?.userId ? 'local' : (connected ? 'legacy-xen' : 'local'));
 
   return {
     authenticated: Boolean(req.session?.authenticated),
     connected,
-    authMode: req.session?.authMode || (connected ? 'legacy-xen' : 'local'),
+    authMode,
     host: activeTarget?.connectionName || activeTarget?.host || '',
     username: req.session?.appUsername || req.session?.xenUser || '',
     currentTargetKey: activeTarget?.targetKey || '',
@@ -268,6 +270,11 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
 // POST /api/auth/xen-login - Connect to XenServer
 router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
   try {
+    const hasLocalSession = Boolean(req.session?.authenticated && req.session?.userId && req.session?.authMode === 'local');
+    if (!hasLocalSession) {
+      return res.status(403).json({ error: 'LOCAL_USER_REQUIRED' });
+    }
+
     const { host, username, password, vaultCredentialId, connectionId, connectionName, port } = req.body;
     const operatorName = req.session?.appUsername || username;
     let resolvedPassword = password;
@@ -286,21 +293,6 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
 
     const xenApi = new XenAPI(host);
     await xenApi.login(username, resolvedPassword);
-
-    if (!req.session.authenticated) {
-      await new Promise((resolve, reject) => {
-        req.session.regenerate((err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-      req.session.authenticated = true;
-      req.session.authMode = 'legacy-xen';
-      req.session.appUsername = username;
-      req.session.displayName = username;
-      req.session.governanceRole = governanceService.getPolicy().defaultRole;
-      req.session.xenUser = username;
-    }
 
     const actor = {
       userId: req.session?.userId || null,

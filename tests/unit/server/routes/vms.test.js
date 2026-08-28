@@ -566,11 +566,16 @@ describe('VM Routes', () => {
   }
 
   async function login(host = '192.168.1.100') {
+    const auth = await request('POST', '/api/auth/login', {
+      username: 'admin',
+      password: 'admin123!',
+    });
+
     return request('POST', '/api/auth/xen-login', {
       host,
       username: 'root',
       password: 'pass',
-    });
+    }, auth.cookie);
   }
 
   it('lists VM snapshots for a workload', async () => {

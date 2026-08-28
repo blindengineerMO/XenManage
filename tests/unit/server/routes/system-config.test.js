@@ -110,12 +110,12 @@ describe('System Config Routes', () => {
     });
   }
 
-  async function xenLogin() {
+  async function xenLogin(cookie) {
     return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',
-    });
+    }, cookie);
   }
 
   it('should return default system settings and seeded retention policies', async () => {
@@ -419,7 +419,10 @@ describe('System Config Routes', () => {
       approvalTtlMinutes: 180,
     });
 
-    const auth = await xenLogin();
+    const local = await login();
+    const auth = await xenLogin(local.cookie);
+    const lower = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
+    expect(lower.status).toBe(200);
 
     const blocked = await request('POST', '/api/settings/retention/run', {
       dryRun: false,
@@ -447,8 +450,8 @@ describe('System Config Routes', () => {
     expect(decision.status).toBe(200);
     expect(decision.body.status).toBe('approved');
 
-    const lower = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
-    expect(lower.status).toBe(200);
+    const lowerAgain = await request('PUT', '/api/governance/role', { role: 'operator' }, auth.cookie);
+    expect(lowerAgain.status).toBe(200);
 
     const run = await request('POST', '/api/settings/retention/run', {
       dryRun: false,
@@ -461,7 +464,7 @@ describe('System Config Routes', () => {
     expect(usedApproval).toEqual(expect.objectContaining({
       id: approval.body.id,
       status: 'used',
-      usedBy: 'root',
+      usedBy: 'admin',
     }));
   });
 });

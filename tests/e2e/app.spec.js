@@ -7125,6 +7125,56 @@ test('networking detail operations gate attached network destroy and can destroy
   await expect(page.locator('.data-table').getByText('Archive Transit', { exact: true })).toHaveCount(0);
 });
 
+test('networking workspace supports selected-row destroy batching for detached networks', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await signInAndConnectDefaultTarget(page);
+
+  await page.getByText('Networking').first().click();
+  await expect(page).toHaveURL(/\/networking$/);
+
+  await page.locator('.section-head').getByRole('button', { name: 'Create Network' }).click();
+  const createNetworkWindow = page.locator('.floating-window').filter({ hasText: 'Create Network' }).last();
+  await createNetworkWindow.getByLabel('Network Name').fill('Replication Transit');
+  await createNetworkWindow.getByLabel('Bridge Name').fill('xenbr10');
+  await createNetworkWindow.getByLabel('Description').fill('Dedicated replication bridge for backup copy traffic.');
+  await createNetworkWindow.getByLabel('MTU').fill('1600');
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().endsWith('/api/networks')
+    ),
+    createNetworkWindow.getByRole('button', { name: 'Create Network' }).click(),
+  ]);
+  expect(createResponse.status()).toBe(201);
+
+  await getFloatingWindowByTitle(page, 'Network Properties').locator('.fw-close').click();
+  await page.getByLabel('Select Archive Transit').check();
+  await page.getByLabel('Select Replication Transit').check();
+  await expect(page.getByText('2 networks selected')).toBeVisible();
+  await expect(page.getByText('2 destroy-ready')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  const [destroyArchiveResponse, destroyReplicationResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/networks/OpaqueRef%3Anet3/destroy')
+    ),
+    page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes('/api/networks/OpaqueRef%3Anet4/destroy')
+    ),
+    page.getByRole('button', { name: 'Destroy Selected (2)' }).click(),
+  ]);
+  expect(destroyArchiveResponse.ok()).toBe(true);
+  expect(destroyReplicationResponse.ok()).toBe(true);
+
+  await expect(page.getByText('Workspace updated')).toBeVisible();
+  await expect(page.getByText('2 selected networks were destroyed and removed from the current network inventory view.')).toBeVisible();
+  await expect(page.locator('.data-table').getByText('Archive Transit', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.data-table').getByText('Replication Transit', { exact: true })).toHaveCount(0);
+});
+
 test('storage detail operations block attached vdi deletion with attachment-aware guidance', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 

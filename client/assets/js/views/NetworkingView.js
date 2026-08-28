@@ -38,7 +38,39 @@ const NetworkingView = {
         <span class="badge badge-running">ready</span>
       </div>
 
-      <data-table :columns="columns" :data="networks" :loading="loading" :searchable="true" @row-click="openProperties">
+      <div class="dash-card" v-if="networkSelectionProfile.rows.length" style="margin-bottom:16px">
+        <div class="dash-card-label">Batch Network Actions</div>
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div>
+            <strong>{{ networkSelectionProfile.rows.length }} networks selected</strong>
+            <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ networkSelectionProfile.summary }}</div>
+          </div>
+          <div class="dashboard-hero-rail" style="gap:8px">
+            <button class="btn btn-sm btn-danger"
+                    v-if="networkSelectionProfile.destroyReady.length"
+                    :disabled="Boolean(bulkActionBusy)"
+                    @click="applyBulkNetworkAction('destroy')">
+              <span class="mdi mdi-delete-outline"></span>
+              {{ bulkActionBusy === 'destroy' ? 'Destroying...' : `Destroy Selected (${networkSelectionProfile.destroyReady.length})` }}
+            </button>
+            <button class="btn btn-sm" :disabled="Boolean(bulkActionBusy)" @click="clearNetworkSelection">Clear Selection</button>
+          </div>
+        </div>
+        <div class="text-muted mono" v-if="networkSelectionProfile.blocked.length" style="font-size:11px;margin-top:12px">
+          {{ networkSelectionProfile.blocked.length }} selected network{{ networkSelectionProfile.blocked.length === 1 ? ' remains' : 's remain' }} blocked until host uplinks and workload interfaces are detached.
+        </div>
+        <div class="form-error" v-if="bulkError" style="text-align:left;margin-top:12px">{{ bulkError }}</div>
+      </div>
+
+      <data-table :columns="columns"
+                  :data="networks"
+                  :loading="loading"
+                  :searchable="true"
+                  :selectable="true"
+                  :selected-keys="selectedNetworkRefs"
+                  row-key="ref"
+                  @selection-change="handleNetworkSelectionChange"
+                  @row-click="openProperties">
         <template #cell-name_label="{ row }">
           <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed' }}</span>
         </template>
@@ -377,6 +409,9 @@ const NetworkingView = {
       createBondBusy: false,
       createBondError: '',
       workspaceMessage: '',
+      selectedNetworkRefs: [],
+      bulkActionBusy: '',
+      bulkError: '',
       showCreateNetworkWindow: false,
       showCreateVlanWindow: false,
       showCreateBondWindow: false,
@@ -429,6 +464,9 @@ const NetworkingView = {
     },
     networkVifQosOptions() {
       return buildNetworkVifQosOptions(this.selectedNetworkVmAttachments);
+    },
+    networkSelectionProfile() {
+      return buildNetworkSelectionProfile(this.networks, this.selectedNetworkRefs);
     },
     selectedNetworkTopologyLabel() {
       return buildSelectedNetworkTopologyLabel(this.selectedNetwork, this.selectedNetworkHostUplinks, this.selectedNetworkVlanLabel);
@@ -499,13 +537,24 @@ const NetworkingView = {
         ]);
         this.networks = networkResult.data || [];
         this.availableHosts = hostResult.data || [];
+        const validRefs = new Set(this.networks.map((network) => network.ref).filter(Boolean));
+        this.selectedNetworkRefs = this.selectedNetworkRefs.filter((ref) => validRefs.has(ref));
       } catch (error) {
         console.error(error);
         this.availableHosts = [];
+        this.selectedNetworkRefs = [];
       } finally {
         this.loading = false;
       }
       await this.syncRouteFocus();
+    },
+    handleNetworkSelectionChange(keys) {
+      this.selectedNetworkRefs = Array.isArray(keys) ? keys : [];
+      this.bulkError = '';
+    },
+    clearNetworkSelection() {
+      this.selectedNetworkRefs = [];
+      this.bulkError = '';
     },
     async submitNetworkCreate(payload) {
       this.workspaceMessage = '';
@@ -791,6 +840,65 @@ const NetworkingView = {
         this.detailActionError = error.message || 'Unable to destroy the selected network.';
       } finally {
         this.detailActionBusy = '';
+      }
+    },
+    async applyBulkNetworkAction(action) {
+      if (action !== 'destroy') return;
+
+      const targets = this.networkSelectionProfile.destroyReady;
+      if (!targets.length) {
+        this.bulkError = 'No selected networks are currently detached and ready for the destroy action.';
+        return;
+      }
+
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(`Destroy ${targets.length} selected network${targets.length === 1 ? '' : 's'}? This permanently removes each detached Xen network record once the platform accepts the request.`);
+
+      if (!confirmed) return;
+
+      this.workspaceMessage = '';
+      this.bulkError = '';
+      this.bulkActionBusy = action;
+      let completed = 0;
+      let approvalDraft = null;
+      let selectedNetworkDestroyed = false;
+
+      try {
+        for (const network of targets) {
+          try {
+            const approvalId = await this.resolveNetworkGovernanceApproval('destroy-network', network);
+            await api.destroyNetwork(network.ref, approvalId ? { approvalId } : {});
+            completed += 1;
+            if (this.selectedNetwork?.ref === network.ref) {
+              selectedNetworkDestroyed = true;
+            }
+          } catch (error) {
+            approvalDraft = error.code === 'APPROVAL_REQUIRED' ? error.approvalDraft : null;
+            this.bulkError = completed
+              ? `Processed ${completed} network(s) before stopping: ${error.message || 'Unable to continue the batch network destroy action.'}`
+              : (error.message || 'Unable to continue the batch network destroy action.');
+            break;
+          }
+        }
+      } finally {
+        this.bulkActionBusy = '';
+      }
+
+      if (completed) {
+        await this.loadNetworks();
+        if (selectedNetworkDestroyed) {
+          this.clearSelectedNetworkDetail();
+        }
+        this.workspaceMessage = buildBulkNetworkDestroyMessage(targets.slice(0, completed));
+      }
+
+      if (approvalDraft) {
+        await handoffToGovernanceApproval(
+          this.$router,
+          approvalDraft,
+          'Approval required before destroying one or more selected networks.'
+        );
       }
     },
     async openProperties(row, options = {}) {

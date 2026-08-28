@@ -194,11 +194,16 @@ describe('Alerts Routes', () => {
   }
 
   async function login() {
+    const auth = await request('POST', '/api/auth/login', {
+      username: 'admin',
+      password: 'admin123!',
+    });
+
     return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',
-    });
+    }, auth.cookie);
   }
 
   it('should list enriched alerts', async () => {
@@ -250,7 +255,7 @@ describe('Alerts Routes', () => {
     expect(res.body.acknowledged).toBe(true);
     expect(res.body.severityOverride).toBe('info');
     expect(res.body.healthAction).toBe('review');
-    expect(res.body.acknowledgedBy).toBe('root');
+    expect(res.body.acknowledgedBy).toBe('admin');
 
     const list = await request('GET', '/api/alerts', null, auth.cookie);
     const alert = list.body.data.find((entry) => entry.ref === 'OpaqueRef:msg1');
@@ -265,7 +270,7 @@ describe('Alerts Routes', () => {
     expect(audit.body.data[0]).toEqual(expect.objectContaining({
       category: 'alerts',
       action: 'alert_state_updated',
-      operator: 'root',
+      operator: 'admin',
     }));
   });
 

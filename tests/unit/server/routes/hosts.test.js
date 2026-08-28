@@ -226,11 +226,16 @@ describe('Host Routes', () => {
   }
 
   async function login() {
+    const auth = await request('POST', '/api/auth/login', {
+      username: 'admin',
+      password: 'admin123!',
+    });
+
     return request('POST', '/api/auth/xen-login', {
       host: '192.168.1.100',
       username: 'root',
       password: 'pass',
-    });
+    }, auth.cookie);
   }
 
   it('lists hosts and reads host metrics', async () => {

@@ -46,6 +46,48 @@ function buildNetworkVifQosOptions(attachments = []) {
   }));
 }
 
+function normalizeNetworkSelectionRefs(values = []) {
+  return Array.isArray(values) ? values.filter(Boolean) : [];
+}
+
+function buildNetworkSelectionProfile(networks = [], selectedNetworkRefs = []) {
+  const networkList = Array.isArray(networks) ? networks : [];
+  const selected = new Set(normalizeNetworkSelectionRefs(selectedNetworkRefs));
+  const rows = networkList.filter((network) => selected.has(network.ref));
+
+  if (!rows.length) {
+    return {
+      rows,
+      destroyReady: [],
+      blocked: [],
+      summary: 'No networks selected.',
+    };
+  }
+
+  const destroyReady = [];
+  const blocked = [];
+
+  rows.forEach((network) => {
+    if (buildSelectedNetworkDestroyBlockedReason(network)) blocked.push(network);
+    else destroyReady.push(network);
+  });
+
+  const parts = [];
+  if (destroyReady.length) {
+    parts.push(`${destroyReady.length} destroy-ready`);
+  }
+  if (blocked.length) {
+    parts.push(`${blocked.length} still attached and blocked`);
+  }
+
+  return {
+    rows,
+    destroyReady,
+    blocked,
+    summary: parts.join(' · ') || 'Selected networks are ready for review.',
+  };
+}
+
 function buildSelectedNetworkTopologyLabel(selectedNetwork = null, hostUplinks = [], vlanLabel = '-') {
   if (!selectedNetwork) return '-';
 
@@ -225,6 +267,13 @@ function buildNetworkConfigMessage(record = {}, payload = {}, selectedNetwork = 
 
 function buildNetworkDestroyMessage(network = null) {
   return `${network?.name_label || network?.ref} was destroyed and removed from the current network inventory view.`;
+}
+
+function buildBulkNetworkDestroyMessage(networks = []) {
+  const rows = Array.isArray(networks) ? networks.filter(Boolean) : [];
+  if (!rows.length) return 'Selected networks were destroyed and removed from the current network inventory view.';
+  if (rows.length === 1) return buildNetworkDestroyMessage(rows[0]);
+  return `${rows.length} selected networks were destroyed and removed from the current network inventory view.`;
 }
 
 function buildNetworkVifDisconnectMessage(result = {}, attachment = null, selectedNetwork = null) {
