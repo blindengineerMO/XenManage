@@ -568,78 +568,51 @@ const TemplatesView = {
   },
   computed: {
     governanceMap() {
-      return Object.fromEntries((this.governanceRecords || []).map((record) => [record.templateRef, record]));
+      return buildTemplateGovernanceMap(this.governanceRecords);
     },
     normalizedTemplates() {
-      return this.templates.map((template) => ({
-        ...template,
-        versionLabel: this.getTemplateVersion(template),
-        profileLabel: this.getTemplateProfile(template),
-        lifecycleStage: this.getLifecycleStage(template),
-        validationStatus: this.getValidationStatus(template),
-      }));
+      return buildNormalizedTemplates(this.templates, this.governanceMap);
     },
     hostOptions() {
-      return this.hosts.filter((host) => host && host.ref);
+      return buildTemplateResourceOptions(this.hosts);
     },
     storageOptions() {
-      return this.storage.filter((sr) => sr && sr.ref);
+      return buildTemplateResourceOptions(this.storage);
     },
     networkOptions() {
-      return this.networks.filter((network) => network && network.ref);
+      return buildTemplateResourceOptions(this.networks);
     },
     recentDeployments() {
-      return (this.deployments || []).slice(0, 8);
+      return buildRecentTemplateDeployments(this.deployments);
     },
     promotionCandidates() {
-      return this.normalizedTemplates
-        .filter((template) => this.canPromoteTemplate(template))
-        .sort((left, right) => new Date(this.getTemplateGovernanceRecord(right.ref)?.lastValidatedAt || 0) - new Date(this.getTemplateGovernanceRecord(left.ref)?.lastValidatedAt || 0));
+      return buildTemplatePromotionCandidates(this.normalizedTemplates, this.governanceMap);
     },
     governanceCoverageSummary() {
-      const governed = this.templates.filter((template) => Boolean(this.governanceMap[template.ref])).length;
-      return `${governed} of ${this.templates.length || 0} templates have persisted governance records`;
+      return buildTemplateGovernanceCoverageSummary(this.templates, this.governanceMap);
     },
     validationAttentionSummary() {
-      const templateAttention = this.normalizedTemplates.filter((template) => ['untested', 'review', 'failed'].includes(template.validationStatus)).length;
-      const deploymentAttention = this.recentDeployments.filter((deployment) => ['pending', 'warning', 'failed'].includes(deployment.validationStatus)).length;
-      return `${templateAttention} templates and ${deploymentAttention} recent deployments need review`;
+      return buildTemplateValidationAttentionSummary(this.normalizedTemplates, this.recentDeployments);
     },
     selectedTemplateDeployments() {
-      if (!this.selectedTemplate) return [];
-      return this.deployments.filter((deployment) => deployment.templateRef === this.selectedTemplate.ref);
+      return buildSelectedTemplateDeployments(this.deployments, this.selectedTemplate);
     },
     selectedTemplateHistory() {
-      if (!this.selectedTemplate) return [];
-      return this.governanceHistoryByTemplate[this.selectedTemplate.ref] || [];
+      return getTemplateHistoryEntries(this.governanceHistoryByTemplate, this.selectedTemplate?.ref || '');
     },
     currentPromotionBaseline() {
       if (!this.promotionTemplateRecord) return null;
       return this.resolvePromotionBaseline(this.promotionTemplateRecord);
     },
     promotionHistory() {
-      if (!this.promotionTemplateRecord) return [];
-      return this.governanceHistoryByTemplate[this.promotionTemplateRecord.ref] || [];
+      return getTemplateHistoryEntries(this.governanceHistoryByTemplate, this.promotionTemplateRecord?.ref || '');
     },
     promotionDiffRows() {
-      if (!this.promotionTemplateRecord) return [];
-      const baseline = this.currentPromotionBaseline;
-      const candidateRecord = this.getTemplateGovernanceRecord(this.promotionTemplateRecord.ref) || {};
-      const baselineRecord = baseline ? (this.getTemplateGovernanceRecord(baseline.ref) || {}) : {};
-      const rows = [
-        { label: 'Version', current: baselineRecord.versionLabel || '', next: candidateRecord.versionLabel || '' },
-        { label: 'Guest Customization', current: baselineRecord.guestCustomization || '', next: candidateRecord.guestCustomization || '' },
-        { label: 'Validation Status', current: baselineRecord.validationStatus || '', next: candidateRecord.validationStatus || '' },
-        { label: 'Validated At', current: baselineRecord.lastValidatedAt ? formatDateTime(baselineRecord.lastValidatedAt) : '', next: candidateRecord.lastValidatedAt ? formatDateTime(candidateRecord.lastValidatedAt) : '' },
-        { label: 'Catalog Owner', current: baselineRecord.owner || '', next: candidateRecord.owner || '' },
-        { label: 'Notes', current: baselineRecord.notes || '', next: candidateRecord.notes || '' },
-      ];
-      return rows.map((row) => ({
-        ...row,
-        current: row.current || '-',
-        next: row.next || '-',
-        changed: row.current !== row.next,
-      }));
+      return buildTemplatePromotionDiffRows(
+        this.promotionTemplateRecord,
+        this.currentPromotionBaseline,
+        this.governanceMap
+      );
     },
   },
   async mounted() {
@@ -662,69 +635,35 @@ const TemplatesView = {
     formatBytes,
     formatDateTime,
     truncateList,
-    templateStageBadgeClass(stage) {
-      if (stage === 'stable') return 'badge-running';
-      if (stage === 'staged') return 'badge-halted';
-      if (stage === 'deprecated') return 'badge-error';
-      return 'badge-info';
-    },
-    mapValidationStatus(status) {
-      if (status === 'validated') return 'success';
-      if (status === 'failed') return 'critical';
-      if (status === 'review') return 'warning';
-      return 'info';
-    },
-    mapDeploymentStatus(status) {
-      if (status === 'validated') return 'success';
-      if (status === 'failed') return 'critical';
-      if (status === 'warning') return 'warning';
-      return 'pending';
-    },
+    templateStageBadgeClass: buildTemplateStageBadgeClass,
+    mapValidationStatus: mapTemplateValidationStatusBadge,
+    mapDeploymentStatus: mapTemplateDeploymentStatusBadge,
     getTemplateGovernanceRecord(templateRef) {
-      return this.governanceMap[templateRef] || null;
+      return getTemplateGovernanceRecord(this.governanceMap, templateRef);
     },
     getTemplateProfile(template) {
-      const governance = this.getTemplateGovernanceRecord(template.ref);
-      if (governance?.profileLabel) return governance.profileLabel;
-
-      const tags = (template.tags || []).map((tag) => String(tag).toLowerCase());
-      if (tags.includes('windows')) return 'Windows';
-      if (tags.includes('linux')) return 'Linux';
-      if ((template.platform || {}).vtpm) return 'Secure Windows';
-      if ((template.platform || {}).secureboot) return 'Secure Linux';
-      return 'Standard';
+      return getTemplateProfile(template, this.governanceMap);
     },
     getLifecycleStage(template) {
-      const governance = this.getTemplateGovernanceRecord(template.ref);
-      if (governance?.lifecycleStage) return governance.lifecycleStage;
-
-      const tags = (template.tags || []).map((tag) => String(tag).toLowerCase());
-      if (tags.includes('stable') || tags.includes('baseline')) return 'stable';
-      if (tags.includes('staged') || tags.includes('candidate')) return 'staged';
-      return 'draft';
+      return getTemplateLifecycleStage(template, this.governanceMap);
     },
     getValidationStatus(template) {
-      return this.getTemplateGovernanceRecord(template.ref)?.validationStatus || 'untested';
+      return getTemplateValidationStatus(template, this.governanceMap);
     },
     getTemplateVersion(template) {
-      return this.getTemplateGovernanceRecord(template.ref)?.versionLabel || '';
+      return getTemplateVersionLabel(template, this.governanceMap);
     },
     getGuestCustomization(template) {
-      return this.getTemplateGovernanceRecord(template.ref)?.guestCustomization || '';
+      return getTemplateGuestCustomizationLabel(template, this.governanceMap);
     },
     isGoldenImage(template) {
-      const governance = this.getTemplateGovernanceRecord(template.ref);
-      if (governance) return Boolean(governance.goldenImage);
-      const tags = (template.tags || []).map((tag) => String(tag).toLowerCase());
-      return tags.includes('golden') || tags.includes('baseline');
+      return isTemplateGoldenImage(template, this.governanceMap);
     },
     templateStageCount(stage) {
-      return this.normalizedTemplates.filter((template) => template.lifecycleStage === stage).length;
+      return countTemplatesByStage(this.normalizedTemplates, stage);
     },
     resolveDeploymentLabel(collection, ref, fallback) {
-      const record = (collection || []).find((item) => item.ref === ref);
-      if (!record) return fallback || ref || '-';
-      return record.name_label || record.hostname || record.bridge || record.address || record.ref || fallback || '-';
+      return resolveTemplateDeploymentLabel(collection, ref, fallback);
     },
     async openProperties(row) {
       this.selectedTemplate = row;
@@ -732,9 +671,7 @@ const TemplatesView = {
       await this.loadTemplateHistory(row.ref);
     },
     findTemplateByFocus(focus) {
-      return this.normalizedTemplates.find((template) =>
-        recordMatchesRouteFocus(template, focus, ['ref', 'uuid', 'name_label', 'versionLabel'])
-      ) || null;
+      return findTemplateByFocus(this.normalizedTemplates, focus);
     },
     openGovernance(template) {
       this.governanceTemplateRecord = template;
@@ -755,11 +692,7 @@ const TemplatesView = {
       this.historyRestoreError = null;
       this.historyRestoreMessage = '';
       const baseline = this.resolvePromotionBaseline(template);
-      this.promotionDraft = {
-        baselineTemplateRef: baseline?.ref || '',
-        retireExistingStable: Boolean(baseline),
-        promotionNotes: '',
-      };
+      this.promotionDraft = buildTemplatePromotionDraft(template, baseline);
       this.showPromotionReview = true;
       await this.loadTemplateHistory(template.ref, true);
     },
@@ -769,35 +702,16 @@ const TemplatesView = {
       this.showDeploymentValidation = true;
     },
     canPromoteTemplate(template) {
-      if (!template) return false;
-      const governance = this.getTemplateGovernanceRecord(template.ref);
-      return governance?.lifecycleStage === 'staged' && governance?.validationStatus === 'validated';
+      return canPromoteTemplateRecord(template, this.governanceMap);
     },
     resolvePromotionBaseline(template) {
-      if (!template) return null;
-      const governance = this.getTemplateGovernanceRecord(template.ref);
-      const profileLabel = String(governance?.profileLabel || '').trim().toLowerCase();
-      const candidates = this.normalizedTemplates
-        .filter((entry) => entry.ref !== template.ref)
-        .filter((entry) => {
-          const entryGovernance = this.getTemplateGovernanceRecord(entry.ref);
-          return entryGovernance?.lifecycleStage === 'stable'
-            && profileLabel
-            && String(entryGovernance.profileLabel || '').trim().toLowerCase() === profileLabel;
-        })
-        .sort((left, right) => new Date(this.getTemplateGovernanceRecord(right.ref)?.updatedAt || 0) - new Date(this.getTemplateGovernanceRecord(left.ref)?.updatedAt || 0));
-      return candidates[0] || null;
+      return resolveTemplatePromotionBaseline(template, this.normalizedTemplates, this.governanceMap);
     },
     templateDeploymentSummary(templateRef) {
-      const deployments = this.deployments.filter((deployment) => deployment.templateRef === templateRef);
-      const validated = deployments.filter((deployment) => deployment.validationStatus === 'validated').length;
-      return `${deployments.length} deployment(s) · ${validated} validated`;
+      return buildTemplateDeploymentSummary(this.deployments, templateRef);
     },
     formatHistoryEvent(eventType) {
-      if (eventType === 'promoted') return 'Promoted to Stable';
-      if (eventType === 'retired') return 'Retired Stable Baseline';
-      if (eventType === 'restored') return 'Governance Restored';
-      return 'Governance Saved';
+      return formatTemplateHistoryEvent(eventType);
     },
     async loadTemplateHistory(templateRef, force = false) {
       if (!templateRef) return;
@@ -899,8 +813,7 @@ const TemplatesView = {
         }
 
         const deploymentAudit = record.deploymentAudit || {};
-        const hostLabel = this.resolveDeploymentLabel(this.hostOptions, deploymentAudit.hostRef || payload.hostRef, payload.hostRef || 'selected host');
-        this.deploymentMessage = `${record.name_label || payload.nameLabel} prepared on ${hostLabel}${payload.startAfter ? ' and started.' : '.'}`;
+        this.deploymentMessage = buildTemplateDeploymentMessage(record, payload, this.hostOptions);
         await this.loadAll();
       } catch (error) {
         this.deployError = error.message || 'Unable to deploy template';
@@ -973,7 +886,7 @@ const TemplatesView = {
         if (this.promotionTemplateRecord?.ref === templateRef) {
           this.promotionTemplateRecord = { ...this.promotionTemplateRecord };
         }
-        this.historyRestoreMessage = `${record.versionLabel || templateRef} reverted to the ${this.formatHistoryEvent(entry.eventType).toLowerCase()} snapshot from ${formatDateTime(entry.happenedAt)}.`;
+        this.historyRestoreMessage = buildTemplateHistoryRestoreMessage(record, templateRef, entry);
       } catch (error) {
         this.historyRestoreError = error.message || 'Unable to restore template governance history';
       } finally {

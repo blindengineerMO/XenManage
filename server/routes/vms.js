@@ -41,6 +41,14 @@ async function safeGetSrRecord(xenApi, ref) {
   }
 }
 
+async function safeGetVmGuestMetricsRecord(xenApi, ref) {
+  try {
+    return await xenApi.getRecord('VM_guest_metrics', ref);
+  } catch (error) {
+    return null;
+  }
+}
+
 function createRouteError(code, message = code, status = 400) {
   const error = new Error(message);
   error.code = code;
@@ -796,7 +804,17 @@ router.get('/:ref/consoles/:consoleRef/launch', validate(schemas.vmConsoleParams
 router.get('/:ref', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
   try {
     const record = await req.xenApi.getRecord('VM', req.params.ref);
-    res.json({ ref: req.params.ref, ...record });
+    const guestMetricsRef = String(record?.guest_metrics || '').trim();
+    const guestMetricsRecord = guestMetricsRef && guestMetricsRef !== 'OpaqueRef:NULL'
+      ? await safeGetVmGuestMetricsRecord(req.xenApi, guestMetricsRef)
+      : null;
+    res.json({
+      ref: req.params.ref,
+      ...record,
+      guest_metrics_record: guestMetricsRecord
+        ? { ref: guestMetricsRef, ...guestMetricsRecord }
+        : null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -819,7 +837,7 @@ router.put('/:ref/config', validate(schemas.opaqueRefParam, 'params'), validate(
       status: 'success',
       before: previousRecord,
       after: { ref: req.params.ref, ...record },
-      detail: `${req.body.vcpus} vCPU and ${req.body.memoryStaticMax} bytes configured.`,
+      detail: `startup ${req.body.vcpusAtStartup} vCPU, max ${req.body.vcpusMax} vCPU, static ${req.body.memoryStaticMin}-${req.body.memoryStaticMax} bytes, dynamic ${req.body.memoryDynamicMin}-${req.body.memoryDynamicMax} bytes configured.`,
     });
     res.json({ ref: req.params.ref, ...record });
   } catch (err) {

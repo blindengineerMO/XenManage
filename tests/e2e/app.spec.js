@@ -14,6 +14,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       slaves: ['OpaqueRef:host2'],
       tags: ['prod'],
       default_SR: 'OpaqueRef:sr1',
+      vswitch_controller: '10.0.0.80',
       migration_compression: false,
       wlb_enabled: false,
       wlb_url: 'https://wlb-west.example.internal',
@@ -129,6 +130,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       VCPUs_at_startup: 4,
       VCPUs_max: 4,
       memory_static_min: 4294967296,
+      memory_dynamic_min: 6442450944,
       memory_static_max: 8589934592,
       memory_dynamic_max: 8589934592,
       uuid: 'vm-uuid-1',
@@ -137,6 +139,18 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       affinity: 'OpaqueRef:host1',
       appliance: 'OpaqueRef:appliance1',
       snapshot_schedule: 'OpaqueRef:vmss1',
+      guest_metrics: 'OpaqueRef:guestmetrics1',
+      guest_metrics_record: {
+        ref: 'OpaqueRef:guestmetrics1',
+        live: true,
+        last_updated: '2026-08-27T11:05:00.000Z',
+        os_version: { name: 'Ubuntu', distro: '24.04 LTS', uname: '6.8.0-40-generic' },
+        PV_drivers_detected: true,
+        PV_drivers_up_to_date: true,
+        PV_drivers_version: { major: '9', minor: '4' },
+        networks: { '0/ip': '10.0.0.101', '0/ipv6/0': 'fd00::101' },
+      },
+      recommendations: '<restrictions><vcpus max="8"/><memory static-min="4294967296"/></restrictions>',
       blocked_operations: {},
       other_config: { owner: 'platform-ops' },
       xenstore_data: { 'vm-data/cloud-init': 'disabled' },
@@ -164,6 +178,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       VCPUs_at_startup: 8,
       VCPUs_max: 8,
       memory_static_min: 8589934592,
+      memory_dynamic_min: 12884901888,
       memory_static_max: 17179869184,
       memory_dynamic_max: 17179869184,
       uuid: 'vm-uuid-2',
@@ -172,6 +187,18 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       affinity: 'OpaqueRef:host2',
       appliance: 'OpaqueRef:appliance2',
       snapshot_schedule: 'OpaqueRef:vmss2',
+      guest_metrics: 'OpaqueRef:guestmetrics2',
+      guest_metrics_record: {
+        ref: 'OpaqueRef:guestmetrics2',
+        live: true,
+        last_updated: '2026-08-27T10:15:00.000Z',
+        os_version: { name: 'Windows Server', major: '2025' },
+        PV_drivers_detected: true,
+        PV_drivers_up_to_date: true,
+        PV_drivers_version: { major: '9', minor: '4' },
+        networks: { '0/ip': '10.0.0.102' },
+      },
+      recommendations: '',
       blocked_operations: { pool_migrate: 'OPERATION_NOT_ALLOWED' },
       other_config: { owner: 'database-team' },
       xenstore_data: { 'vm-data/cloud-init': 'enabled' },
@@ -439,6 +466,9 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       MAC: '02:16:3e:10:00:01',
       MTU: 1500,
       locking_mode: 'network_default',
+      qos_algorithm_type: 'ratelimit',
+      qos_algorithm_params: { kbps: '50000' },
+      qos_supported_algorithms: ['ratelimit'],
       currently_attached: true,
       allowed_operations: ['unplug', 'destroy'],
     },
@@ -3485,6 +3515,7 @@ async function stubAuthenticatedRoutes(page, options = {}) {
     pool.name_label = payload.nameLabel;
     pool.name_description = payload.nameDescription || '';
     pool.default_SR = payload.defaultSrRef || pool.default_SR;
+    pool.vswitch_controller = payload.vswitchController || '';
     if (typeof payload.migrationCompressionEnabled === 'boolean') {
       pool.migration_compression = payload.migrationCompressionEnabled;
     }
@@ -4166,8 +4197,8 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       name_label: payload.nameLabel,
       name_description: payload.nameDescription || '',
       power_state: payload.startAfter ? 'Running' : 'Halted',
-      VCPUs_at_startup: payload.vcpus,
-      VCPUs_max: payload.vcpus,
+      VCPUs_at_startup: payload.vcpusAtStartup || payload.vcpus,
+      VCPUs_max: payload.vcpusMax || payload.vcpusAtStartup || payload.vcpus,
       memory_static_max: payload.memoryStaticMax,
       memory_dynamic_max: payload.memoryStaticMax,
       uuid: `vm-uuid-${nextIndex}`,
@@ -4408,6 +4439,9 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       MAC: String(payload.mac || ''),
       MTU: 1500,
       locking_mode: 'network_default',
+      qos_algorithm_type: '',
+      qos_algorithm_params: {},
+      qos_supported_algorithms: ['ratelimit'],
       currently_attached: String(vm.power_state || '').toLowerCase() === 'running',
       allowed_operations: ['unplug', 'destroy'],
     });
@@ -5095,6 +5129,31 @@ async function stubAuthenticatedRoutes(page, options = {}) {
       return;
     }
 
+    if (route.request().method() === 'PUT' && /\/api\/networks\/interfaces\/.+\/config$/.test(new URL(route.request().url()).pathname)) {
+      const vifRef = decodeURIComponent(new URL(route.request().url()).pathname.split('/')[4] || '');
+      const payload = route.request().postDataJSON() || {};
+      const vif = vifInventory.find((entry) => entry.ref === vifRef);
+
+      if (!vif) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'VIF_NOT_FOUND' }),
+        });
+        return;
+      }
+
+      vif.qos_algorithm_type = String(payload.qosAlgorithmType || '').trim();
+      vif.qos_algorithm_params = { ...(payload.qosAlgorithmParams || {}) };
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(vif),
+      });
+      return;
+    }
+
     if (route.request().method() === 'POST') {
       if (route.request().url().includes('/bonds')) {
         const payload = route.request().postDataJSON() || {};
@@ -5625,6 +5684,8 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     power_state: 'Running',
     VCPUs_at_startup: 4,
     VCPUs_max: 4,
+    memory_static_min: 4294967296,
+    memory_dynamic_min: 6442450944,
     memory_static_max: 8589934592,
     memory_dynamic_max: 8589934592,
     uuid: 'vm-uuid-1',
@@ -5634,6 +5695,18 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     appliance: 'OpaqueRef:appliance1',
     snapshot_schedule: 'OpaqueRef:vmss1',
     protection_policy: 'OpaqueRef:vmpp-legacy-1',
+    guest_metrics: 'OpaqueRef:guestmetrics1',
+    guest_metrics_record: {
+      ref: 'OpaqueRef:guestmetrics1',
+      live: true,
+      last_updated: '2026-08-27T11:05:00.000Z',
+      os_version: { name: 'Ubuntu', distro: '24.04 LTS', uname: '6.8.0-40-generic' },
+      PV_drivers_detected: true,
+      PV_drivers_up_to_date: true,
+      PV_drivers_version: { major: '9', minor: '4' },
+      networks: { '0/ip': '10.0.0.101', '0/ipv6/0': 'fd00::101' },
+    },
+    recommendations: '<restrictions><vcpus max="8"/><memory static-min="4294967296"/></restrictions>',
     VBDs: ['OpaqueRef:vbd1'],
     VIFs: ['OpaqueRef:vif1'],
     HVM_boot_policy: 'UEFI',
@@ -5755,6 +5828,8 @@ test('vm operations open a floating window and submit lifecycle actions', async 
       power_state: 'Halted',
       VCPUs_at_startup: 2,
       VCPUs_max: 2,
+      memory_static_min: 2147483648,
+      memory_dynamic_min: 2147483648,
       memory_static_max: 4294967296,
       memory_dynamic_max: 4294967296,
       uuid: 'vm-uuid-3',
@@ -5949,11 +6024,12 @@ test('vm operations open a floating window and submit lifecycle actions', async 
       start_delay: Number(payload.startDelay || 0),
       shutdown_delay: Number(payload.shutdownDelay || 0),
       order: Number(payload.order || 0),
-      VCPUs_at_startup: payload.vcpus,
-      VCPUs_max: payload.vcpus,
+      VCPUs_at_startup: payload.vcpusAtStartup,
+      VCPUs_max: payload.vcpusMax || payload.vcpusAtStartup,
       memory_static_min: payload.memoryStaticMin,
+      memory_dynamic_min: payload.memoryDynamicMin || payload.memoryDynamicMax || payload.memoryStaticMin,
       memory_static_max: payload.memoryStaticMax,
-      memory_dynamic_max: payload.memoryStaticMax,
+      memory_dynamic_max: payload.memoryDynamicMax || payload.memoryStaticMax,
       hardware_platform_version: Number(payload.hardwarePlatformVersion || 0),
       domain_type: String(payload.domainType || 'unspecified').trim() || 'unspecified',
       has_vendor_device: Boolean(payload.hasVendorDevice),
@@ -6181,6 +6257,14 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await page.getByText('app-01', { exact: true }).click();
 
   await expect(page.getByText('VM Details')).toBeVisible();
+  await expect(page.getByText('Guest Runtime & Guidance')).toBeVisible();
+  const guestMetricsCard = page.locator('.dash-card').filter({ hasText: 'Guest Metrics' }).first();
+  const recommendationsCard = page.locator('.dash-card').filter({ hasText: 'Recommendations' }).first();
+  await expect(guestMetricsCard.getByText(/Guest heartbeat detected · updated/)).toBeVisible();
+  await expect(guestMetricsCard.getByText('name=Ubuntu · distro=24.04 LTS · uname=6.8.0-40-generic', { exact: true })).toBeVisible();
+  await expect(guestMetricsCard.getByText('Detected · major=9 · minor=4', { exact: true })).toBeVisible();
+  await expect(guestMetricsCard.getByText('0/ip=10.0.0.101 · 0/ipv6/0=fd00::101', { exact: true })).toBeVisible();
+  await expect(recommendationsCard.getByText('<restrictions><vcpus max=\"8\"/><memory static-min=\"4294967296\"/></restrictions>', { exact: true })).toBeVisible();
   await page.locator('.vm-tab-strip').getByRole('button', { name: 'Config' }).click();
   await page.getByLabel('VM Name').fill('app-01-renamed');
   await page.getByLabel('Description').fill('Updated operator-facing VM description.');
@@ -6188,6 +6272,11 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await page.getByLabel('Start Delay (s)').fill('45');
   await page.getByLabel('Shutdown Delay (s)').fill('90');
   await page.getByLabel('Boot Order').fill('3');
+  await page.getByLabel('Startup vCPUs').fill('4');
+  await page.getByLabel('Max vCPUs').fill('6');
+  await page.getByLabel('Static Max Memory (GiB)').fill('8');
+  await page.getByLabel('Dynamic Max Memory (GiB)').fill('7');
+  await page.getByLabel('Dynamic Min Memory (GiB)').fill('6');
   await page.getByLabel('Static Min Memory (GiB)').fill('4');
   await page.getByLabel('Virtual Hardware Platform').fill('4');
   await page.getByLabel('Domain Type').selectOption('pvh');
@@ -6213,7 +6302,9 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     'EFI/SecureBootMode': 'user',
   });
   await expect(page.getByRole('heading', { name: 'app-01-renamed' })).toBeVisible();
-  await expect(page.getByText('Floor 4 GiB at boot time.')).toBeVisible();
+  await expect(page.getByText('4/6 vCPU')).toBeVisible();
+  await expect(page.getByText('4 startup vCPU · 6 max vCPU · static max 8 GiB')).toBeVisible();
+  await expect(page.getByText('Balloon 6-7 GiB inside static 4-8 GiB.')).toBeVisible();
   await expect(page.getByText('Sequence 3 in pool-managed startup and shutdown ordering.')).toBeVisible();
   await expect(page.getByText('Pinned to virtual hardware platform version 4 for host compatibility checks.')).toBeVisible();
   await expect(page.getByText('PVH takes effect on the next VM boot and supersedes legacy HVM boot-policy tuning.')).toBeVisible();
@@ -6242,6 +6333,8 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await expect(vmOverviewGrid.getByText('Enabled', { exact: true })).toBeVisible();
   await expect(vmOverviewGrid.getByText('Weekly Database Checkpoint')).toBeVisible();
   await expect(vmOverviewGrid.getByText('OpaqueRef:vmpp-legacy-1')).toBeVisible();
+  await expect(vmOverviewGrid.getByText('XML recommendations available')).toBeVisible();
+  await expect(vmOverviewGrid.getByText(/Guest heartbeat detected/)).toBeVisible();
   await expect(vmOverviewGrid).toContainText('Vendor Device');
   await expect(vmOverviewGrid.getByText('beta-xen (OpaqueRef:host2)')).toBeVisible();
   await expect(vmOverviewGrid.getByText('Database Stack')).toBeVisible();
@@ -6946,6 +7039,39 @@ test('networking detail operations can update the selected network metadata', as
   await expect(page.locator('.floating-window').getByText('{\"vlan\":\"130\",\"owner\":\"platform-ops\"}', { exact: true })).toBeVisible();
 });
 
+test('networking detail operations can update attached VIF QoS shaping', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
+  await page.getByLabel('Host Address').fill('10.0.0.1');
+  await page.getByLabel('Username').fill('root');
+  await page.getByLabel('Password').fill('secret');
+  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+
+  await page.getByText('Networking').first().click();
+  await expect(page).toHaveURL(/\/networking$/);
+  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
+
+  const detailWindow = page.locator('.floating-window').filter({ hasText: 'Network Properties' }).first();
+  await expect(detailWindow.getByRole('button', { name: 'Save Interface QoS' })).toBeVisible();
+  await detailWindow.getByLabel('Attached Interface').selectOption('OpaqueRef:vif1');
+  await detailWindow.getByLabel('QoS Algorithm').fill('ratelimit');
+  await detailWindow.getByLabel('QoS Parameters').fill('kbps=75000\ntimeslice_us=50000');
+
+  const [updateResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === 'PUT'
+      && response.url().includes('/api/networks/interfaces/OpaqueRef%3Avif1/config')
+    ),
+    detailWindow.getByRole('button', { name: 'Save Interface QoS' }).click(),
+  ]);
+  expect(updateResponse.status()).toBe(200);
+  await expect(page.getByText('app-01 interface OpaqueRef:vif1 QoS policy was updated on VM Network.')).toBeVisible();
+  const connectedWorkloadsCard = detailWindow.locator('.dash-card').filter({ hasText: 'Connected Workloads' }).first();
+  await expect(connectedWorkloadsCard.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first()).toContainText('ratelimit · kbps=75000, timeslice_us=50000');
+});
+
 test('networking detail operations gate attached network destroy and can destroy a detached network', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
@@ -7168,6 +7294,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Pool Name').fill('Production Pool West');
   await page.getByLabel('Description').fill('Updated operator-facing pool summary for the west cluster.');
   await page.getByLabel('Default Storage Repository').selectOption('OpaqueRef:sr2');
+  await page.getByLabel('Legacy vSwitch Controller').fill('10.0.0.81');
   await page.getByLabel('Enable pool-wide migration compression by default').check();
   await page.getByLabel('Enable workload balancing for this pool').check();
   await page.getByLabel('Enable IGMP snooping for multicast-sensitive pool networks').check();
@@ -7176,6 +7303,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByRole('button', { name: 'Save Pool Metadata' }).click();
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.name_label || '').toBe('Production Pool West');
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.default_SR || '').toBe('OpaqueRef:sr2');
+  await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.vswitch_controller || '').toBe('10.0.0.81');
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.migration_compression || false).toBe(true);
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.wlb_enabled || false).toBe(true);
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.IGMP_snooping_enabled || false).toBe(true);
@@ -7186,6 +7314,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.locator('.floating-window').getByText('Operations Archive SR', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Same-pool migration workflows default to a compressed transfer stream for this pool.', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Workload balancing is enabled via https://wlb-west.example.internal', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.floating-window').getByText('Legacy pool-level controller 10.0.0.81 is still configured here. Upstream deprecated this field in XenServer 7.2 in favor of SDN_controller workflows.', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Multicast membership tracking is enforced for pool networking.', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('prod, west, governed', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('owner=platform-ops · governance_tier=gold', { exact: true }).first()).toBeVisible();
@@ -7579,14 +7708,17 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/inventory$/);
   await page.getByRole('button', { name: 'All' }).click();
   await page.getByPlaceholder('Search live inventory, alerts, tasks, UUIDs, and tags...').fill('alpha');
-  await page.getByPlaceholder('Name this search preset...').fill('Host Alpha');
-  await page.locator('.inventory-toolbar').nth(1).locator('select.form-input').first().selectOption('1');
-  await page.getByRole('button', { name: 'Save Workspace' }).click();
-  await expect(page.getByText('Host Alpha')).toBeVisible();
-  await expect(page.getByText('Target Production Pool')).toBeVisible();
-  await page.getByRole('button', { name: 'Open Target' }).click();
+  await page.locator('.section-head').getByRole('button', { name: /Saved Workspaces/ }).click();
+  const savedWorkspacesWindow = page.locator('.floating-window').filter({ hasText: 'Saved Workspaces' }).last();
+  await savedWorkspacesWindow.getByPlaceholder('Name this search preset...').fill('Host Alpha');
+  await savedWorkspacesWindow.locator('select.form-input').first().selectOption('1');
+  await savedWorkspacesWindow.getByRole('button', { name: 'Save Workspace' }).click();
+  await expect(savedWorkspacesWindow.getByText('Host Alpha')).toBeVisible();
+  await expect(savedWorkspacesWindow.getByText('Target Production Pool')).toBeVisible();
+  await savedWorkspacesWindow.getByRole('button', { name: 'Open Target' }).click();
   await expect(page).toHaveURL(/\/inventory$/);
-  await page.locator('.stack-item').filter({ hasText: 'Host Alpha' }).getByRole('button', { name: 'Apply' }).click();
+  await savedWorkspacesWindow.locator('.stack-item').filter({ hasText: 'Host Alpha' }).getByRole('button', { name: 'Apply' }).click();
+  await savedWorkspacesWindow.locator('.fw-close').click();
   await expect(page.locator('.data-table').getByText('alpha-xen-west', { exact: true })).toBeVisible();
   await page.locator('.data-table').getByText('alpha-xen-west', { exact: true }).click();
   await expect(page.getByText('Inventory Result Detail')).toBeVisible();
@@ -7595,6 +7727,13 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.locator('.floating-window .fw-title').first()).toHaveText('Host Properties');
   await expect(page.locator('.floating-window .property-grid').getByText('10.0.0.11').first()).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
+  await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await page.locator('.section-head').getByRole('button', { name: /Connection Atlas/ }).click();
+  const connectionAtlasWindow = page.locator('.floating-window').filter({ hasText: 'Connection Atlas' }).last();
+  await expect(connectionAtlasWindow.getByText('Saved Targets')).toBeVisible();
+  await expect(connectionAtlasWindow.getByText('Top Tags')).toBeVisible();
+  await connectionAtlasWindow.locator('.fw-close').click();
 
   await page.getByText('Governance').first().click();
   await expect(page).toHaveURL(/\/governance$/);

@@ -16,6 +16,7 @@ const demoDb = {
       slaves: ['OpaqueRef:host-demo-2'],
       tags: ['production', 'ha', 'demo'],
       default_SR: 'OpaqueRef:sr-demo-1',
+      vswitch_controller: '10.42.0.80',
       IGMP_snooping_enabled: true,
       migration_compression: true,
       wlb_enabled: true,
@@ -39,6 +40,7 @@ const demoDb = {
       slaves: [],
       tags: ['edge', 'branch'],
       default_SR: 'OpaqueRef:sr-demo-2',
+      vswitch_controller: '',
       IGMP_snooping_enabled: false,
       migration_compression: false,
       wlb_enabled: false,
@@ -202,6 +204,7 @@ const demoDb = {
       VCPUs_at_startup: 4,
       VCPUs_max: 4,
       memory_static_min: 4294967296,
+      memory_dynamic_min: 6442450944,
       memory_static_max: 8589934592,
       memory_dynamic_max: 8589934592,
       uuid: 'vm-demo-uuid-1',
@@ -211,6 +214,18 @@ const demoDb = {
       appliance: 'OpaqueRef:appliance-demo-1',
       snapshot_schedule: 'OpaqueRef:vmss-demo-1',
       protection_policy: 'OpaqueRef:vmpp-demo-legacy-1',
+      guest_metrics: 'OpaqueRef:vm-guest-metrics-demo-1',
+      guest_metrics_record: {
+        ref: 'OpaqueRef:vm-guest-metrics-demo-1',
+        live: true,
+        last_updated: '2026-08-27T10:15:00.000Z',
+        os_version: { name: 'Ubuntu', distro: '24.04 LTS', uname: '6.8.0-40-generic' },
+        PV_drivers_detected: true,
+        PV_drivers_up_to_date: true,
+        PV_drivers_version: { major: '9', minor: '4', build: '0' },
+        networks: { '0/ip': '10.0.0.101', '0/ipv6/0': 'fd00::101' },
+      },
+      recommendations: '<restrictions><vcpus max="8"/><memory static-min="4294967296"/></restrictions>',
       VBDs: ['OpaqueRef:vbd-demo-1'],
       VIFs: ['OpaqueRef:vif-demo-1'],
       consoles: ['OpaqueRef:console-demo-1'],
@@ -237,6 +252,7 @@ const demoDb = {
       VCPUs_at_startup: 2,
       VCPUs_max: 2,
       memory_static_min: 2147483648,
+      memory_dynamic_min: 3221225472,
       memory_static_max: 4294967296,
       memory_dynamic_max: 4294967296,
       uuid: 'vm-demo-uuid-2',
@@ -246,6 +262,18 @@ const demoDb = {
       appliance: 'OpaqueRef:appliance-demo-1',
       snapshot_schedule: 'OpaqueRef:vmss-demo-1',
       protection_policy: '',
+      guest_metrics: 'OpaqueRef:vm-guest-metrics-demo-2',
+      guest_metrics_record: {
+        ref: 'OpaqueRef:vm-guest-metrics-demo-2',
+        live: true,
+        last_updated: '2026-08-27T09:45:00.000Z',
+        os_version: { name: 'Ubuntu', distro: '24.04 LTS' },
+        PV_drivers_detected: true,
+        PV_drivers_up_to_date: true,
+        PV_drivers_version: { major: '9', minor: '4', build: '0' },
+        networks: { '0/ip': '10.0.0.102' },
+      },
+      recommendations: '',
       VBDs: ['OpaqueRef:vbd-demo-2'],
       VIFs: ['OpaqueRef:vif-demo-2'],
       consoles: ['OpaqueRef:console-demo-2'],
@@ -272,6 +300,7 @@ const demoDb = {
       VCPUs_at_startup: 4,
       VCPUs_max: 4,
       memory_static_min: 4294967296,
+      memory_dynamic_min: 8589934592,
       memory_static_max: 12884901888,
       memory_dynamic_max: 12884901888,
       uuid: 'vm-demo-uuid-3',
@@ -281,6 +310,18 @@ const demoDb = {
       appliance: 'OpaqueRef:appliance-demo-2',
       snapshot_schedule: 'OpaqueRef:vmss-demo-2',
       protection_policy: '',
+      guest_metrics: 'OpaqueRef:vm-guest-metrics-demo-3',
+      guest_metrics_record: {
+        ref: 'OpaqueRef:vm-guest-metrics-demo-3',
+        live: true,
+        last_updated: '2026-08-27T08:30:00.000Z',
+        os_version: { name: 'CentOS Stream', major: '9' },
+        PV_drivers_detected: true,
+        PV_drivers_up_to_date: false,
+        PV_drivers_version: { major: '8', minor: '2' },
+        networks: { '0/ip': '10.0.0.103', '1/ip': '172.16.20.15' },
+      },
+      recommendations: '<restrictions><platform secureboot="false"/></restrictions>',
       VBDs: ['OpaqueRef:vbd-demo-3'],
       VIFs: ['OpaqueRef:vif-demo-3'],
       consoles: ['OpaqueRef:console-demo-3'],
@@ -307,6 +348,7 @@ const demoDb = {
       VCPUs_at_startup: 2,
       VCPUs_max: 2,
       memory_static_min: 1073741824,
+      memory_dynamic_min: 1073741824,
       memory_static_max: 2147483648,
       memory_dynamic_max: 2147483648,
       uuid: 'vm-demo-uuid-4',
@@ -316,6 +358,9 @@ const demoDb = {
       appliance: '',
       snapshot_schedule: '',
       protection_policy: '',
+      guest_metrics: 'OpaqueRef:NULL',
+      guest_metrics_record: null,
+      recommendations: '',
       VBDs: ['OpaqueRef:vbd-demo-4'],
       VIFs: ['OpaqueRef:vif-demo-4'],
       consoles: ['OpaqueRef:console-demo-4'],
@@ -508,10 +553,10 @@ const demoDb = {
     },
   ],
   vifStates: {
-    'OpaqueRef:vif-demo-1': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:01', MTU: 1500, locking_mode: 'network_default' },
-    'OpaqueRef:vif-demo-2': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:02', MTU: 1500, locking_mode: 'network_default' },
-    'OpaqueRef:vif-demo-3': { currently_attached: false, device: '0', MAC: '02:16:3e:10:00:03', MTU: 1500, locking_mode: 'network_default' },
-    'OpaqueRef:vif-demo-4': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:04', MTU: 1500, locking_mode: 'network_default' },
+    'OpaqueRef:vif-demo-1': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:01', MTU: 1500, locking_mode: 'network_default', qos_algorithm_type: 'ratelimit', qos_algorithm_params: { kbps: '50000' }, qos_supported_algorithms: ['ratelimit'] },
+    'OpaqueRef:vif-demo-2': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:02', MTU: 1500, locking_mode: 'network_default', qos_algorithm_type: '', qos_algorithm_params: {}, qos_supported_algorithms: ['ratelimit'] },
+    'OpaqueRef:vif-demo-3': { currently_attached: false, device: '0', MAC: '02:16:3e:10:00:03', MTU: 1500, locking_mode: 'network_default', qos_algorithm_type: '', qos_algorithm_params: {}, qos_supported_algorithms: ['ratelimit'] },
+    'OpaqueRef:vif-demo-4': { currently_attached: true, device: '0', MAC: '02:16:3e:10:00:04', MTU: 1500, locking_mode: 'network_default', qos_algorithm_type: '', qos_algorithm_params: {}, qos_supported_algorithms: ['ratelimit'] },
   },
   hostMetrics: {
     'OpaqueRef:host-demo-1': { live: true, memory_total: 137438953472, memory_free: 42949672960 },
@@ -1545,6 +1590,9 @@ function registerDemoVifState(vifRef, {
   currently_attached = true,
   MTU = 1500,
   locking_mode = 'network_default',
+  qos_algorithm_type = '',
+  qos_algorithm_params = {},
+  qos_supported_algorithms = ['ratelimit'],
 } = {}) {
   demoDb.vifStates[vifRef] = {
     currently_attached: Boolean(currently_attached),
@@ -1552,6 +1600,11 @@ function registerDemoVifState(vifRef, {
     MAC: String(MAC || ''),
     MTU: Number(MTU || 1500),
     locking_mode: String(locking_mode || 'network_default'),
+    qos_algorithm_type: String(qos_algorithm_type || ''),
+    qos_algorithm_params: clone(qos_algorithm_params || {}),
+    qos_supported_algorithms: Array.isArray(qos_supported_algorithms)
+      ? qos_supported_algorithms.map((entry) => String(entry || '').trim()).filter(Boolean)
+      : [],
   };
 }
 
@@ -1573,6 +1626,9 @@ function buildDemoVifInventory() {
         MAC: String(state.MAC || ''),
         MTU: Number(state.MTU || 1500),
         locking_mode: String(state.locking_mode || 'network_default'),
+        qos_algorithm_type: String(state.qos_algorithm_type || ''),
+        qos_algorithm_params: clone(state.qos_algorithm_params || {}),
+        qos_supported_algorithms: Array.isArray(state.qos_supported_algorithms) ? [...state.qos_supported_algorithms] : [],
         currently_attached: Boolean(state.currently_attached),
         allowed_operations: Boolean(state.currently_attached) ? ['unplug', 'destroy'] : ['plug', 'destroy'],
       };
@@ -3809,6 +3865,7 @@ function demoRequest(method, url, body) {
       name_label: body.nameLabel,
       name_description: body.nameDescription || '',
       default_SR: String(body.defaultSrRef || '').trim() || pool.default_SR || '',
+      vswitch_controller: String(body.vswitchController || '').trim(),
       tags: Array.isArray(body.tags) ? clone(body.tags) : [],
       other_config: clone(body.otherConfig || {}),
     });
@@ -4384,8 +4441,8 @@ function demoRequest(method, url, body) {
       name_label: body.nameLabel,
       name_description: body.nameDescription || '',
       power_state: body.startAfter ? 'Running' : 'Halted',
-      VCPUs_at_startup: Number(body.vcpus || template.VCPUs_at_startup || 1),
-      VCPUs_max: Number(body.vcpus || template.VCPUs_at_startup || 1),
+      VCPUs_at_startup: Number(body.vcpusAtStartup || body.vcpus || template.VCPUs_at_startup || 1),
+      VCPUs_max: Number(body.vcpusMax || body.vcpusAtStartup || body.vcpus || template.VCPUs_max || template.VCPUs_at_startup || 1),
       memory_static_max: Number(body.memoryStaticMax || template.memory_static_max || 0),
       memory_dynamic_max: Number(body.memoryStaticMax || template.memory_static_max || 0),
       uuid: `${vmRef.replace('OpaqueRef:', '')}-uuid`,
@@ -5064,11 +5121,12 @@ function demoRequest(method, url, body) {
       start_delay: Number(body.startDelay || 0),
       shutdown_delay: Number(body.shutdownDelay || 0),
       order: Number(body.order || 0),
-      VCPUs_at_startup: Number(body.vcpus || 1),
-      VCPUs_max: Number(body.vcpus || 1),
+      VCPUs_at_startup: Number(body.vcpusAtStartup || 1),
+      VCPUs_max: Number(body.vcpusMax || body.vcpusAtStartup || 1),
       memory_static_min: Number(body.memoryStaticMin || body.memoryStaticMax || 0),
+      memory_dynamic_min: Number(body.memoryDynamicMin || body.memoryDynamicMax || body.memoryStaticMin || body.memoryStaticMax || 0),
       memory_static_max: Number(body.memoryStaticMax || 0),
-      memory_dynamic_max: Number(body.memoryStaticMax || 0),
+      memory_dynamic_max: Number(body.memoryDynamicMax || body.memoryStaticMax || 0),
       hardware_platform_version: Number(body.hardwarePlatformVersion || 0),
       domain_type: String(body.domainType || 'unspecified').trim() || 'unspecified',
       has_vendor_device: Boolean(body.hasVendorDevice),
@@ -5151,6 +5209,9 @@ function demoRequest(method, url, body) {
       device: body.deviceLabel || String(Math.max(0, (vm.VIFs || []).length - 1)),
       MAC: body.mac || '',
       currently_attached: String(vm.power_state || '').toLowerCase() === 'running',
+      qos_algorithm_type: '',
+      qos_algorithm_params: {},
+      qos_supported_algorithms: ['ratelimit'],
     });
     return { success: true, vifRef };
   }
@@ -5228,6 +5289,22 @@ function demoRequest(method, url, body) {
   if (method === 'GET' && path === '/api/networks/interfaces') {
     const vifs = buildDemoVifInventory();
     return { total: vifs.length, data: clone(vifs) };
+  }
+
+  if (method === 'PUT' && /\/api\/networks\/interfaces\/.+\/config$/.test(path)) {
+    const vifRef = decodeURIComponent(path.split('/')[4] || '');
+    ensureDemoMutationAllowed({ actionKey: 'network_vif_config_update', entityType: 'vif', entityRef: vifRef });
+    const current = demoDb.vifStates[vifRef];
+    if (!current) throw new Error('VIF_NOT_FOUND');
+
+    registerDemoVifState(vifRef, {
+      ...current,
+      qos_algorithm_type: String(body?.qosAlgorithmType || '').trim(),
+      qos_algorithm_params: clone(body?.qosAlgorithmParams || {}),
+    });
+
+    const vifRecord = buildDemoVifInventory().find((entry) => entry.ref === vifRef);
+    return clone(vifRecord || { ref: vifRef });
   }
 
   if (method === 'POST' && path === '/api/storage') {

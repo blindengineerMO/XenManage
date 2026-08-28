@@ -8,6 +8,7 @@ process.env.DB_PATH = TEST_DB;
 const mockState = {
   vmRecord: {},
   vmRecords: [],
+  guestMetricsRecord: null,
   vmAppliances: [],
   vmSnapshotSchedules: [],
   snapshots: [],
@@ -29,6 +30,11 @@ jest.mock('../../../../server/services/xenapi', () => {
   });
 
   actual.XenAPI.prototype.getRecord = jest.fn(async function (_className, ref) {
+    if (_className === 'VM_guest_metrics' && mockState.guestMetricsRecord && ref === mockState.guestMetricsRecord.ref) {
+      const { ref: _guestMetricsRef, ...record } = mockState.guestMetricsRecord;
+      return { ...record };
+    }
+
     const vm = mockState.vmRecords.find((entry) => entry.ref === ref);
     if (vm) {
       return { ...vm };
@@ -211,11 +217,12 @@ jest.mock('../../../../server/services/xenapi', () => {
       start_delay: Number(payload.startDelay || 0),
       shutdown_delay: Number(payload.shutdownDelay || 0),
       order: Number(payload.order || 0),
-      VCPUs_at_startup: payload.vcpus,
-      VCPUs_max: payload.vcpus,
+      VCPUs_at_startup: payload.vcpusAtStartup,
+      VCPUs_max: payload.vcpusMax || payload.vcpusAtStartup,
       memory_static_min: payload.memoryStaticMin,
+      memory_dynamic_min: payload.memoryDynamicMin || payload.memoryDynamicMax || payload.memoryStaticMin,
       memory_static_max: payload.memoryStaticMax,
-      memory_dynamic_max: payload.memoryStaticMax,
+      memory_dynamic_max: payload.memoryDynamicMax || payload.memoryStaticMax,
       hardware_platform_version: Number(payload.hardwarePlatformVersion || 0),
       domain_type: String(payload.domainType || 'unspecified').trim() || 'unspecified',
       has_vendor_device: Boolean(payload.hasVendorDevice),
@@ -388,6 +395,8 @@ describe('VM Routes', () => {
       affinity: 'OpaqueRef:host1',
       appliance: 'OpaqueRef:appliance1',
       snapshot_schedule: 'OpaqueRef:vmss1',
+      guest_metrics: 'OpaqueRef:guestmetrics1',
+      recommendations: '<restrictions><vcpus max="4"/></restrictions>',
       VCPUs_at_startup: 2,
       VCPUs_max: 2,
       memory_static_min: 2147483648,
@@ -420,6 +429,25 @@ describe('VM Routes', () => {
       VIFs: ['OpaqueRef:vif1'],
     };
     mockState.vmRecords = [{ ...mockState.vmRecord }];
+    mockState.guestMetricsRecord = {
+      ref: 'OpaqueRef:guestmetrics1',
+      uuid: 'guestmetrics-uuid-1',
+      live: true,
+      last_updated: '2026-08-27T11:20:00.000Z',
+      os_version: {
+        name: 'Ubuntu',
+        distro: '24.04 LTS',
+      },
+      PV_drivers_detected: true,
+      PV_drivers_up_to_date: true,
+      PV_drivers_version: {
+        major: '9',
+        minor: '4',
+      },
+      networks: {
+        '0/ip': '10.0.0.101',
+      },
+    };
     mockState.vmAppliances = [
       {
         ref: 'OpaqueRef:appliance1',
@@ -598,7 +626,32 @@ describe('VM Routes', () => {
     }));
   });
 
-  it('updates VM config metadata including user_version, start_delay, shutdown_delay, order, memory_static_min, hardware_platform_version, domain_type, has_vendor_device, appliance, snapshot_schedule, tags, blocked_operations, vcpus_params, other_config, xenstore_data, nvram, and platform through the config endpoint', async () => {
+  it('returns VM detail with guest metrics enrichment and recommendations guidance', async () => {
+    const auth = await login();
+    const res = await request('GET', '/api/vms/OpaqueRef%3Avm1', null, auth.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:vm1',
+      name_label: 'app-01',
+      guest_metrics: 'OpaqueRef:guestmetrics1',
+      recommendations: '<restrictions><vcpus max="4"/></restrictions>',
+      guest_metrics_record: expect.objectContaining({
+        ref: 'OpaqueRef:guestmetrics1',
+        live: true,
+        os_version: expect.objectContaining({
+          name: 'Ubuntu',
+          distro: '24.04 LTS',
+        }),
+        PV_drivers_version: expect.objectContaining({
+          major: '9',
+          minor: '4',
+        }),
+      }),
+    }));
+  });
+
+  it('updates VM config metadata including the full memory envelope, hardware platform, domain type, and advanced maps through the config endpoint', async () => {
     const auth = await login();
     const res = await request('PUT', '/api/vms/OpaqueRef%3Avm1/config', {
       nameLabel: 'app-01-renamed',
@@ -607,8 +660,11 @@ describe('VM Routes', () => {
       startDelay: 45,
       shutdownDelay: 90,
       order: 3,
-      vcpus: 4,
+      vcpusAtStartup: 4,
+      vcpusMax: 6,
       memoryStaticMin: 4294967296,
+      memoryDynamicMin: 6442450944,
+      memoryDynamicMax: 7516192768,
       memoryStaticMax: 8589934592,
       hardwarePlatformVersion: 4,
       domainType: 'pvh',
@@ -653,8 +709,11 @@ describe('VM Routes', () => {
       shutdown_delay: 90,
       order: 3,
       VCPUs_at_startup: 4,
+      VCPUs_max: 6,
       memory_static_min: 4294967296,
+      memory_dynamic_min: 6442450944,
       memory_static_max: 8589934592,
+      memory_dynamic_max: 7516192768,
       hardware_platform_version: 4,
       domain_type: 'pvh',
       has_vendor_device: false,

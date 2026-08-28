@@ -393,7 +393,7 @@ const ResilienceView = {
               </div>
             </div>
             <resilience-runbook-form
-              :initial-value="activePlanDraft"
+              :initial-value="runbookDraft"
               :pool-record="activePlan"
               :hosts="hostsForPlan(activePlan)"
               :networks="networks"
@@ -481,7 +481,6 @@ const ResilienceView = {
       showRunbookEditor: false,
       showDrillLogger: false,
       activePlan: null,
-      activePlanDraft: null,
       runbookLaunchMode: 'runbook',
       runbookError: '',
       runbookDrillSaving: false,
@@ -502,90 +501,34 @@ const ResilienceView = {
       return this.prioritizedRecoveryPlans[0] || this.recoveryPlans[0] || null;
     },
     summaryCards() {
-      return [
-        {
-          key: 'protected',
-          label: 'Protected Workloads',
-          value: String(this.summary.protectedVmCount || 0),
-          detail: 'Workloads with recent successful protection activity',
-          icon: 'mdi-shield-check-outline',
-          valueClass: (this.summary.protectedVmCount || 0) ? 'text-green' : '',
-        },
-        {
-          key: 'risk',
-          label: 'At-Risk Workloads',
-          value: String(this.summary.atRiskVmCount || 0),
-          detail: 'Workloads requiring protection review or follow-up',
-          icon: 'mdi-alert-decagram-outline',
-          valueClass: (this.summary.atRiskVmCount || 0) ? 'text-red' : 'text-green',
-        },
-        {
-          key: 'runbooks',
-          label: 'Runbook Coverage',
-          value: `${this.summary.runbookCoverageCount || 0}/${this.summary.recoveryPlanCount || 0}`,
-          detail: 'Pools with persisted recovery guidance and ownership',
-          icon: 'mdi-book-open-page-variant-outline',
-          valueClass: (this.summary.runbookCoverageCount || 0) < (this.summary.recoveryPlanCount || 0) ? 'text-amber' : 'text-green',
-        },
-        {
-          key: 'restore',
-          label: 'Restore Drift',
-          value: String(this.summary.staleRestorePointCount || 0),
-          detail: 'Workloads with stale or missing restore evidence',
-          icon: 'mdi-database-alert-outline',
-          valueClass: (this.summary.staleRestorePointCount || 0) ? 'text-red' : 'text-green',
-        },
-        {
-          key: 'drills',
-          label: 'Drill Gaps',
-          value: String(this.summary.overdueDrillCount || 0),
-          detail: `${this.summary.recentEventCount || 0} total resilience events in the current view`,
-          icon: 'mdi-clipboard-pulse-outline',
-          valueClass: (this.summary.overdueDrillCount || 0) ? 'text-amber' : 'text-green',
-        },
-      ];
+      return buildResilienceSummaryCards(this.summary);
     },
     prioritizedPolicies() {
-      const priority = { critical: 0, warning: 1, pending: 2, success: 3, info: 4, notice: 5 };
-      return [...this.protectionPolicies].sort((left, right) => {
-        const statusDelta = (priority[left.status] ?? 99) - (priority[right.status] ?? 99);
-        if (statusDelta !== 0) return statusDelta;
-        return new Date(right.lastProtectedAt || 0) - new Date(left.lastProtectedAt || 0);
-      });
+      return buildPrioritizedResiliencePolicies(this.protectionPolicies);
     },
     prioritizedHosts() {
-      const priority = { critical: 0, pending: 1, warning: 2, disabled: 3, success: 4, info: 5 };
-      return [...this.hostPlans].sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99));
+      return buildPrioritizedResilienceHosts(this.hostPlans);
     },
     prioritizedRecoveryPlans() {
-      const priority = { critical: 0, warning: 1, pending: 2, success: 3, info: 4 };
-      return [...this.recoveryPlans].sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99));
+      return buildPrioritizedRecoveryPlans(this.recoveryPlans);
     },
     runbookCanExecuteDrill() {
       return Boolean(this.activePlan);
     },
     runbookWindowTitle() {
-      return this.runbookLaunchMode === 'drill' ? 'Recovery Drill Handoff' : 'Recovery Runbook';
+      return getResilienceRunbookWindowTitle(this.runbookLaunchMode);
     },
     runbookSubmitLabel() {
-      return this.runbookLaunchMode === 'drill' ? 'Save Recovery Runbook Before Drill' : 'Save Recovery Runbook';
+      return getResilienceRunbookSubmitLabel(this.runbookLaunchMode);
     },
     resilienceAutomationTasks() {
-      return sortTasks((this.automationTasks || []).filter((task) => this.isResilienceAutomationTask(task)));
+      return buildResilienceAutomationTasks(this.automationTasks);
     },
     runbookDraft() {
-      if (!this.activePlan) return null;
-      if (!this.runbookSeed) return this.activePlan;
-      return {
-        ...this.activePlan,
-        ...this.runbookSeed,
-      };
+      return buildResilienceRunbookDraft(this.activePlan, this.runbookSeed);
     },
     inspectorTitle() {
-      if (this.selectedItemType === 'policy') return 'Protection Policy Detail';
-      if (this.selectedItemType === 'host') return 'Failover Host Detail';
-      if (this.selectedItemType === 'plan') return 'Recovery Plan Detail';
-      return 'Resilience Detail';
+      return getResilienceInspectorTitle(this.selectedItemType);
     },
   },
   async mounted() {
@@ -609,203 +552,58 @@ const ResilienceView = {
     formatDateTime,
     truncateList,
     taskSlaMeta: getTaskDueMeta,
+    formatHours: formatResilienceHours,
+    formatDrillType: formatResilienceDrillType,
+    isRemediationTask: isResilienceRemediationTask,
+    isResilienceAutomationTask: isResilienceAutomationTask,
+    taskEvidenceChecklist: getResilienceTaskEvidenceChecklist,
+    taskCompletionCriteria: getResilienceTaskCompletionCriteria,
     taskSlaBadgeClass(task) {
       return getTaskSlaBadgeClass(this.taskSlaMeta(task));
     },
-    isRemediationTask(task) {
-      return String(task?.task_kind || '').toLowerCase() === 'remediation' || String(task?.source || '').toLowerCase() === 'remediation';
-    },
-    isResilienceAutomationTask(task) {
-      if (!this.isRemediationTask(task)) return false;
-      return task.target_route === '/resilience' || String(task.action_type || '').toLowerCase() === 'resilience';
-    },
-    taskEvidenceChecklist(task) {
-      return Array.isArray(task?.evidence_checklist) ? task.evidence_checklist : [];
-    },
-    taskCompletionCriteria(task) {
-      return Array.isArray(task?.completion_criteria) ? task.completion_criteria : [];
-    },
     findTaskByFocus(focus) {
-      return (this.automationTasks || []).find((task) =>
-        recordMatchesRouteFocus(task, focus, ['ref', 'uuid', 'name_label'])
-      ) || null;
-    },
-    recordMatchesValue(record, value, fields = [], extraValues = []) {
-      const needle = String(value || '').trim().toLowerCase();
-      if (!record || !needle) return false;
-
-      return [
-        ...fields.map((field) => record?.[field]),
-        ...extraValues,
-      ]
-        .filter(Boolean)
-        .map((entry) => String(entry).trim().toLowerCase())
-        .includes(needle);
-    },
-    poolContainsHost(pool, host) {
-      if (!pool || !host) return false;
-
-      const poolRefs = new Set(
-        [
-          pool.master,
-          ...(Array.isArray(pool.hosts) ? pool.hosts : []),
-          ...(Array.isArray(pool.resident_hosts) ? pool.resident_hosts : []),
-          ...(Array.isArray(pool.slaves) ? pool.slaves : []),
-        ].filter(Boolean)
-      );
-
-      return poolRefs.has(host.ref) || poolRefs.has(host.uuid);
+      return findResilienceTaskByFocus(this.automationTasks, focus);
     },
     findHostRecord(value) {
-      return this.relatedHosts.find((host) =>
-        this.recordMatchesValue(host, value, ['ref', 'uuid', 'name_label', 'hostname', 'address'], [
-          ...(Array.isArray(host?.PBDs) ? host.PBDs : []),
-          ...(Array.isArray(host?.PIFs) ? host.PIFs : []),
-          ...(Array.isArray(host?.resident_VMs) ? host.resident_VMs : []),
-        ])
-      ) || this.hostPlans.find((host) =>
-        this.recordMatchesValue(host, value, ['ref', 'uuid', 'name_label', 'address'])
-      ) || null;
+      return findResilienceHostRecord(value, this.relatedHosts, this.hostPlans);
     },
     findVmRecord(value) {
-      return this.relatedVMs.find((vm) => this.recordMatchesValue(vm, value, ['ref', 'uuid', 'name_label'], [
-        ...(Array.isArray(vm?.VBDs) ? vm.VBDs : []),
-        ...(Array.isArray(vm?.VIFs) ? vm.VIFs : []),
-      ])) || null;
+      return findResilienceVmRecord(value, this.relatedVMs);
     },
     findStorageRecord(value) {
-      return this.relatedStorage.find((sr) => this.recordMatchesValue(sr, value, ['ref', 'uuid', 'name_label'], [
-        ...(Array.isArray(sr?.VDIs) ? sr.VDIs : []),
-        ...(Array.isArray(sr?.PBDs) ? sr.PBDs : []),
-      ])) || null;
+      return findResilienceStorageRecord(value, this.relatedStorage);
     },
     findPoolRecord(value) {
-      return this.relatedPools.find((pool) => this.recordMatchesValue(pool, value, ['ref', 'uuid', 'name_label'])) || null;
+      return findResiliencePoolRecord(value, this.relatedPools);
     },
     findNetworkRecord(value) {
-      return this.networks.find((network) =>
-        this.recordMatchesValue(network, value, ['ref', 'uuid', 'name_label', 'bridge'], [
-          ...(Array.isArray(network?.PIFs) ? network.PIFs : []),
-          ...(Array.isArray(network?.VIFs) ? network.VIFs : []),
-        ])
-      ) || null;
+      return findResilienceNetworkRecord(value, this.networks);
     },
     resolvePoolForHost(host) {
-      if (!host) return null;
-
-      const hostKeys = [host.pool, host.pool_ref, host.pool_uuid, host.pool_name, host.poolRef]
-        .filter(Boolean)
-        .map((value) => String(value).trim().toLowerCase());
-
-      if (hostKeys.length) {
-        const direct = this.relatedPools.find((pool) =>
-          [pool.ref, pool.uuid, pool.name_label]
-            .filter(Boolean)
-            .map((value) => String(value).trim().toLowerCase())
-            .some((value) => hostKeys.includes(value))
-        );
-        if (direct) return direct;
-      }
-
-      const relationship = this.relatedPools.find((pool) => this.poolContainsHost(pool, host));
-      if (relationship) return relationship;
-
-      if (this.relatedPools.length === 1) return this.relatedPools[0];
-      return null;
+      return resolveResiliencePoolForHost(host, this.relatedPools);
     },
     findPoolByVm(vm) {
-      if (!vm) return null;
-      return this.findPoolRecord(vm.pool)
-        || this.resolvePoolForHost(this.findHostRecord(vm.resident_on || vm.affinity))
-        || null;
+      return findResiliencePoolByVm(vm, this.relatedHosts, this.relatedPools);
     },
     findPoolByStorage(sr) {
-      if (!sr) return null;
-
-      const hostPbdRefs = new Set(Array.isArray(sr.PBDs) ? sr.PBDs : []);
-      if (hostPbdRefs.size) {
-        const host = this.relatedHosts.find((entry) =>
-          Array.isArray(entry.PBDs) && entry.PBDs.some((ref) => hostPbdRefs.has(ref))
-        );
-        const hostPool = this.resolvePoolForHost(host);
-        if (hostPool) return hostPool;
-      }
-
-      return this.relatedPools.find((pool) => pool.default_SR === sr.ref) || null;
+      return findResiliencePoolByStorage(sr, this.relatedHosts, this.relatedPools);
     },
     findPoolByNetwork(network) {
-      if (!network) return null;
-
-      const pifRefs = new Set(Array.isArray(network.PIFs) ? network.PIFs : []);
-      if (pifRefs.size) {
-        const host = this.relatedHosts.find((entry) =>
-          Array.isArray(entry.PIFs) && entry.PIFs.some((ref) => pifRefs.has(ref))
-        );
-        const hostPool = this.resolvePoolForHost(host);
-        if (hostPool) return hostPool;
-      }
-
-      return this.relatedPools.find((pool) => pool.migration_network === network.ref) || null;
+      return findResiliencePoolByNetwork(network, this.relatedHosts, this.relatedPools);
     },
     resolveRecoveryPlanForPool(pool) {
-      if (!pool) return null;
-      return this.recoveryPlans.find((plan) => plan.ref === pool.ref)
-        || this.recoveryPlans.find((plan) => this.recordMatchesValue(plan, pool.uuid, ['ref', 'uuid', 'name_label']))
-        || this.recoveryPlans.find((plan) => this.recordMatchesValue(plan, pool.name_label, ['ref', 'uuid', 'name_label']))
-        || null;
+      return resolveResilienceRecoveryPlanForPool(pool, this.recoveryPlans);
     },
     findRecoveryPlanByTask(task) {
-      if (!task) return null;
-
-      const relatedObject = String(task.related_object || '').trim().toLowerCase();
-      const relatedClass = String(task.related_class || '').trim().toLowerCase();
-      if (relatedObject) {
-        const directPlan = this.recoveryPlans.find((plan) =>
-          [plan.ref, plan.uuid, plan.name_label]
-            .filter(Boolean)
-            .map((value) => String(value).trim().toLowerCase())
-            .includes(relatedObject)
-        );
-        if (directPlan) return directPlan;
-      }
-
-      if (relatedObject) {
-        if (!relatedClass || relatedClass === 'host') {
-          const relatedHost = this.findHostRecord(relatedObject);
-          const hostPool = this.resolvePoolForHost(relatedHost);
-          const hostPlan = this.resolveRecoveryPlanForPool(hostPool);
-          if (hostPlan) return hostPlan;
-        }
-
-        if (!relatedClass || ['vm', 'vbd', 'vif'].includes(relatedClass)) {
-          const relatedVm = this.findVmRecord(relatedObject);
-          const vmPlan = this.resolveRecoveryPlanForPool(this.findPoolByVm(relatedVm));
-          if (vmPlan) return vmPlan;
-        }
-
-        if (!relatedClass || ['sr', 'vdi'].includes(relatedClass)) {
-          const relatedStorage = this.findStorageRecord(relatedObject);
-          const storagePlan = this.resolveRecoveryPlanForPool(this.findPoolByStorage(relatedStorage));
-          if (storagePlan) return storagePlan;
-        }
-
-        if (!relatedClass || relatedClass === 'pool') {
-          const relatedPool = this.findPoolRecord(relatedObject);
-          const poolPlan = this.resolveRecoveryPlanForPool(relatedPool);
-          if (poolPlan) return poolPlan;
-        }
-
-        if (!relatedClass || ['network', 'pif', 'vif'].includes(relatedClass)) {
-          const relatedNetwork = this.findNetworkRecord(relatedObject);
-          const networkPlan = this.resolveRecoveryPlanForPool(this.findPoolByNetwork(relatedNetwork));
-          if (networkPlan) return networkPlan;
-        }
-      }
-
-      return this.recoveryPlans.find((plan) => {
-        const haystack = `${task?.name_label || ''} ${task?.name_description || ''} ${task?.workspace_summary || ''} ${task?.related_alert_summary || ''}`.toLowerCase();
-        return haystack.includes(String(plan.name_label || '').toLowerCase());
-      }) || null;
+      return findResilienceRecoveryPlanByTask(task, {
+        recoveryPlans: this.recoveryPlans,
+        relatedHosts: this.relatedHosts,
+        hostPlans: this.hostPlans,
+        relatedVMs: this.relatedVMs,
+        relatedStorage: this.relatedStorage,
+        relatedPools: this.relatedPools,
+        networks: this.networks,
+      });
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);
@@ -818,7 +616,7 @@ const ResilienceView = {
 
       if (this.loading || !this.recoveryPlans.length) return;
 
-      const key = `${getRouteFocusKey(focus)}|${seedAction}`;
+      const key = buildResilienceFocusKey(focus, seedAction);
       if (this.lastAppliedFocusKey === key) return;
 
       const task = this.findTaskByFocus(focus);
@@ -832,31 +630,16 @@ const ResilienceView = {
       }
     },
     openAutomationTask(task) {
-      if (!task?.ref) return;
+      const location = buildResilienceAutomationTaskLocation(task);
+      if (!location) return;
       this.showInspector = false;
-      this.$router.push(buildFocusedRoute('/activity', {
-        kind: 'task',
-        ref: task.ref || '',
-        uuid: task.uuid || '',
-        name: task.name_label || '',
-        cls: 'task',
-        source: 'resilience',
-      }));
-    },
-    formatHours(value) {
-      if (value === null || value === undefined || value === '') return 'Unknown';
-      return `${value}h`;
-    },
-    formatDrillType(value) {
-      return String(value || 'restore')
-        .replace(/-/g, ' ')
-        .replace(/\b\w/g, (char) => char.toUpperCase());
+      this.$router.push(location);
     },
     resolvePoolLabel(poolRef) {
-      return this.recoveryPlans.find((plan) => plan.ref === poolRef)?.name_label || poolRef || 'Pool';
+      return resolveResiliencePoolLabel(poolRef, this.recoveryPlans);
     },
     hostsForPlan(plan) {
-      return this.hostPlans.filter((host) => host.poolRef === plan?.ref);
+      return getResilienceHostsForPlan(this.hostPlans, plan);
     },
     openInspector(type, item) {
       this.selectedItemType = type;
@@ -876,7 +659,6 @@ const ResilienceView = {
     openRunbookEditor(plan, seed = null, sourceTask = null, launchMode = 'runbook') {
       if (!plan) return;
       this.activePlan = plan;
-      this.activePlanDraft = seed ? { ...plan, ...seed } : plan;
       this.runbookLaunchMode = launchMode === 'drill' ? 'drill' : 'runbook';
       this.runbookSeed = seed ? { ...seed } : null;
       this.runbookSourceTask = sourceTask || null;
@@ -887,7 +669,6 @@ const ResilienceView = {
     closeRunbookEditor() {
       this.showRunbookEditor = false;
       this.activePlan = null;
-      this.activePlanDraft = null;
       this.runbookLaunchMode = 'runbook';
       this.runbookSeed = null;
       this.runbookSourceTask = null;
@@ -907,68 +688,16 @@ const ResilienceView = {
       this.drillError = '';
     },
     buildPolicyChecklist(policy) {
-      return [
-        {
-          label: 'Restore Point Freshness',
-          detail: policy.restorePointLabel,
-          status: ['missing', 'stale'].includes(policy.restorePointStatus) ? 'critical' : policy.restorePointStatus === 'review' ? 'warning' : 'success',
-        },
-        {
-          label: 'HA Restart Intent',
-          detail: `VM restart priority is ${policy.haRestartPriority}.`,
-          status: policy.haRestartPriority === 'best-effort' ? 'warning' : 'info',
-        },
-        {
-          label: 'Drill Evidence',
-          detail: policy.lastDrillAt ? `Last drill logged ${formatDateTime(policy.lastDrillAt)}.` : 'No drill evidence recorded for this workload pool yet.',
-          status: policy.lastDrillAt ? (policy.lastDrillStatus || 'success') : 'warning',
-        },
-      ];
+      return buildResiliencePolicyChecklist(policy);
     },
     buildHostChecklist(host) {
-      return [
-        {
-          label: 'Alternate Capacity',
-          detail: host.evacuationTarget || 'No evacuation target recorded.',
-          status: /no alternate/i.test(host.evacuationTarget || '') ? 'critical' : 'success',
-        },
-        {
-          label: 'HA Policy Coverage',
-          detail: `Pool policy currently resolves to ${host.haPolicy}.`,
-          status: host.haPolicy === 'disabled' ? 'warning' : 'info',
-        },
-        {
-          label: 'Recent Drill',
-          detail: host.lastDrillAt ? `Last drill logged ${formatDateTime(host.lastDrillAt)}.` : 'No drill logged for this host pool.',
-          status: host.lastDrillAt ? (host.lastDrillStatus || 'success') : 'warning',
-        },
-      ];
+      return buildResilienceHostChecklist(host);
     },
     buildPlanChecklist(plan) {
-      return [
-        {
-          label: 'Runbook Presence',
-          detail: plan.hasRunbook ? 'Recovery runbook is persisted for this pool.' : 'No persisted runbook yet.',
-          status: plan.hasRunbook ? 'success' : 'warning',
-        },
-        {
-          label: 'Restore Coverage',
-          detail: `${plan.staleRestorePointCount} stale and ${plan.reviewRestorePointCount} review-state workloads are tracked.`,
-          status: plan.staleRestorePointCount ? 'critical' : plan.reviewRestorePointCount ? 'warning' : 'success',
-        },
-        {
-          label: 'Drill Recency',
-          detail: plan.lastDrillAt ? `Last drill logged ${formatDateTime(plan.lastDrillAt)}.` : 'No drill logged for this pool.',
-          status: plan.lastDrillAt ? (plan.lastDrillStatus || 'success') : 'warning',
-        },
-      ];
+      return buildResiliencePlanChecklist(plan);
     },
     mapDrillStatusToTaskStatus(status) {
-      const normalized = String(status || '').trim().toLowerCase();
-      if (normalized === 'success') return 'success';
-      if (normalized === 'warning') return 'warning';
-      if (normalized === 'critical') return 'failure';
-      return 'in_progress';
+      return mapResilienceDrillStatusToTaskStatus(status);
     },
     async syncRunbookSourceTaskStatus(status, result) {
       if (!this.runbookSourceTask?.ref || !this.isRemediationTask(this.runbookSourceTask)) return;

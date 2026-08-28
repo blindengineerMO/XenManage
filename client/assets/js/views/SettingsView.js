@@ -532,228 +532,60 @@ const SettingsView = {
   },
   computed: {
     generalFields() {
-      return [
-        { key: 'appName', label: 'Application Name', type: 'text', placeholder: 'XenMange' },
-        { key: 'timezone', label: 'Timezone', type: 'text', placeholder: 'America/Chicago', help: 'Used for consistent timestamp rendering throughout the control plane.' },
-      ];
+      return getSettingsGeneralFields();
     },
     networkFields() {
-      return [
-        { key: 'publicBaseUrl', label: 'Public Base URL', type: 'text', placeholder: 'https://xenmange.example.com', help: 'Set this when the app is served behind Traefik, Nginx, or another reverse proxy.' },
-        { key: 'trustProxy', label: 'Trust reverse-proxy headers', type: 'checkbox', help: 'Applies live to Express so forwarded host and protocol headers are honored immediately.' },
-      ];
+      return getSettingsNetworkFields();
     },
     securityFields() {
-      return [
-        { key: 'sessionMaxAgeMs', label: 'Session Timeout (ms)', type: 'number', min: 60000, max: 2592000000, help: 'Applies live to the session cookie lifetime for active and new sessions.' },
-        { key: 'failedLoginWindowMinutes', label: 'Failed Login Window (minutes)', type: 'number', min: 1, max: 1440, help: 'Captured for lockout policy planning; current login throttling consumes this after a process restart.' },
-        { key: 'failedLoginMaxAttempts', label: 'Max Failed Logins', type: 'number', min: 1, max: 100, help: 'Captured for auth policy enforcement and reported in runtime guidance.' },
-      ];
+      return getSettingsSecurityFields();
     },
     loggingFields() {
-      return [
-        {
-          key: 'level',
-          label: 'Log Level',
-          type: 'select',
-          options: [
-            { value: 'trace', label: 'Trace' },
-            { value: 'debug', label: 'Debug' },
-            { value: 'info', label: 'Info' },
-            { value: 'warn', label: 'Warn' },
-            { value: 'error', label: 'Error' },
-          ],
-          help: 'Stored centrally for logger wiring and operator reference.',
-        },
-        { key: 'structuredJson', label: 'Prefer structured JSON logs', type: 'checkbox', help: 'Useful when shipping logs into external aggregation later.' },
-      ];
+      return getSettingsLoggingFields();
     },
     performanceFields() {
-      return [
-        {
-          key: 'collectionEnabled',
-          label: 'Enable background telemetry collection',
-          type: 'checkbox',
-          help: 'When enabled, XenMange captures persisted capacity history from currently attached Xen targets on an in-process schedule.',
-        },
-        {
-          key: 'collectionIntervalSeconds',
-          label: 'Collection Interval (seconds)',
-          type: 'number',
-          min: 30,
-          max: 3600,
-          help: 'Applies live to the in-process collector without restarting the server.',
-        },
-      ];
+      return getSettingsPerformanceFields();
     },
     retentionRuntimeFields() {
-      return [
-        { key: 'sweepIntervalHours', label: 'Scheduled Sweep Interval (hours)', type: 'number', min: 1, max: 168, help: 'Changing this restarts the in-process retention scheduler immediately.' },
-        { key: 'vacuumAfterSweep', label: 'Vacuum databases after retention runs', type: 'checkbox', help: 'Helps reclaim SQLite disk space after purge operations.' },
-      ];
+      return getSettingsRetentionRuntimeFields();
     },
     telemetryCollector() {
-      return this.runtime.metricsCollector || {
-        enabled: true,
-        intervalSeconds: 60,
-        active: false,
-        inFlight: false,
-        targetCount: 0,
-        runCount: 0,
-        lastRunAt: '',
-        lastDurationMs: 0,
-        nextRunAt: '',
-        lastError: '',
-        lastResult: null,
-      };
+      return buildSettingsTelemetryCollector(this.runtime);
     },
     collectorModeLabel() {
-      if (!this.telemetryCollector.enabled) return 'Collector Disabled';
-      if (this.telemetryCollector.inFlight) return 'Collector Running';
-      if (this.telemetryCollector.active) return 'Collector Scheduled';
-      return 'Collector Idle';
+      return getSettingsCollectorModeLabel(this.telemetryCollector);
     },
     collectorBadgeLabel() {
-      if (!this.telemetryCollector.enabled) return 'Disabled';
-      if (this.telemetryCollector.inFlight) return 'Collecting';
-      if (this.telemetryCollector.active) return 'Scheduled';
-      return 'Idle';
+      return getSettingsCollectorBadgeLabel(this.telemetryCollector);
     },
     collectorBadgeClass() {
-      if (!this.telemetryCollector.enabled) return 'badge-warning';
-      if (this.telemetryCollector.inFlight) return 'badge-running';
-      if (this.telemetryCollector.active) return 'badge-success';
-      return 'badge-info';
+      return getSettingsCollectorBadgeClass(this.telemetryCollector);
     },
     collectorResultSummary() {
-      if (this.telemetryCollector.lastError) return `Last collector error: ${this.telemetryCollector.lastError}`;
-
-      const result = this.telemetryCollector.lastResult || null;
-      if (!result) return 'No collector summary has been recorded yet.';
-      if (result.skipped === 'NO_LIVE_TARGETS') return 'No live Xen targets were attached when the collector last ran.';
-
-      const targetCount = Number(result.capturedTargetCount || result.targetCount || 0);
-      const sampleCount = Number(result.sampleCount || 0);
-      return `${sampleCount} sample(s) captured across ${targetCount} target(s).`;
+      return getSettingsCollectorResultSummary(this.telemetryCollector);
     },
     summaryCards() {
-      const enabledPolicies = this.retentionPolicies.filter((policy) => policy.enabled).length;
-      const liveAppliedCount = (this.runtime.liveAppliedSettings || []).length;
-      const restartRequiredCount = (this.runtime.restartRequiredSettings || []).length;
-      const totalPreview = (this.retentionPreview.results || []).reduce((sum, result) => sum + Number(result.candidateCount || 0), 0);
-      const sharedCredentials = this.credentials.filter((credential) => credential.scope === 'shared').length;
-      const hostCredentials = this.credentials.filter((credential) => credential.targetType === 'host').length;
-      const staleWrapCount = Number(this.vaultStatus.staleCredentialCount || 0);
-      const telemetryState = this.telemetryCollector.enabled
-        ? (this.telemetryCollector.active ? 'Scheduled' : 'Idle')
-        : 'Disabled';
-
-      return [
-        {
-          key: 'app',
-          label: 'App Identity',
-          value: this.config.general.appName || 'XenMange',
-          icon: 'mdi-application-cog-outline',
-          detail: `Timezone ${this.config.general.timezone || 'UTC'}`,
-        },
-        {
-          key: 'session',
-          label: 'Session Timeout',
-          value: `${Math.round(Number(this.config.security.sessionMaxAgeMs || 0) / 60000)}m`,
-          icon: 'mdi-timer-sand',
-          detail: `${this.config.security.failedLoginMaxAttempts || 0} failed attempts within ${this.config.security.failedLoginWindowMinutes || 0} minutes`,
-        },
-        {
-          key: 'vault',
-          label: 'Vault Inventory',
-          value: `${this.credentials.length}`,
-          icon: 'mdi-key-wireless',
-          detail: `${sharedCredentials} shared · ${hostCredentials} host · ${staleWrapCount} stale wrap(s)`,
-        },
-        {
-          key: 'telemetry',
-          label: 'Telemetry Collector',
-          value: telemetryState,
-          icon: 'mdi-chart-timeline-variant',
-          detail: `${this.formatSecondsLabel(this.config.performance.collectionIntervalSeconds || 60)} · ${this.telemetryCollector.targetCount || 0} target(s)`,
-        },
-        {
-          key: 'retention',
-          label: 'Active Policies',
-          value: `${enabledPolicies}/${this.retentionPolicies.length || 0}`,
-          icon: 'mdi-broom',
-          detail: `${totalPreview} record(s) currently eligible in the latest preview`,
-        },
-        {
-          key: 'runtime',
-          label: 'Live vs Restart',
-          value: `${liveAppliedCount}/${liveAppliedCount + restartRequiredCount || 1}`,
-          icon: 'mdi-lightning-bolt-outline',
-          detail: `${restartRequiredCount} setting(s) still require a restart-sensitive path`,
-        },
-      ];
+      return buildSettingsSummaryCards({
+        config: this.config,
+        retentionPolicies: this.retentionPolicies,
+        retentionPreview: this.retentionPreview,
+        credentials: this.credentials,
+        vaultStatus: this.vaultStatus,
+        telemetryCollector: this.telemetryCollector,
+        formatSecondsLabel: this.formatSecondsLabel,
+      });
     },
     runtimeGuidance() {
-      return [
-        {
-          title: 'Live-Applied Settings',
-          detail: (this.runtime.liveAppliedSettings || []).join(', ') || 'No live-applied settings reported.',
-          badge: 'Live',
-          badgeClass: 'badge-success',
-        },
-        {
-          title: 'Restart-Sensitive Settings',
-          detail: (this.runtime.restartRequiredSettings || []).join(', ') || 'No restart-sensitive settings reported.',
-          badge: 'Restart',
-          badgeClass: 'badge-warning',
-        },
-        {
-          title: 'Telemetry Collection',
-          detail: this.telemetryCollector.enabled
-            ? `The background collector is ${this.telemetryCollector.active ? 'scheduled' : 'idle'} and polls every ${this.formatSecondsLabel(this.telemetryCollector.intervalSeconds)}.`
-            : 'Background telemetry polling is disabled, so history only refreshes through explicit metrics requests.',
-          badge: this.collectorBadgeLabel,
-          badgeClass: this.collectorBadgeClass,
-        },
-        {
-          title: 'Proxy Guidance',
-          detail: 'Use Public Base URL plus Trust Proxy together when XenMange sits behind Traefik, Nginx, or a cloud load balancer.',
-          badge: 'Guide',
-          badgeClass: 'badge-info',
-        },
-      ];
+      return buildSettingsRuntimeGuidance(
+        this.runtime,
+        this.telemetryCollector,
+        this.collectorBadgeLabel,
+        this.collectorBadgeClass,
+        this.formatSecondsLabel
+      );
     },
     vaultGuidance() {
-      return [
-        {
-          title: 'Master Key Source',
-          detail: this.vaultStatus.usingDevelopmentFallback
-            ? 'Vault secrets currently rely on a development-only derived key because VAULT_ENCRYPTION_KEY is not configured.'
-            : (this.vaultStatus.hasConfiguredMasterKey
-              ? 'VAULT_ENCRYPTION_KEY is loaded from the environment, so vault secret wrapping is explicitly configured.'
-              : 'No vault master key is configured. Production deployments should fail fast until one is supplied.'),
-          badge: this.vaultStatus.usingDevelopmentFallback ? 'Dev Only' : (this.vaultStatus.hasConfiguredMasterKey ? 'Ready' : 'Missing'),
-          badgeClass: this.vaultStatus.usingDevelopmentFallback ? 'badge-warning' : (this.vaultStatus.hasConfiguredMasterKey ? 'badge-success' : 'badge-error'),
-        },
-        {
-          title: 'Rotation Posture',
-          detail: this.vaultStatus.hasPreviousMasterKey
-            ? `A previous vault master key is loaded, so legacy wrapped DEKs can still be decrypted during rotation. ${Number(this.vaultStatus.staleCredentialCount || 0)} credential wrap(s) still need refresh.`
-            : 'No previous vault master key is loaded. Set VAULT_ENCRYPTION_KEY_PREVIOUS during a staged key rotation window.',
-          badge: this.vaultStatus.hasPreviousMasterKey
-            ? (Number(this.vaultStatus.staleCredentialCount || 0) ? 'Pending Rewrap' : 'Rotation Window')
-            : 'Single Key',
-          badgeClass: this.vaultStatus.hasPreviousMasterKey
-            ? (Number(this.vaultStatus.staleCredentialCount || 0) ? 'badge-warning' : 'badge-info')
-            : 'badge-warning',
-        },
-        {
-          title: 'Secret Handling',
-          detail: 'Passwords remain encrypted in vault.db and are only decrypted server-side when opening a live Xen pool or host target.',
-          badge: 'Server Only',
-          badgeClass: 'badge-success',
-        },
-      ];
+      return buildSettingsVaultGuidance(this.vaultStatus);
     },
   },
   mounted() {
@@ -901,13 +733,7 @@ const SettingsView = {
     openCredentialEditor(credential = null) {
       this.credentialError = '';
       this.editingCredentialId = credential?.id || null;
-      this.credentialDraft = credential ? { ...credential } : {
-        name: '',
-        scope: 'private',
-        targetType: 'pool',
-        targetHint: '',
-        username: 'root',
-      };
+      this.credentialDraft = buildSettingsCredentialDraft(credential);
       this.showCredentialEditor = true;
     },
     closeCredentialEditor() {
@@ -1002,14 +828,10 @@ const SettingsView = {
       return `${seconds} second(s)`;
     },
     formatDomainLabel(domain) {
-      const policy = this.retentionPolicies.find((entry) => entry.domain === domain);
-      return policy?.label || domain;
+      return resolveSettingsDomainLabel(domain, this.retentionPolicies);
     },
     formatVaultKeySource(value) {
-      if (value === 'environment') return 'Environment Variable';
-      if (value === 'derived-development') return 'Derived Development Key';
-      if (value === 'missing') return 'Missing';
-      return value || '-';
+      return formatSettingsVaultKeySource(value);
     },
   },
 };

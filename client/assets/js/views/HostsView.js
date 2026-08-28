@@ -147,21 +147,21 @@ const HostsView = {
             <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedHost.uuid || '-' }}</span>
             <span class="text-muted">Tags</span><span>{{ truncateList(selectedHost.tags) }}</span>
             <span class="text-muted">Hostname</span><span>{{ selectedHost.hostname || '-' }}</span>
-            <span class="text-muted">Edition</span><span>{{ selectedHostEditionLabel }}</span>
-            <span class="text-muted">CPU Topology</span><span>{{ selectedHostCpuSummary }}</span>
-            <span class="text-muted">Software Version</span><span class="mono property-wrap">{{ selectedHostSoftwareVersionSummary }}</span>
-            <span class="text-muted">License Server</span><span class="mono property-wrap">{{ selectedHostLicenseServerSummary }}</span>
-            <span class="text-muted">Supported HW Versions</span><span class="mono property-wrap">{{ selectedHostHardwarePlatformSummary }}</span>
-            <span class="text-muted">External Auth Type</span><span>{{ selectedHostExternalAuthTypeLabel }}</span>
-            <span class="text-muted">External Auth Service</span><span class="mono property-wrap">{{ selectedHostExternalAuthServiceLabel }}</span>
-            <span class="text-muted">Guest VCPU Params</span><span class="mono property-wrap">{{ selectedHostGuestVcpusParamsSummary }}</span>
-            <span class="text-muted">Scheduler Granularity</span><span>{{ selectedHostSchedGranLabel }}</span>
-            <span class="text-muted">Legacy SSL</span><span>{{ selectedHostSslLegacyLabel }}</span>
-            <span class="text-muted">BIOS Strings</span><span class="mono property-wrap">{{ selectedHostBiosStringsSummary }}</span>
-            <span class="text-muted">Logging</span><span class="mono property-wrap">{{ selectedHostLoggingSummary }}</span>
+            <span class="text-muted">Edition</span><span>{{ selectedHostSummaryProfile.editionLabel }}</span>
+            <span class="text-muted">CPU Topology</span><span>{{ selectedHostSummaryProfile.cpuSummary }}</span>
+            <span class="text-muted">Software Version</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.softwareVersionSummary }}</span>
+            <span class="text-muted">License Server</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.licenseServerSummary }}</span>
+            <span class="text-muted">Supported HW Versions</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.hardwarePlatformSummary }}</span>
+            <span class="text-muted">External Auth Type</span><span>{{ selectedHostSummaryProfile.externalAuthTypeLabel }}</span>
+            <span class="text-muted">External Auth Service</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.externalAuthServiceLabel }}</span>
+            <span class="text-muted">Guest VCPU Params</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.guestVcpusParamsSummary }}</span>
+            <span class="text-muted">Scheduler Granularity</span><span>{{ selectedHostSummaryProfile.schedGranLabel }}</span>
+            <span class="text-muted">Legacy SSL</span><span>{{ selectedHostSummaryProfile.sslLegacyLabel }}</span>
+            <span class="text-muted">BIOS Strings</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.biosStringsSummary }}</span>
+            <span class="text-muted">Logging</span><span class="mono property-wrap">{{ selectedHostSummaryProfile.loggingSummary }}</span>
             <span class="text-muted">Resident VMs</span><span>{{ summarizeCount('attached', (selectedHost.resident_VMs || []).length) }}</span>
-            <span class="text-muted">Storage Paths</span><span>{{ summarizeCount('repositories', selectedHostStorageRecords.length) }}</span>
-            <span class="text-muted">Network Paths</span><span>{{ summarizeCount('networks', selectedHostNetworkRecords.length) }}</span>
+            <span class="text-muted">Storage Paths</span><span>{{ summarizeCount('repositories', selectedHostRelationshipProfile.storageRecords.length) }}</span>
+            <span class="text-muted">Network Paths</span><span>{{ summarizeCount('networks', selectedHostRelationshipProfile.networkRecords.length) }}</span>
             <span class="text-muted">Other Config</span><span class="mono property-wrap">{{ JSON.stringify(selectedHost.other_config || {}) }}</span>
           </div>
 
@@ -223,7 +223,7 @@ const HostsView = {
                   <div class="stack-item">
                     <div>
                       <strong>Logging Overrides</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostLoggingSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.loggingSummary }}</div>
                     </div>
                     <span class="badge badge-info">logging</span>
                   </div>
@@ -242,7 +242,7 @@ const HostsView = {
                   @submit="submitSelectedHostLogging">
                 </host-logging-form>
                 <div class="text-muted mono" style="font-size:11px;margin-top:12px">
-                  {{ selectedHostLoggingSummary }}
+                  {{ selectedHostSummaryProfile.loggingSummary }}
                 </div>
               </div>
 
@@ -258,7 +258,7 @@ const HostsView = {
                   @submit="submitSelectedHostGuestVcpusParams">
                 </host-guest-vcpus-params-form>
                 <div class="text-muted mono" style="font-size:11px;margin-top:12px">
-                  {{ selectedHostGuestVcpusParamsSummary }}
+                  {{ selectedHostSummaryProfile.guestVcpusParamsSummary }}
                 </div>
               </div>
 
@@ -274,7 +274,7 @@ const HostsView = {
                   @submit="submitSelectedHostSchedGran">
                 </host-sched-gran-form>
                 <div class="text-muted mono" style="font-size:11px;margin-top:12px">
-                  {{ selectedHostSchedGranLabel }}
+                  {{ selectedHostSummaryProfile.schedGranLabel }}
                 </div>
               </div>
 
@@ -284,77 +284,77 @@ const HostsView = {
                   <div class="stack-item">
                     <div>
                       <strong>Edition</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostEditionLabel }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.editionLabel }}</div>
                     </div>
                     <span class="badge badge-info">license</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>CPU Topology</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostCpuSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.cpuSummary }}</div>
                     </div>
                     <span class="badge badge-info">compute</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>Software Version</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSoftwareVersionSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.softwareVersionSummary }}</div>
                     </div>
                     <span class="badge badge-info">platform</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>License Server</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostLicenseServerSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.licenseServerSummary }}</div>
                     </div>
                     <span class="badge badge-info">support</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>Supported HW Versions</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostHardwarePlatformSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.hardwarePlatformSummary }}</div>
                     </div>
                     <span class="badge badge-info">compatibility</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>External Authentication</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostExternalAuthTypeLabel }} · {{ selectedHostExternalAuthServiceLabel }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.externalAuthTypeLabel }} · {{ selectedHostSummaryProfile.externalAuthServiceLabel }}</div>
                     </div>
                     <span class="badge badge-info">identity</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>External Auth Configuration</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostExternalAuthConfigSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.externalAuthConfigSummary }}</div>
                     </div>
                     <span class="badge badge-info">directory</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>Guest VCPU Parameters</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostGuestVcpusParamsSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.guestVcpusParamsSummary }}</div>
                     </div>
                     <span class="badge badge-info">scheduler</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>Scheduler Granularity</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSchedGranLabel }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.schedGranLabel }}</div>
                     </div>
                     <span class="badge badge-info">cpu policy</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>Legacy SSL</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSslLegacyLabel }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.sslLegacyLabel }}</div>
                     </div>
                     <span class="badge badge-warning">deprecated</span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>BIOS Strings</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostBiosStringsSummary }}</div>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedHostSummaryProfile.biosStringsSummary }}</div>
                     </div>
                     <span class="badge badge-info">firmware</span>
                   </div>
@@ -373,8 +373,8 @@ const HostsView = {
                 </p>
                 <host-maintenance-form
                   v-if="!selectedHostMaintenanceMode"
-                  :initial-value="hostMaintenanceDraft"
-                  :network-options="maintenanceNetworkOptions"
+                  :initial-value="selectedHostRelationshipProfile.maintenanceDraft"
+                  :network-options="selectedHostRelationshipProfile.maintenanceNetworkOptions"
                   :saving="hostActionBusy === 'maintenance-enter'"
                   submit-label="Enter Maintenance Mode"
                   @submit="enterMaintenanceMode">
@@ -408,30 +408,30 @@ const HostsView = {
                         XenServer requires the host to be disabled and free of running resident VMs before reboot or shutdown.
                       </div>
                     </div>
-                    <span class="badge" :class="hostShutdownReady ? 'badge-running' : 'badge-warning'">
-                      {{ hostShutdownReady ? 'ready' : 'blocked' }}
+                    <span class="badge" :class="selectedHostRelationshipProfile.shutdownReady ? 'badge-running' : 'badge-warning'">
+                      {{ selectedHostRelationshipProfile.shutdownReady ? 'ready' : 'blocked' }}
                     </span>
                   </div>
                   <div class="stack-item">
                     <div>
                       <strong>Workload Placement</strong>
                       <div class="text-muted mono" style="font-size:11px">
-                        {{ selectedHostVmRecords.length ? `${selectedHostVmRecords.length} resident VM(s) still mapped to this host.` : 'No resident VMs remain on this host.' }}
+                        {{ selectedHostRelationshipProfile.vmRecords.length ? `${selectedHostRelationshipProfile.vmRecords.length} resident VM(s) still mapped to this host.` : 'No resident VMs remain on this host.' }}
                       </div>
                     </div>
-                    <status-badge :status="selectedHostVmRecords.length ? 'warning' : 'enabled'"></status-badge>
+                    <status-badge :status="selectedHostRelationshipProfile.vmRecords.length ? 'warning' : 'enabled'"></status-badge>
                   </div>
                 </div>
 
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
                   <button class="btn btn-sm"
-                          :disabled="Boolean(hostActionBusy) || !hostShutdownReady"
+                          :disabled="Boolean(hostActionBusy) || !selectedHostRelationshipProfile.shutdownReady"
                           @click="powerAction('reboot')">
                     <span class="mdi mdi-restart"></span>
                     {{ hostActionBusy === 'reboot' ? 'Rebooting...' : 'Reboot Host' }}
                   </button>
                   <button class="btn btn-danger btn-sm"
-                          :disabled="Boolean(hostActionBusy) || !hostShutdownReady"
+                          :disabled="Boolean(hostActionBusy) || !selectedHostRelationshipProfile.shutdownReady"
                           @click="powerAction('shutdown')">
                     <span class="mdi mdi-power"></span>
                     {{ hostActionBusy === 'shutdown' ? 'Shutting down...' : 'Shutdown Host' }}
@@ -504,7 +504,7 @@ const HostsView = {
             </div>
             <data-table v-else
                         :columns="inventoryColumns"
-                        :data="selectedHostInventoryRows"
+                        :data="selectedHostRelationshipProfile.inventoryRows"
                         :loading="false"
                         :searchable="true">
               <template #cell-kind="{ row }">
@@ -593,215 +593,33 @@ const HostsView = {
       return Array.isArray(store.connectedTargets) ? store.connectedTargets : [];
     },
     selectedHostRows() {
-      const selected = new Set(Array.isArray(this.selectedHostRefs) ? this.selectedHostRefs : []);
-      return this.hosts.filter((host) => selected.has(host.ref));
+      return filterSelectedHostRows(this.hosts, this.selectedHostRefs);
     },
     selectedHostMaintenanceCounts() {
-      return this.selectedHostRows.reduce((counts, host) => {
-        if (this.resolveHostMaintenanceState(host)) {
-          counts.maintenance += 1;
-        } else {
-          counts.ready += 1;
-        }
-        return counts;
-      }, { ready: 0, maintenance: 0 });
+      return countSelectedHostMaintenanceStates(this.selectedHostRows);
     },
     selectedHostSelectionSummary() {
-      const parts = [];
-      if (this.selectedHostMaintenanceCounts.ready) parts.push(`${this.selectedHostMaintenanceCounts.ready} ready for maintenance`);
-      if (this.selectedHostMaintenanceCounts.maintenance) parts.push(`${this.selectedHostMaintenanceCounts.maintenance} already in maintenance`);
-      return parts.length ? parts.join(' · ') : 'No selected host maintenance states were recognized.';
+      return summarizeSelectedHostMaintenanceStates(this.selectedHostMaintenanceCounts);
     },
     selectedHostPool() {
-      return this.resolveHostPool(this.selectedHost);
+      return resolveHostPool(this.selectedHost, this.relatedPools);
     },
     selectedHostMaintenanceMode() {
-      return this.resolveHostMaintenanceState(this.selectedHost);
+      return resolveHostMaintenanceState(this.selectedHost);
     },
-    selectedHostEditionLabel() {
-      return String(this.selectedHost?.edition || '').trim() || 'No host edition was reported.';
+    selectedHostSummaryProfile() {
+      return buildSelectedHostSummaryProfile(this.selectedHost);
     },
-    selectedHostCpuSummary() {
-      const cpuInfo = this.selectedHost?.cpu_info || this.selectedHost?.CPU_info || {};
-      const count = Number(cpuInfo.cpu_count || cpuInfo.CPU_count || this.selectedHost?.host_CPUs?.length || 0) || 0;
-      const sockets = Number(cpuInfo.socket_count || cpuInfo.sockets || 0) || 0;
-      const coresPerSocket = Number(cpuInfo.cores_per_socket || cpuInfo.cores || 0) || 0;
-      const threadsPerCore = Number(cpuInfo.threads_per_core || 0) || 0;
-      const model = String(cpuInfo.modelname || cpuInfo.vendor || '').trim();
-
-      const parts = [];
-      if (count) parts.push(`${count} CPUs`);
-      if (sockets) parts.push(`${sockets} sockets`);
-      if (coresPerSocket) parts.push(`${coresPerSocket} cores/socket`);
-      if (threadsPerCore) parts.push(`${threadsPerCore} threads/core`);
-      if (model) parts.push(model);
-
-      return parts.length ? parts.join(' · ') : 'No CPU topology was reported for this host.';
-    },
-    selectedHostSoftwareVersionSummary() {
-      return this.summarizeHostStringMap(this.selectedHost?.software_version, 'No host software version metadata was reported.');
-    },
-    selectedHostLicenseServerSummary() {
-      return this.summarizeHostStringMap(this.selectedHost?.license_server, 'No external license server was reported for this host.');
-    },
-    selectedHostHardwarePlatformSummary() {
-      const versions = Array.isArray(this.selectedHost?.virtual_hardware_platform_versions)
-        ? this.selectedHost.virtual_hardware_platform_versions
-        : [];
-      const normalized = versions
-        .map((value) => String(value || '').trim())
-        .filter(Boolean);
-
-      return normalized.length
-        ? normalized.join(', ')
-        : 'No supported virtual hardware versions were reported for this host.';
-    },
-    selectedHostExternalAuthTypeLabel() {
-      return String(this.selectedHost?.external_auth_type || '').trim() || 'No external authentication type was reported.';
-    },
-    selectedHostExternalAuthServiceLabel() {
-      return String(this.selectedHost?.external_auth_service_name || '').trim() || 'No external authentication service was configured.';
-    },
-    selectedHostExternalAuthConfigSummary() {
-      return this.summarizeHostStringMap(this.selectedHost?.external_auth_configuration, 'No external authentication configuration details were reported.');
-    },
-    selectedHostGuestVcpusParamsSummary() {
-      return this.summarizeHostStringMap(this.selectedHost?.guest_VCPUs_params, 'No host-wide guest VCPU defaults were reported.');
-    },
-    selectedHostSchedGranLabel() {
-      const value = String(this.selectedHost?.sched_gran || '').trim().toLowerCase();
-      if (value === 'core') return 'Core scheduling';
-      if (value === 'socket') return 'Socket scheduling';
-      if (value === 'cpu') return 'CPU scheduling';
-      return 'No host scheduler granularity was reported.';
-    },
-    selectedHostSslLegacyLabel() {
-      if (this.selectedHost?.ssl_legacy === true) return 'Enabled for legacy compatibility';
-      if (this.selectedHost?.ssl_legacy === false) return 'Disabled';
-      return 'No host SSL legacy posture was reported.';
-    },
-    selectedHostBiosStringsSummary() {
-      return this.summarizeHostStringMap(this.selectedHost?.bios_strings, 'No host BIOS identity strings were reported.');
-    },
-    maintenanceNetworkOptions() {
-      const poolMigrationRef = this.selectedHostPool?.migration_network || '';
-      const ordered = [...this.selectedHostNetworkRecords];
-      if (poolMigrationRef) {
-        const poolMigrationNetwork = this.relatedNetworks.find((network) => network.ref === poolMigrationRef);
-        if (poolMigrationNetwork && !ordered.some((network) => network.ref === poolMigrationNetwork.ref)) {
-          ordered.unshift(poolMigrationNetwork);
-        }
-      }
-      return ordered;
-    },
-    hostMaintenanceDraft() {
-      return {
-        networkRef: this.selectedHostPool?.migration_network || this.maintenanceNetworkOptions[0]?.ref || '',
-        poolMigrationNetworkRef: this.selectedHostPool?.migration_network || '',
-        evacuateBatchSize: 0,
-        evacuateRunningVms: true,
-      };
-    },
-    hostShutdownReady() {
-      if (!this.selectedHost) return false;
-      return !this.selectedHost.enabled && this.selectedHostVmRecords.length === 0;
-    },
-    selectedHostLoggingSummary() {
-      const entries = Object.entries(this.selectedHost?.logging || {})
-        .filter(([key]) => String(key || '').trim())
-        .map(([key, value]) => `${String(key).trim()}=${String(value || '').trim()}`);
-
-      return entries.length ? entries.join(' · ') : 'No host-specific logging overrides are currently configured.';
-    },
-    selectedHostVmRecords() {
-      if (!this.selectedHost) return [];
-      const residentRefs = new Set(Array.isArray(this.selectedHost.resident_VMs) ? this.selectedHost.resident_VMs : []);
-
-      return this.relatedVMs.filter((vm) => residentRefs.has(vm.ref) || residentRefs.has(vm.uuid));
-    },
-    selectedHostStorageRecords() {
-      if (!this.selectedHost) return [];
-
-      const hostPbdRefs = new Set(Array.isArray(this.selectedHost.PBDs) ? this.selectedHost.PBDs : []);
-      let records = this.relatedStorage.filter((sr) =>
-        Array.isArray(sr.PBDs) && sr.PBDs.some((ref) => hostPbdRefs.has(ref))
-      );
-
-      if (!records.length && this.selectedHostPool?.default_SR) {
-        records = this.relatedStorage.filter((sr) => sr.ref === this.selectedHostPool.default_SR);
-      }
-
-      return records;
-    },
-    selectedHostNetworkRecords() {
-      if (!this.selectedHost) return [];
-
-      const hostPifRefs = new Set(Array.isArray(this.selectedHost.PIFs) ? this.selectedHost.PIFs : []);
-      let records = this.relatedNetworks.filter((network) =>
-        Array.isArray(network.PIFs) && network.PIFs.some((ref) => hostPifRefs.has(ref))
-      );
-
-      if (!records.length && this.selectedHostPool?.migration_network) {
-        records = this.relatedNetworks.filter((network) => network.ref === this.selectedHostPool.migration_network);
-      }
-
-      return records;
-    },
-    selectedHostInventoryRows() {
-      if (!this.selectedHost) return [];
-
-      const cpuInfo = this.selectedHost.cpu_info || this.selectedHost.CPU_info || {};
-      const cpuCount = cpuInfo.cpu_count || cpuInfo.CPU_count || this.selectedHost.host_CPUs?.length || 0;
-      const cpuModel = cpuInfo.modelname || cpuInfo.vendor || 'Host compute plane';
-      const memorySummary = this.metricsLoading
-        ? 'Memory telemetry loading'
-        : `${formatBytes(this.hostMetrics.memory_total)} total · ${formatBytes(this.hostMetrics.memory_free)} free`;
-
-      const rows = [
-        {
-          kind: 'compute',
-          name: this.selectedHost.name_label || this.selectedHost.hostname || 'Host',
-          detail: `${cpuCount || 0} CPUs · ${cpuModel} · ${memorySummary}`,
-          status: this.hostMetrics.live === false ? 'warning' : (this.selectedHost.enabled ? 'enabled' : 'disabled'),
-          ref: this.selectedHost.ref || this.selectedHost.uuid || '',
-        },
-      ];
-
-      if (this.selectedHostPool) {
-        rows.push({
-          kind: 'pool',
-          name: this.selectedHostPool.name_label || 'Pool Membership',
-          detail: `${this.selectedHostPool.uuid || this.selectedHostPool.ref || '-'} · default SR ${this.selectedHostPool.default_SR || '-'}`,
-          status: 'info',
-          ref: this.selectedHostPool.ref || this.selectedHostPool.uuid || '',
-        });
-      }
-
-      rows.push(...this.selectedHostVmRecords.map((vm) => ({
-        kind: 'vm',
-        name: vm.name_label || vm.ref || 'Virtual Machine',
-        detail: `${vm.power_state || 'Unknown'} · ${vm.VCPUs_at_startup || 0} vCPU · ${formatBytes(vm.memory_static_max)}`,
-        status: vm.power_state || 'info',
-        ref: vm.ref || vm.uuid || '',
-      })));
-
-      rows.push(...this.selectedHostStorageRecords.map((sr) => ({
-        kind: 'storage',
-        name: sr.name_label || sr.ref || 'Storage Repository',
-        detail: `${sr.type || 'unknown'} · ${formatBytes(sr.virtual_allocation)} / ${formatBytes(sr.physical_size)}`,
-        status: getUtilizationStatus(percentValue(sr.virtual_allocation, sr.physical_size), { warning: 75, critical: 90 }),
-        ref: sr.ref || sr.uuid || '',
-      })));
-
-      rows.push(...this.selectedHostNetworkRecords.map((network) => ({
-        kind: 'network',
-        name: network.name_label || network.bridge || 'Network',
-        detail: `${network.bridge || '-'} · VLAN ${(network.other_config || {}).vlan || '-'} · ${network.managed ? 'managed' : 'unmanaged'}`,
-        status: network.managed ? 'enabled' : 'disabled',
-        ref: network.ref || network.uuid || '',
-      })));
-
-      return rows;
+    selectedHostRelationshipProfile() {
+      return buildSelectedHostRelationshipProfile({
+        selectedHost: this.selectedHost,
+        selectedHostPool: this.selectedHostPool,
+        relatedVMs: this.relatedVMs,
+        relatedStorage: this.relatedStorage,
+        relatedNetworks: this.relatedNetworks,
+        metricsLoading: this.metricsLoading,
+        hostMetrics: this.hostMetrics,
+      });
     },
   },
   async mounted() {
@@ -824,75 +642,39 @@ const HostsView = {
       this.selectedHostRefs = this.selectedHostRefs.filter((ref) => validRefs.has(ref));
     },
   },
-  methods: {
-    formatBytes,
-    formatThroughput,
-    formatPercent,
-    truncateList,
-    summarizeCount,
-    resolveHostMaintenanceState(host) {
-      if (!host) return false;
-      if (host.maintenance_mode === true) return true;
-      return String(host.other_config?.maintenance_mode || '').toLowerCase() === 'true';
-    },
-    visibilityLabel(visibility) {
-      return visibility === 'shared' ? 'Shared' : 'Private';
-    },
-    summarizeHostStringMap(record, emptyLabel = '-') {
-      const entries = Object.entries(record || {})
-        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim())
-        .map(([key, value]) => `${String(key).trim()}=${String(value).trim()}`);
-
-      return entries.length ? entries.join(' · ') : emptyLabel;
-    },
-    ownershipLabel(target) {
-      if (target.is_owner) return 'Owned by you';
-      return `Owner ${target.owner_display_name || target.owner_username}`;
-    },
-    findAttachedTarget(target) {
-      if (!target || target.mode !== 'standalone') return null;
-      const host = String(target.host || '').toLowerCase();
-      const username = String(target.username || '').toLowerCase();
-      const port = Number(target.port || 443) || 443;
-      return this.attachedTargets.find((entry) =>
-        String(entry.host || '').toLowerCase() === host
-        && String(entry.username || '').toLowerCase() === username
-        && (Number(entry.port || 443) || 443) === port
-      ) || null;
-    },
-    isTargetAttached(target) {
-      return Boolean(this.findAttachedTarget(target));
-    },
-    isCurrentTarget(target) {
-      return Boolean(this.findAttachedTarget(target)?.active);
-    },
-    isTargetBusy(target, kind) {
-      return Number(this.targetActionBusyId || 0) === Number(target?.id || 0) && this.targetActionBusyKind === kind;
-    },
-    hostMetricSeries(metricName) {
-      return (this.hostMetricHistory.metrics || []).find((entry) => entry.metricName === metricName)?.points || [];
-    },
-    combinedHostMetricSeries(metricNames = []) {
-      const buckets = new Map();
-      (Array.isArray(metricNames) ? metricNames : []).forEach((metricName) => {
-        const points = this.hostMetricSeries(metricName);
-        points.forEach((point) => {
-          const ts = Number(point?.ts || 0);
-          if (!ts) return;
-          buckets.set(ts, (buckets.get(ts) || 0) + Number(point?.value || 0));
-        });
-      });
-      return [...buckets.entries()]
-        .sort((left, right) => left[0] - right[0])
-        .map(([ts, value]) => ({ ts, value }));
-    },
-    historyStatus(series, thresholds = {}) {
-      const points = Array.isArray(series) ? series : [];
-      const latest = Number(points[points.length - 1]?.value || 0);
-      if (thresholds.critical !== undefined && latest >= thresholds.critical) return 'critical';
-      if (thresholds.warning !== undefined && latest >= thresholds.warning) return 'warning';
-      return 'success';
-    },
+    methods: {
+      formatBytes,
+      formatThroughput,
+      formatPercent,
+      truncateList,
+      summarizeCount,
+      resolveHostMaintenanceState,
+      visibilityLabel(visibility) {
+        return visibility === 'shared' ? 'Shared' : 'Private';
+      },
+      summarizeHostStringMap,
+      ownershipLabel(target) {
+        if (target.is_owner) return 'Owned by you';
+        return `Owner ${target.owner_display_name || target.owner_username}`;
+      },
+      isTargetAttached(target) {
+        return isHostTargetAttached(this.attachedTargets, target);
+      },
+      isCurrentTarget(target) {
+        return isCurrentHostTarget(this.attachedTargets, target);
+      },
+      isTargetBusy(target, kind) {
+        return isHostTargetBusy(this.targetActionBusyId, this.targetActionBusyKind, target, kind);
+      },
+      hostMetricSeries(metricName) {
+        return findHostMetricSeries(this.hostMetricHistory, metricName);
+      },
+      combinedHostMetricSeries(metricNames = []) {
+        return combineHostMetricSeries(this.hostMetricHistory, metricNames);
+      },
+      historyStatus(series, thresholds = {}) {
+        return getHostHistoryStatus(series, thresholds);
+      },
     async loadAll() {
       await Promise.all([this.loadHosts(), this.loadHostTargets(), this.loadConnections(), this.loadCredentials()]);
     },
@@ -1088,11 +870,6 @@ const HostsView = {
         this.hostConfigSaving = false;
       }
     },
-    findHostByFocus(focus) {
-      return this.hosts.find((host) =>
-        recordMatchesRouteFocus(host, focus, ['ref', 'uuid', 'name_label', 'hostname', 'address'])
-      ) || null;
-    },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);
       if (!focus || (focus.kind && focus.kind !== 'host')) {
@@ -1105,49 +882,11 @@ const HostsView = {
       const key = getRouteFocusKey(focus);
       if (this.lastAppliedFocusKey === key) return;
 
-      const match = this.findHostByFocus(focus);
+      const match = findHostByFocus(this.hosts, focus);
       if (!match) return;
 
       await this.openProperties(match);
       this.lastAppliedFocusKey = key;
-    },
-    resolveHostPool(host) {
-      if (!host) return null;
-
-      const hostKeys = [host.pool, host.pool_ref, host.pool_uuid, host.pool_name]
-        .filter(Boolean)
-        .map((value) => String(value).toLowerCase());
-
-      if (hostKeys.length) {
-        const directMatch = this.relatedPools.find((pool) => {
-          const poolKeys = [pool.ref, pool.uuid, pool.name_label]
-            .filter(Boolean)
-            .map((value) => String(value).toLowerCase());
-          return hostKeys.some((value) => poolKeys.includes(value));
-        });
-
-        if (directMatch) return directMatch;
-      }
-
-      const relationshipMatch = this.relatedPools.find((pool) => this.poolContainsHost(pool, host));
-      if (relationshipMatch) return relationshipMatch;
-
-      if (this.relatedPools.length === 1) return this.relatedPools[0];
-      return null;
-    },
-    poolContainsHost(pool, host) {
-      if (!pool || !host) return false;
-
-      const poolRefs = new Set(
-        [
-          pool.master,
-          ...(Array.isArray(pool.hosts) ? pool.hosts : []),
-          ...(Array.isArray(pool.resident_hosts) ? pool.resident_hosts : []),
-          ...(Array.isArray(pool.slaves) ? pool.slaves : []),
-        ].filter(Boolean)
-      );
-
-      return poolRefs.has(host.ref) || poolRefs.has(host.uuid);
     },
     async resolveHostGovernanceApproval(actionKey) {
       if (!this.selectedHost?.ref) return '';
@@ -1170,15 +909,15 @@ const HostsView = {
     },
     getEligibleBatchHosts(mode) {
       if (mode === 'enter') {
-        return this.selectedHostRows.filter((host) => !this.resolveHostMaintenanceState(host));
+        return this.selectedHostRows.filter((host) => !resolveHostMaintenanceState(host));
       }
       if (mode === 'exit') {
-        return this.selectedHostRows.filter((host) => this.resolveHostMaintenanceState(host));
+        return this.selectedHostRows.filter((host) => resolveHostMaintenanceState(host));
       }
       return [];
     },
     buildBulkHostMaintenancePayload(host) {
-      const pool = this.resolveHostPool(host);
+      const pool = resolveHostPool(host, this.relatedPools);
       return {
         networkRef: pool?.migration_network || '',
         evacuateBatchSize: 0,
@@ -1362,7 +1101,7 @@ const HostsView = {
       }
     },
     async activateHostTarget(target) {
-      const attachedTarget = this.findAttachedTarget(target);
+      const attachedTarget = findAttachedHostTarget(this.attachedTargets, target);
       if (!attachedTarget?.targetKey) return;
 
       this.targetError = null;

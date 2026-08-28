@@ -234,6 +234,7 @@ const api = {
   deleteStorageVdi: (ref, vdiRef, payload = null) => api.request('DELETE', `/api/storage/${encodeURIComponent(ref)}/vdis/${encodeURIComponent(vdiRef)}`, payload),
   getNetworks: (targetKey = '') => api.request('GET', appendTargetKey('/api/networks', targetKey)),
   getNetworkInterfaces: () => api.request('GET', '/api/networks/interfaces'),
+  updateNetworkInterfaceConfig: (vifRef, payload) => api.request('PUT', `/api/networks/interfaces/${encodeURIComponent(vifRef)}/config`, payload),
   createNetwork: (payload) => api.request('POST', '/api/networks', payload),
   createNetworkVlan: (payload) => api.request('POST', '/api/networks/vlans', payload),
   createNetworkBond: (payload) => api.request('POST', '/api/networks/bonds', payload),

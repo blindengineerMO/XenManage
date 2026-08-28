@@ -417,21 +417,36 @@ const LifecycleView = {
     lifecycleAlerts() {
       return sortMessages(this.messages.filter((message) => this.isLifecycleAlert(message)));
     },
+    lifecycleWorkspaceModel() {
+      return buildLifecycleWorkspaceModel({
+        hosts: this.hosts,
+        lifecycleTasks: this.lifecycleTasks,
+        lifecycleAutomationTasks: this.lifecycleAutomationTasks,
+        lifecycleAlerts: this.lifecycleAlerts,
+        lifecyclePlans: this.lifecyclePlans,
+        taskSlaMeta: (task) => this.taskSlaMeta(task),
+        taskEvidenceChecklist: (task) => this.taskEvidenceChecklist(task),
+        taskCompletionCriteria: (task) => this.taskCompletionCriteria(task),
+        hostMatchesTask: (host, task) => this.hostMatchesTask(host, task),
+        hostMatchesMessage: (host, message) => this.hostMatchesMessage(host, message),
+        formatStageLabel: (value) => this.formatStageLabel(value),
+      });
+    },
+    lifecyclePlannerModel() {
+      return buildLifecyclePlannerModel({
+        plannerHost: this.plannerHost,
+        plannerSeed: this.plannerSeed,
+        plannerLaunchMode: this.plannerLaunchMode,
+        plannerSourceTask: this.plannerSourceTask,
+        relatedPools: this.relatedPools,
+        relatedNetworks: this.relatedNetworks,
+      });
+    },
     planMap() {
-      return this.lifecyclePlans.reduce((acc, plan) => {
-        acc[plan.hostRef] = plan;
-        return acc;
-      }, {});
+      return this.lifecycleWorkspaceModel.planMap;
     },
     hostLifecycleRows() {
-      const priority = { critical: 0, pending: 1, warning: 2, disabled: 3, success: 4, notice: 5, info: 6 };
-
-      return [...this.hosts.map((host) => this.buildHostLifecycleRow(host))]
-        .sort((left, right) => {
-          const statusDelta = (priority[left.lifecycleStatus] ?? 99) - (priority[right.lifecycleStatus] ?? 99);
-          if (statusDelta !== 0) return statusDelta;
-          return String(left.name_label || '').localeCompare(String(right.name_label || ''));
-        });
+      return this.lifecycleWorkspaceModel.hostLifecycleRows;
     },
     selectedHost() {
       if (!this.selectedHostRef) return null;
@@ -442,212 +457,64 @@ const LifecycleView = {
       return this.hostLifecycleRows.find((row) => row.ref === this.plannerHostRef) || null;
     },
     plannerInitialValue() {
-      if (!this.plannerHost) return null;
-      if (!this.plannerSeed) return this.plannerHost.lifecyclePlan;
-      return {
-        ...(this.plannerHost.lifecyclePlan || {}),
-        ...this.plannerSeed,
-      };
+      return this.lifecyclePlannerModel.initialValue;
     },
     plannerWindowTitle() {
-      return this.plannerLaunchMode === 'maintenance' ? 'Maintenance Handoff' : 'Lifecycle Plan';
+      return this.lifecyclePlannerModel.windowTitle;
     },
     plannerTargetTitle() {
-      return this.plannerLaunchMode === 'maintenance' ? 'Maintenance Target' : 'Planning Target';
+      return this.lifecyclePlannerModel.targetTitle;
     },
     plannerSubmitLabel() {
-      return this.plannerLaunchMode === 'maintenance' ? 'Save Lifecycle Plan Before Maintenance' : 'Save Lifecycle Plan';
+      return this.lifecyclePlannerModel.submitLabel;
     },
     plannerHostPool() {
-      return this.resolvePoolForHost(this.plannerHost);
+      return this.lifecyclePlannerModel.hostPool;
     },
     plannerHostMaintenanceMode() {
-      if (!this.plannerHost) return false;
-      if (this.plannerHost.maintenance_mode === true) return true;
-      return String(this.plannerHost.other_config?.maintenance_mode || '').toLowerCase() === 'true';
+      return this.lifecyclePlannerModel.hostMaintenanceMode;
     },
     plannerMaintenanceNetworkOptions() {
-      if (!this.plannerHost) return [];
-
-      const hostPifRefs = new Set(Array.isArray(this.plannerHost.PIFs) ? this.plannerHost.PIFs : []);
-      const records = this.relatedNetworks.filter((network) =>
-        Array.isArray(network.PIFs) && network.PIFs.some((ref) => hostPifRefs.has(ref))
-      );
-      const ordered = [...records];
-      const poolMigrationRef = this.plannerHostPool?.migration_network || '';
-      if (poolMigrationRef) {
-        const poolMigrationNetwork = this.relatedNetworks.find((network) => network.ref === poolMigrationRef);
-        if (poolMigrationNetwork && !ordered.some((network) => network.ref === poolMigrationNetwork.ref)) {
-          ordered.unshift(poolMigrationNetwork);
-        }
-      }
-      return ordered;
+      return this.lifecyclePlannerModel.maintenanceNetworkOptions;
     },
     plannerMaintenanceDraft() {
-      return {
-        networkRef: this.plannerHostPool?.migration_network || this.plannerMaintenanceNetworkOptions[0]?.ref || '',
-        poolMigrationNetworkRef: this.plannerHostPool?.migration_network || '',
-        evacuateBatchSize: 0,
-        evacuateRunningVms: this.plannerInitialValue?.evacuationRequired !== false,
-      };
+      return this.lifecyclePlannerModel.maintenanceDraft;
     },
     plannerCanExecuteMaintenance() {
-      return Boolean(this.plannerHost && (this.plannerHost.lifecyclePlan || this.plannerSeed || this.plannerSourceTask));
+      return this.lifecyclePlannerModel.canExecuteMaintenance;
     },
     compliantHosts() {
-      return this.hostLifecycleRows.filter((row) => row.lifecycleStatus === 'success');
+      return this.lifecycleWorkspaceModel.compliantHosts;
     },
     maintenanceHosts() {
-      return this.hostLifecycleRows.filter((row) => row.lifecycleStatus === 'disabled' || row.lifecycleHint === 'maintenance');
+      return this.lifecycleWorkspaceModel.maintenanceHosts;
     },
     actionHosts() {
-      return this.hostLifecycleRows.filter((row) => ['critical', 'warning', 'pending'].includes(row.lifecycleStatus));
+      return this.lifecycleWorkspaceModel.actionHosts;
     },
     plannedHosts() {
-      return this.hostLifecycleRows.filter((row) => Boolean(row.lifecyclePlan));
+      return this.lifecycleWorkspaceModel.plannedHosts;
     },
     driftedPlanHosts() {
-      return this.plannedHosts.filter((row) => row.baselineStatus === 'drifted');
+      return this.lifecycleWorkspaceModel.driftedPlanHosts;
     },
     rebootQueue() {
-      return this.plannedHosts.filter((row) => row.lifecyclePlan?.rebootRequired);
+      return this.lifecycleWorkspaceModel.rebootQueue;
     },
     evacuationQueue() {
-      return this.plannedHosts.filter((row) => row.lifecyclePlan?.evacuationRequired);
+      return this.lifecycleWorkspaceModel.evacuationQueue;
     },
     upcomingPlanRows() {
-      return [...this.plannedHosts].sort((left, right) => {
-        const leftDue = left.lifecyclePlan?.dueDate ? new Date(left.lifecyclePlan.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-        const rightDue = right.lifecyclePlan?.dueDate ? new Date(right.lifecyclePlan.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-        if (leftDue !== rightDue) return leftDue - rightDue;
-        return new Date(right.lifecyclePlan?.updatedAt || 0) - new Date(left.lifecyclePlan?.updatedAt || 0);
-      });
+      return this.lifecycleWorkspaceModel.upcomingPlanRows;
     },
     lifecycleCards() {
-      return [
-        {
-          key: 'aligned',
-          label: 'Baseline Aligned',
-          value: `${this.compliantHosts.length}/${this.hosts.length}`,
-          detail: this.compliantHosts.length ? `${this.compliantHosts[0].name_label || 'Host'} is the leading compliant node` : 'No hosts are currently marked aligned',
-          icon: 'mdi-shield-check-outline',
-          valueClass: this.compliantHosts.length ? 'text-green' : 'text-amber',
-        },
-        {
-          key: 'review',
-          label: 'Needs Review',
-          value: String(this.actionHosts.length),
-          detail: this.actionHosts.length ? `${this.actionHosts[0].name_label || 'Host'} is highest priority` : 'No lifecycle review backlog detected',
-          icon: 'mdi-clipboard-alert-outline',
-          valueClass: this.actionHosts.length ? 'text-amber' : 'text-green',
-        },
-        {
-          key: 'planned',
-          label: 'Planned Waves',
-          value: String(this.plannedHosts.length),
-          detail: this.plannedHosts.length ? `${this.plannedHosts[0].name_label || 'Host'} is included in the planner queue` : 'No saved lifecycle plans yet',
-          icon: 'mdi-calendar-clock-outline',
-          valueClass: this.plannedHosts.length ? 'text-cyan' : 'text-green',
-        },
-        {
-          key: 'jobs',
-          label: 'Reboot Queue',
-          value: String(this.rebootQueue.length),
-          detail: this.rebootQueue.length ? 'One or more hosts are expected to reboot during remediation' : 'No reboots are currently staged',
-          icon: 'mdi-restart',
-          valueClass: this.rebootQueue.length ? 'text-red' : 'text-green',
-        },
-      ];
+      return this.lifecycleWorkspaceModel.lifecycleCards;
     },
     recommendations() {
-      const items = [];
-      const overdueAutomationTasks = this.lifecycleAutomationTasks.filter((task) => this.taskSlaMeta(task).isOverdue);
-
-      if (this.driftedPlanHosts.length) {
-        const host = this.driftedPlanHosts[0];
-        items.push({
-          title: 'Prioritize drifted baselines',
-          detail: `${host.name_label || 'Host'} is marked drifted and already has a saved remediation plan. Confirm the patch wave is still sequenced correctly.`,
-          status: 'warning',
-        });
-      }
-
-      if (this.rebootQueue.length) {
-        const host = this.rebootQueue[0];
-        items.push({
-          title: 'Validate reboot sequencing',
-          detail: `${host.name_label || 'Host'} is marked for reboot. Make sure maintenance communications, drain targets, and rollback notes are ready first.`,
-          status: 'pending',
-        });
-      }
-
-      if (this.evacuationQueue.length) {
-        const host = this.evacuationQueue[0];
-        items.push({
-          title: 'Check evacuation targets',
-          detail: `${host.name_label || 'Host'} requires workload evacuation before remediation. Validate host capacity and guest placement before the window starts.`,
-          status: 'warning',
-        });
-      }
-
-      if (this.lifecycleTasks.length) {
-        const task = this.lifecycleTasks[0];
-        items.push({
-          title: 'Watch active lifecycle jobs',
-          detail: `${task.name_label || 'Task'} should be monitored through completion so its result can update the compliance queue.`,
-          status: task.status || 'pending',
-        });
-      }
-
-      if (this.lifecycleAutomationTasks.length) {
-        const task = this.lifecycleAutomationTasks[0];
-        items.push({
-          title: 'Staged remediation brief ready',
-          detail: `${task.name_label || 'A remediation task'} already carries ${this.taskEvidenceChecklist(task).length} evidence checks and ${this.taskCompletionCriteria(task).length} completion criteria into the lifecycle queue, with ${this.taskSlaMeta(task).label.toLowerCase()} timing.`,
-          status: this.taskSlaMeta(task).tone,
-        });
-      }
-
-      if (overdueAutomationTasks.length) {
-        const task = overdueAutomationTasks[0];
-        items.push({
-          title: 'Escalate overdue lifecycle follow-through',
-          detail: `${task.name_label || 'A remediation task'} is ${this.taskSlaMeta(task).label.toLowerCase()} and should be reconciled before the next maintenance wave starts.`,
-          status: 'critical',
-        });
-      }
-
-      if (!items.length) {
-        items.push({
-          title: 'Lifecycle posture healthy',
-          detail: 'No obvious lifecycle drift was inferred from the current hosts, messages, tasks, and planner state.',
-          status: 'success',
-        });
-      }
-
-      return items;
+      return this.lifecycleWorkspaceModel.recommendations;
     },
     coverageItems() {
-      return [
-        {
-          label: 'Hosts With Saved Plan',
-          detail: `${this.plannedHosts.length} of ${this.hosts.length} hosts are represented in the lifecycle planner.`,
-          value: `${this.plannedHosts.length}/${this.hosts.length}`,
-          badgeClass: this.plannedHosts.length ? 'badge-info' : 'badge-halted',
-        },
-        {
-          label: 'Maintenance-Staged Hosts',
-          detail: this.upcomingPlanRows.length ? `${this.upcomingPlanRows[0].name_label || 'Host'} is the next scheduled lifecycle target.` : 'No maintenance waves are scheduled yet.',
-          value: String(this.upcomingPlanRows.filter((row) => row.targetStage === 'maintenance').length),
-          badgeClass: this.upcomingPlanRows.filter((row) => row.targetStage === 'maintenance').length ? 'badge-running' : 'badge-info',
-        },
-        {
-          label: 'Planner Owners Assigned',
-          detail: `${this.plannedHosts.filter((row) => row.lifecyclePlan?.owner).length} plans have a named owner.`,
-          value: String(this.plannedHosts.filter((row) => row.lifecyclePlan?.owner).length),
-          badgeClass: this.plannedHosts.filter((row) => row.lifecyclePlan?.owner).length ? 'badge-running' : 'badge-halted',
-        },
-      ];
+      return this.lifecycleWorkspaceModel.coverageItems;
     },
   },
   async mounted() {
@@ -749,43 +616,6 @@ const LifecycleView = {
         ...(Array.isArray(host?.resident_VMs) ? host.resident_VMs : []),
       ]);
     },
-    poolContainsHost(pool, host) {
-      if (!pool || !host) return false;
-
-      const poolRefs = new Set(
-        [
-          pool.master,
-          ...(Array.isArray(pool.hosts) ? pool.hosts : []),
-          ...(Array.isArray(pool.resident_hosts) ? pool.resident_hosts : []),
-          ...(Array.isArray(pool.slaves) ? pool.slaves : []),
-        ].filter(Boolean)
-      );
-
-      return poolRefs.has(host.ref) || poolRefs.has(host.uuid);
-    },
-    resolvePoolForHost(host) {
-      if (!host) return null;
-
-      const hostKeys = [host.pool, host.pool_ref, host.pool_uuid, host.pool_name]
-        .filter(Boolean)
-        .map((value) => String(value).trim().toLowerCase());
-
-      if (hostKeys.length) {
-        const direct = this.relatedPools.find((pool) =>
-          [pool.ref, pool.uuid, pool.name_label]
-            .filter(Boolean)
-            .map((value) => String(value).trim().toLowerCase())
-            .some((value) => hostKeys.includes(value))
-        );
-        if (direct) return direct;
-      }
-
-      const relationship = this.relatedPools.find((pool) => this.poolContainsHost(pool, host));
-      if (relationship) return relationship;
-
-      if (this.relatedPools.length === 1) return this.relatedPools[0];
-      return null;
-    },
     findVmRecord(value) {
       return this.relatedVMs.find((vm) => this.recordMatchesValue(vm, value, ['ref', 'uuid', 'name_label'], [
         ...(Array.isArray(vm?.VBDs) ? vm.VBDs : []),
@@ -815,9 +645,9 @@ const LifecycleView = {
       const master = this.hostLifecycleRows.find((host) => this.hostRecordMatchesValue(host, pool.master));
       if (master) return master;
 
-      return this.hostLifecycleRows.find((host) => this.poolContainsHost(pool, host) && host.enabled)
-        || this.hostLifecycleRows.find((host) => this.poolContainsHost(pool, host))
-        || this.hostLifecycleRows.find((host) => this.resolvePoolForHost(host)?.ref === pool.ref)
+      return this.hostLifecycleRows.find((host) => poolContainsHost(pool, host) && host.enabled)
+        || this.hostLifecycleRows.find((host) => poolContainsHost(pool, host))
+        || this.hostLifecycleRows.find((host) => resolveHostPool(host, this.relatedPools)?.ref === pool.ref)
         || null;
     },
     findHostByVm(vm) {
@@ -957,133 +787,6 @@ const LifecycleView = {
       return haystack.includes((host.uuid || '').toLowerCase())
         || haystack.includes((host.name_label || '').toLowerCase())
         || haystack.includes((host.hostname || '').toLowerCase());
-    },
-    inferPlanDefaults(host, relatedTasks, relatedMessages) {
-      if (!host.enabled) {
-        return {
-          baselineStatus: 'unknown',
-          targetStage: 'maintenance',
-          nextAction: 'validate',
-        };
-      }
-
-      if (relatedMessages.some((message) => getMessageSeverity(message) === 'critical')) {
-        return {
-          baselineStatus: 'drifted',
-          targetStage: 'remediate',
-          nextAction: 'patch',
-        };
-      }
-
-      if (relatedTasks.some((task) => ['pending', 'queued'].includes((task.status || '').toLowerCase()))) {
-        return {
-          baselineStatus: 'unknown',
-          targetStage: 'review',
-          nextAction: 'validate',
-        };
-      }
-
-      const lifecycleText = `${host?.other_config?.lifecycle || ''} ${(host.tags || []).join(' ')}`.toLowerCase();
-      if (/(patched|compliant|managed|current)/.test(lifecycleText)) {
-        return {
-          baselineStatus: 'compliant',
-          targetStage: 'aligned',
-          nextAction: 'none',
-        };
-      }
-
-      return {
-        baselineStatus: 'unknown',
-        targetStage: 'review',
-        nextAction: 'scan',
-      };
-    },
-    buildHostLifecycleRow(host) {
-      const relatedTasks = this.lifecycleTasks.filter((task) => this.hostMatchesTask(host, task));
-      const relatedMessages = this.lifecycleAlerts.filter((message) => this.hostMatchesMessage(host, message));
-      const lifecycleText = `${host?.other_config?.lifecycle || ''} ${(host.tags || []).join(' ')}`.toLowerCase();
-      const savedPlan = this.planMap[host.ref] || null;
-      const inferredPlan = this.inferPlanDefaults(host, relatedTasks, relatedMessages);
-      const maintenanceWindow = savedPlan?.maintenanceWindow || host?.other_config?.maintenance_window || 'No window defined';
-      let lifecycleStatus = 'warning';
-      let lifecycleHint = 'review';
-      let summary = 'Baseline review recommended.';
-      let recommendation = 'Validate patch level, maintenance readiness, and any desired-state drift before the next maintenance cycle.';
-
-      if (!host.enabled || lifecycleText.includes('maintenance') || (host.tags || []).some((tag) => String(tag).toLowerCase().includes('maintenance'))) {
-        lifecycleStatus = 'disabled';
-        lifecycleHint = 'maintenance';
-        summary = 'Host is in maintenance or pre-maintenance posture.';
-        recommendation = 'Confirm evacuation, snapshot coverage, and patch window details before taking further action.';
-      } else if (relatedTasks.some((task) => ['pending', 'queued'].includes((task.status || '').toLowerCase()))) {
-        lifecycleStatus = 'pending';
-        lifecycleHint = 'scanning';
-        summary = 'Lifecycle work is currently in progress.';
-        recommendation = 'Allow the active compliance or maintenance task to complete, then reassess drift and baseline health.';
-      } else if (relatedMessages.some((message) => getMessageSeverity(message) === 'critical')) {
-        lifecycleStatus = 'critical';
-        lifecycleHint = 'risk';
-        summary = 'Critical lifecycle or maintenance signal detected.';
-        recommendation = 'Investigate the related alert before scheduling further remediation so lifecycle work does not amplify an existing fault.';
-      } else if (/(patched|compliant|managed|current)/.test(lifecycleText)) {
-        lifecycleStatus = 'success';
-        lifecycleHint = 'aligned';
-        summary = 'Host appears aligned with the expected lifecycle posture.';
-        recommendation = 'Keep this host in the compliant set and use it as a preferred target when draining or rebalancing adjacent nodes.';
-      } else if (relatedMessages.length) {
-        lifecycleStatus = 'warning';
-        lifecycleHint = 'attention';
-        summary = 'Recent lifecycle-adjacent alerts suggest review is needed.';
-        recommendation = 'Inspect the alert context and confirm whether a patch, reboot, or maintenance action should be scheduled.';
-      }
-
-      const baselineStatus = savedPlan?.baselineStatus || inferredPlan.baselineStatus;
-      const targetStage = savedPlan?.targetStage || inferredPlan.targetStage;
-      const nextAction = savedPlan?.nextAction || inferredPlan.nextAction;
-
-      if (savedPlan?.targetStage === 'maintenance' && !['critical', 'disabled'].includes(lifecycleStatus)) {
-        lifecycleStatus = 'pending';
-        lifecycleHint = 'maintenance';
-        summary = 'Maintenance work is scheduled for this host.';
-        recommendation = savedPlan.notes || 'Verify evacuation, patch bundles, and communication windows before starting maintenance.';
-      } else if (savedPlan?.targetStage === 'remediate' && lifecycleStatus === 'success') {
-        lifecycleStatus = 'warning';
-        lifecycleHint = 'attention';
-        summary = 'A remediation plan exists even though the host currently looks healthy.';
-        recommendation = savedPlan.notes || 'Reconfirm whether this remediation is still needed before execution.';
-      } else if (savedPlan?.targetStage === 'aligned' && savedPlan?.baselineStatus === 'compliant' && !relatedMessages.length && host.enabled) {
-        lifecycleStatus = 'success';
-        lifecycleHint = 'aligned';
-        summary = 'Saved lifecycle plan indicates this host is aligned.';
-        recommendation = savedPlan.notes || 'Use this host as an aligned reference point for the rest of the maintenance ring.';
-      } else if (savedPlan?.targetStage === 'review' && lifecycleStatus === 'success') {
-        lifecycleStatus = 'warning';
-        lifecycleHint = 'review';
-        summary = 'Lifecycle review is still scheduled for this host.';
-        recommendation = savedPlan.notes || 'Validate whether the review can be closed or should progress to remediation.';
-      }
-
-      const planLabel = savedPlan
-        ? `${this.formatStageLabel(savedPlan.targetStage)} · ${savedPlan.owner || 'Unassigned'} · ${savedPlan.patchGroup || 'No patch group'}`
-        : 'No saved lifecycle plan';
-
-      return {
-        ...host,
-        lifecycleStatus,
-        lifecycleHint,
-        maintenanceWindow,
-        baselineStatus,
-        targetStage,
-        nextAction,
-        summary,
-        recommendation,
-        relatedTasks,
-        relatedMessages,
-        lastTaskLabel: relatedTasks[0]?.name_label || 'No recent lifecycle task',
-        lastAlertLabel: relatedMessages[0] ? getMessageHeadline(relatedMessages[0]) : 'No recent lifecycle alert',
-        lifecyclePlan: savedPlan,
-        planLabel,
-      };
     },
     buildReadinessChecklist(row) {
       const plan = row.lifecyclePlan;

@@ -45,6 +45,7 @@ jest.mock('../../../../server/services/xenapi', () => {
     if (payload.defaultSrRef) {
       pool.default_SR = payload.defaultSrRef;
     }
+    pool.vswitch_controller = payload.vswitchController || '';
     if (typeof payload.migrationCompressionEnabled === 'boolean') {
       pool.migration_compression = payload.migrationCompressionEnabled;
     }
@@ -125,6 +126,7 @@ describe('Pool Routes', () => {
         ha_statefiles: [],
         ha_cluster_stack: '',
         tags: ['prod'],
+        vswitch_controller: '10.0.0.80',
         other_config: { lifecycle: 'managed' },
         IGMP_snooping_enabled: false,
       },
@@ -205,6 +207,7 @@ describe('Pool Routes', () => {
       nameLabel: 'Production Pool West',
       nameDescription: 'Updated operator-facing pool summary for the west cluster.',
       defaultSrRef: 'OpaqueRef:sr2',
+      vswitchController: '10.0.0.81',
       migrationCompressionEnabled: true,
       wlbEnabled: true,
       igmpSnoopingEnabled: true,
@@ -221,6 +224,7 @@ describe('Pool Routes', () => {
       name_label: 'Production Pool West',
       name_description: 'Updated operator-facing pool summary for the west cluster.',
       default_SR: 'OpaqueRef:sr2',
+      vswitch_controller: '10.0.0.81',
       migration_compression: true,
       wlb_enabled: true,
       wlb_url: 'https://wlb-west.example.internal',

@@ -151,6 +151,7 @@ const PoolsView = {
             <span class="text-muted">Migration Compression</span><span>{{ selectedPoolMigrationCompressionLabel }}</span>
             <span class="text-muted">WLB Enabled</span><span>{{ selectedPoolWlbEnabledLabel }}</span>
             <span class="text-muted">WLB URL</span><span class="mono property-wrap">{{ selectedPoolWlbUrlLabel }}</span>
+            <span class="text-muted">vSwitch Controller</span><span class="mono property-wrap">{{ selectedPoolVswitchControllerLabel }}</span>
             <span class="text-muted">IGMP Snooping</span><span>{{ selectedPoolIgmpSnoopingLabel }}</span>
             <span class="text-muted">Migration Network</span><span class="mono property-wrap">{{ selectedPool.migration_network || '-' }}</span>
             <span class="text-muted">Master Host</span><span class="mono property-wrap">{{ selectedPool.master || '-' }}</span>
@@ -215,6 +216,15 @@ const PoolsView = {
                   </div>
                   <div class="stack-item">
                     <div>
+                      <strong>Legacy vSwitch Controller</strong>
+                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolVswitchControllerDetail }}</div>
+                    </div>
+                    <span class="badge" :class="selectedPoolVswitchControllerConfigured ? 'badge-warning' : 'badge-info'">
+                      {{ selectedPoolVswitchControllerConfigured ? 'legacy' : 'none' }}
+                    </span>
+                  </div>
+                  <div class="stack-item">
+                    <div>
                       <strong>IGMP Snooping</strong>
                       <div class="text-muted mono" style="font-size:11px">{{ selectedPoolIgmpSnoopingDetail }}</div>
                     </div>
@@ -237,7 +247,7 @@ const PoolsView = {
                     <span class="badge badge-info">{{ selectedPoolOtherConfigEntries.length }}</span>
                   </div>
                 </div>
-                <p class="text-muted" style="margin:0">Advanced pool policy controls such as controller settings and any deeper WLB enrollment workflows remain follow-on parity work.</p>
+                <p class="text-muted" style="margin:0">Deeper SDN controller lifecycle workflows and richer WLB enrollment still remain follow-on parity work.</p>
               </div>
             </div>
             <div class="dashboard-panels" style="margin-top:16px">
@@ -412,112 +422,64 @@ const PoolsView = {
       return Array.isArray(store.connectedTargets) ? store.connectedTargets : [];
     },
     preferredConnection() {
-      return this.connections.find((connection) => connection.is_default) || this.connections[0] || null;
+      return buildPreferredPoolConnection(this.connections);
     },
     selectedPoolHosts() {
-      if (!this.selectedPool) return [];
-
-      return this.resolvePoolHosts(this.selectedPool).map((host) => ({
-        ...host,
-        role: this.isPoolMaster(host, this.selectedPool) ? 'Master' : 'Member',
-        residentVmCount: Array.isArray(host.resident_VMs) ? host.resident_VMs.length : 0,
-      }));
+      return buildSelectedPoolHosts(this.selectedPool, this.hosts, this.pools);
     },
     selectedPoolStorageOptions() {
-      if (!this.selectedPool) return [];
-
-      const poolPbdRefs = new Set(
-        this.selectedPoolHosts
-          .flatMap((host) => (Array.isArray(host.PBDs) ? host.PBDs : []))
-          .filter(Boolean)
-      );
-      const options = this.storage
-        .filter((sr) => {
-          if (!poolPbdRefs.size) return sr.ref === this.selectedPool.default_SR;
-          return (Array.isArray(sr.PBDs) ? sr.PBDs : []).some((ref) => poolPbdRefs.has(ref));
-        })
-        .map((sr) => ({
-          value: sr.ref,
-          label: `${sr.name_label || sr.uuid || sr.ref}${sr.shared ? ' · shared' : ''}`,
-        }))
-        .sort((left, right) => left.label.localeCompare(right.label));
-
-      if (this.selectedPool.default_SR && !options.some((entry) => entry.value === this.selectedPool.default_SR)) {
-        options.unshift({
-          value: this.selectedPool.default_SR,
-          label: `${this.resolveStorageLabel(this.selectedPool.default_SR)} · current`,
-        });
-      }
-
-      return options;
+      return buildSelectedPoolStorageOptions(this.selectedPool, this.selectedPoolHosts, this.storage);
     },
     selectedPoolDefaultStorageLabel() {
-      return this.resolveStorageLabel(this.selectedPool?.default_SR);
+      return resolvePoolStorageLabel(this.storage, this.selectedPool?.default_SR);
     },
     selectedPoolMigrationCompressionLabel() {
-      return this.selectedPool?.migration_compression ? 'Enabled' : 'Disabled';
+      return buildSelectedPoolMigrationCompressionLabel(this.selectedPool);
     },
     selectedPoolMigrationCompressionDetail() {
-      return this.selectedPool?.migration_compression
-        ? 'Same-pool migration workflows default to a compressed transfer stream for this pool.'
-        : 'Same-pool migration workflows default to an uncompressed transfer stream for this pool.';
+      return buildSelectedPoolMigrationCompressionDetail(this.selectedPool);
     },
     selectedPoolWlbEnabledLabel() {
-      return this.selectedPool?.wlb_enabled ? 'Enabled' : 'Disabled';
+      return buildSelectedPoolWlbEnabledLabel(this.selectedPool);
     },
     selectedPoolWlbUrlLabel() {
-      return String(this.selectedPool?.wlb_url || '').trim() || 'not configured';
+      return buildSelectedPoolWlbUrlLabel(this.selectedPool);
     },
     selectedPoolWlbDetail() {
-      const endpoint = this.selectedPoolWlbUrlLabel;
-      return this.selectedPool?.wlb_enabled
-        ? `Workload balancing is enabled${endpoint !== 'not configured' ? ` via ${endpoint}` : ', but no endpoint URL was reported in the current pool record.'}`
-        : `Workload balancing is disabled${endpoint !== 'not configured' ? `; current endpoint ${endpoint}` : ' and no WLB endpoint URL is currently reported.'}`;
+      return buildSelectedPoolWlbDetail(this.selectedPool);
+    },
+    selectedPoolVswitchControllerLabel() {
+      return buildSelectedPoolVswitchControllerLabel(this.selectedPool);
+    },
+    selectedPoolVswitchControllerConfigured() {
+      return isSelectedPoolVswitchControllerConfigured(this.selectedPool);
+    },
+    selectedPoolVswitchControllerDetail() {
+      return buildSelectedPoolVswitchControllerDetail(this.selectedPool);
     },
     selectedPoolIgmpSnoopingLabel() {
-      return this.selectedPool?.IGMP_snooping_enabled ? 'Enabled' : 'Disabled';
+      return buildSelectedPoolIgmpSnoopingLabel(this.selectedPool);
     },
     selectedPoolIgmpSnoopingDetail() {
-      return this.selectedPool?.IGMP_snooping_enabled
-        ? 'Multicast membership tracking is enforced for pool networking.'
-        : 'Pool networking is not currently filtering multicast membership through IGMP snooping.';
+      return buildSelectedPoolIgmpSnoopingDetail(this.selectedPool);
     },
     selectedPoolHaEnabledLabel() {
-      return this.selectedPool?.ha_enabled ? 'Enabled' : 'Disabled';
+      return buildSelectedPoolHaEnabledLabel(this.selectedPool);
     },
     selectedPoolHaToleranceLabel() {
-      if (!this.selectedPool?.ha_enabled) return 'Not active';
-      return `${Number(this.selectedPool?.ha_host_failures_to_tolerate || 0)} host failure(s)`;
+      return buildSelectedPoolHaToleranceLabel(this.selectedPool);
     },
     selectedPoolHaStatusDetail() {
-      if (!this.selectedPool?.ha_enabled) {
-        return 'Automatic failover is currently disabled for this pool.';
-      }
-
-      const status = this.selectedPool?.ha_overcommitted
-        ? 'Enabled but currently overcommitted.'
-        : 'Enabled and currently within failover capacity.';
-      const clusterStack = String(this.selectedPool?.ha_cluster_stack || '').trim();
-      return clusterStack ? `${status} Stack: ${clusterStack}.` : status;
+      return buildSelectedPoolHaStatusDetail(this.selectedPool);
     },
     selectedPoolHaPlannerDetail() {
-      if (!this.selectedPool?.ha_enabled) {
-        return 'HA planner coverage will appear here after the pool is enabled.';
-      }
-      return `Plan exists for ${Number(this.selectedPool?.ha_plan_exists_for || 0)} additional host failure(s); tolerance is ${Number(this.selectedPool?.ha_host_failures_to_tolerate || 0)}.`;
+      return buildSelectedPoolHaPlannerDetail(this.selectedPool);
     },
     selectedPoolOtherConfigEntries() {
-      return Object.entries(this.selectedPool?.other_config || {})
-        .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());
+      return buildSelectedPoolOtherConfigEntries(this.selectedPool);
     },
     selectedPoolOtherConfigSummary() {
-      if (!this.selectedPoolOtherConfigEntries.length) return '-';
-      const summary = this.selectedPoolOtherConfigEntries
-        .slice(0, 2)
-        .map(([key, value]) => `${key}=${value}`)
-        .join(' · ');
-      if (this.selectedPoolOtherConfigEntries.length <= 2) return summary;
-      return `${summary} +${this.selectedPoolOtherConfigEntries.length - 2} more`;
+      return buildSelectedPoolOtherConfigSummary(this.selectedPoolOtherConfigEntries);
     },
   },
   async mounted() {
@@ -543,27 +505,19 @@ const PoolsView = {
     truncateList,
     summarizeCount,
     visibilityLabel(visibility) {
-      return visibility === 'shared' ? 'Shared' : 'Private';
+      return buildPoolVisibilityLabel(visibility);
     },
     ownershipLabel(connection) {
-      if (connection.is_owner) return 'Owned by you';
-      return `Owner ${connection.owner_display_name || connection.owner_username}`;
+      return buildPoolOwnershipLabel(connection);
     },
     isCurrentConnection(connection) {
-      return Boolean(this.findAttachedTarget(connection)?.active);
+      return isPoolCurrentConnection(this.attachedTargets, connection);
     },
     isConnectionAttached(connection) {
-      return Boolean(this.findAttachedTarget(connection));
+      return isPoolConnectionAttached(this.attachedTargets, connection);
     },
     findAttachedTarget(connection) {
-      const connectionId = Number(connection?.id || 0);
-      return this.attachedTargets.find((target) =>
-        (connectionId && Number(target.connectionId || 0) === connectionId)
-        || (
-          String(target.host || '').toLowerCase() === String(connection?.host || '').toLowerCase()
-          && String(target.username || '').toLowerCase() === String(connection?.username || '').toLowerCase()
-        )
-      ) || null;
+      return findPoolAttachedTarget(this.attachedTargets, connection);
     },
     async loadAll() {
       await Promise.all([this.loadPools(), this.loadHosts(), this.loadStorage(), this.loadConnections(), this.loadCredentials()]);
@@ -633,7 +587,7 @@ const PoolsView = {
         const record = await api.updatePoolConfig(this.selectedPool.ref, payload);
         this.selectedPool = { ...this.selectedPool, ...(record || {}) };
         this.pools = this.pools.map((entry) => (entry.ref === this.selectedPool.ref ? { ...entry, ...(record || {}) } : entry));
-        this.poolActionMessage = `${record?.name_label || payload.nameLabel || this.selectedPool.ref} metadata was updated.`;
+        this.poolActionMessage = buildPoolConfigSavedMessage(record, payload, this.selectedPool);
       } catch (error) {
         this.poolActionError = error.message || 'Unable to save pool metadata';
       } finally {
@@ -654,13 +608,7 @@ const PoolsView = {
         });
         this.selectedPool = { ...this.selectedPool, ...(record || {}) };
         this.pools = this.pools.map((entry) => (entry.ref === this.selectedPool.ref ? { ...entry, ...(record || {}) } : entry));
-        if (!payload.enabled) {
-          this.poolActionMessage = `${record?.name_label || this.selectedPool.ref} high availability is now disabled.`;
-        } else if (!wasEnabled) {
-          this.poolActionMessage = `${record?.name_label || this.selectedPool.ref} high availability is now enabled with a ${record?.ha_host_failures_to_tolerate || payload.haHostFailuresToTolerate || 0} host-failure target.`;
-        } else {
-          this.poolActionMessage = `${record?.name_label || this.selectedPool.ref} HA tolerance is now set to ${record?.ha_host_failures_to_tolerate || payload.haHostFailuresToTolerate || 0} host failure(s).`;
-        }
+        this.poolActionMessage = buildPoolHaSavedMessage(record, payload, this.selectedPool, wasEnabled);
       } catch (error) {
         this.poolActionError = error.message || 'Unable to update pool HA state';
       } finally {
@@ -668,17 +616,10 @@ const PoolsView = {
       }
     },
     resolveStorageLabel(ref) {
-      const normalizedRef = String(ref || '').trim();
-      if (!normalizedRef) return 'not configured';
-
-      const match = this.storage.find((entry) => entry.ref === normalizedRef);
-      if (!match) return normalizedRef;
-      return match.name_label || match.uuid || match.ref;
+      return resolvePoolStorageLabel(this.storage, ref);
     },
     findPoolByFocus(focus) {
-      return this.pools.find((pool) =>
-        recordMatchesRouteFocus(pool, focus, ['ref', 'uuid', 'name_label'])
-      ) || null;
+      return findPoolByFocus(this.pools, focus);
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);
@@ -720,56 +661,15 @@ const PoolsView = {
       }
     },
     isPoolMaster(host, pool) {
-      return Boolean(host && pool && pool.master && host.ref === pool.master);
+      return isPoolMasterHost(host, pool);
     },
     resolvePoolHosts(pool) {
-      if (!pool) return [];
-
-      const poolRefs = new Set(
-        [
-          pool.master,
-          ...(Array.isArray(pool.hosts) ? pool.hosts : []),
-          ...(Array.isArray(pool.resident_hosts) ? pool.resident_hosts : []),
-          ...(Array.isArray(pool.slaves) ? pool.slaves : []),
-        ].filter(Boolean)
-      );
-
-      let matches = this.hosts.filter((host) =>
-        poolRefs.has(host.ref) || poolRefs.has(host.uuid)
-      );
-
-      if (!matches.length) {
-        const poolKeys = [pool.ref, pool.uuid, pool.name_label]
-          .filter(Boolean)
-          .map((value) => String(value).toLowerCase());
-
-        matches = this.hosts.filter((host) => {
-          const hostKeys = [host.pool, host.pool_ref, host.pool_uuid, host.pool_name]
-            .filter(Boolean)
-            .map((value) => String(value).toLowerCase());
-
-          return hostKeys.some((value) => poolKeys.includes(value));
-        });
-      }
-
-      if (!matches.length && this.pools.length === 1 && this.pools[0].ref === pool.ref) {
-        return this.hosts;
-      }
-
-      return matches;
+      return resolvePoolHosts(pool, this.hosts, this.pools);
     },
     openRegistration(connection = null) {
       this.connectionError = null;
       this.editingConnectionId = connection?.id || null;
-      this.connectionDraft = connection ? { ...connection } : {
-        name: '',
-        host: '',
-        username: 'root',
-        vault_credential_id: null,
-        port: 443,
-        visibility: store.user ? 'private' : 'shared',
-        is_default: false,
-      };
+      this.connectionDraft = buildPoolConnectionDraft(connection, Boolean(store.user));
       this.showRegistration = true;
     },
     async submitConnection(payload) {

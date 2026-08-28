@@ -8,6 +8,7 @@ process.env.DB_PATH = TEST_DB;
 
 const mockState = {
   networks: [],
+  vifs: [],
 };
 
 jest.mock('../../../../server/services/xenapi', () => {
@@ -29,7 +30,18 @@ jest.mock('../../../../server/services/xenapi', () => {
     };
   });
 
-  actual.XenAPI.prototype.getRecord = jest.fn(async function (_className, ref) {
+  actual.XenAPI.prototype.getVIFs = jest.fn(async function () {
+    return {
+      refs: mockState.vifs.map((vif) => vif.ref),
+      records: Object.fromEntries(mockState.vifs.map((vif) => [vif.ref, { ...vif }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getRecord = jest.fn(async function (className, ref) {
+    if (className === 'VIF') {
+      const vif = mockState.vifs.find((entry) => entry.ref === ref);
+      return vif ? { ...vif } : { ref, qos_algorithm_type: '', qos_algorithm_params: {} };
+    }
     const network = mockState.networks.find((entry) => entry.ref === ref);
     return network ? { ...network } : { name_label: 'fallback-network', bridge: 'xenbr-fallback', managed: true };
   });
@@ -123,6 +135,17 @@ jest.mock('../../../../server/services/xenapi', () => {
     return { ...network };
   });
 
+  actual.XenAPI.prototype.updateVifConfig = jest.fn(async function (ref, payload) {
+    const vif = mockState.vifs.find((entry) => entry.ref === ref);
+    if (!vif) {
+      throw new Error('VIF_NOT_FOUND');
+    }
+
+    vif.qos_algorithm_type = payload.qosAlgorithmType || '';
+    vif.qos_algorithm_params = { ...(payload.qosAlgorithmParams || {}) };
+    return { ...vif };
+  });
+
   actual.XenAPI.prototype.destroyNetwork = jest.fn(async function (ref) {
     const index = mockState.networks.findIndex((entry) => entry.ref === ref);
     if (index === -1) {
@@ -192,6 +215,23 @@ describe('Network Routes', () => {
         other_config: { vlan: '220' },
         default_locking_mode: 'unlocked',
         purpose: [],
+      },
+    ];
+    mockState.vifs = [
+      {
+        ref: 'OpaqueRef:vif1',
+        uuid: 'vif-uuid-1',
+        VM: 'OpaqueRef:vm1',
+        network: 'OpaqueRef:net1',
+        device: '0',
+        MAC: '02:16:3e:10:00:01',
+        MTU: 1500,
+        locking_mode: 'network_default',
+        qos_algorithm_type: 'ratelimit',
+        qos_algorithm_params: { kbps: '50000' },
+        qos_supported_algorithms: ['ratelimit'],
+        currently_attached: true,
+        allowed_operations: ['unplug', 'destroy'],
       },
     ];
   });
@@ -326,6 +366,28 @@ describe('Network Routes', () => {
         vlan: '130',
         owner: 'platform-ops',
       }),
+    }));
+  });
+
+  it('updates VIF QoS through the dedicated networking endpoint', async () => {
+    const auth = await login();
+
+    const updated = await request('PUT', '/api/networks/interfaces/OpaqueRef%3Avif1/config', {
+      qosAlgorithmType: 'ratelimit',
+      qosAlgorithmParams: {
+        kbps: '75000',
+        timeslice_us: '50000',
+      },
+    }, auth.cookie);
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:vif1',
+      qos_algorithm_type: 'ratelimit',
+      qos_algorithm_params: {
+        kbps: '75000',
+        timeslice_us: '50000',
+      },
     }));
   });
 
