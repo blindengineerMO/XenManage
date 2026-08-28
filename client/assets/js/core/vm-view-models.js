@@ -9,19 +9,39 @@ function findVmMetricSeries(metricHistory = null, metricName = '') {
   return metrics.find((entry) => entry.metricName === metricName)?.points || [];
 }
 
+function buildVmMetricSeriesDescriptor(metricName = '', index = 0) {
+  const normalized = String(metricName || '').trim().toLowerCase();
+  if (normalized.includes('network_rx')) return { label: 'RX', color: 'rgba(95, 235, 185, 0.95)' };
+  if (normalized.includes('network_tx')) return { label: 'TX', color: 'rgba(91, 192, 255, 0.95)' };
+  if (normalized.includes('disk_read')) return { label: 'Read', color: 'rgba(255, 186, 73, 0.95)' };
+  if (normalized.includes('disk_write')) return { label: 'Write', color: 'rgba(255, 111, 145, 0.95)' };
+
+  const palette = [
+    'rgba(95, 235, 185, 0.95)',
+    'rgba(91, 192, 255, 0.95)',
+    'rgba(255, 186, 73, 0.95)',
+    'rgba(255, 111, 145, 0.95)',
+  ];
+  return {
+    label: normalized || `series-${index + 1}`,
+    color: palette[index % palette.length],
+  };
+}
+
 function combineVmMetricSeries(metricHistory = null, metricNames = []) {
-  const buckets = new Map();
-  (Array.isArray(metricNames) ? metricNames : []).forEach((metricName) => {
-    const points = findVmMetricSeries(metricHistory, metricName);
-    points.forEach((point) => {
-      const ts = Number(point?.ts || 0);
-      if (!ts) return;
-      buckets.set(ts, (buckets.get(ts) || 0) + Number(point?.value || 0));
-    });
-  });
-  return [...buckets.entries()]
-    .sort((left, right) => left[0] - right[0])
-    .map(([ts, value]) => ({ ts, value }));
+  return (Array.isArray(metricNames) ? metricNames : [])
+    .map((metricName, index) => {
+      const points = findVmMetricSeries(metricHistory, metricName);
+      if (!points.length) return null;
+      const descriptor = buildVmMetricSeriesDescriptor(metricName, index);
+      return {
+        key: metricName,
+        label: descriptor.label,
+        color: descriptor.color,
+        points,
+      };
+    })
+    .filter(Boolean);
 }
 
 function getVmHistoryStatus(series = [], thresholds = {}) {

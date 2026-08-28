@@ -1,5 +1,36 @@
 const { test, expect } = require('@playwright/test');
 
+function getFloatingWindowByTitle(page, title) {
+  return page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: title }),
+  }).last();
+}
+
+async function signInToControlPlane(page, options = {}) {
+  await page.goto('/');
+  await page.getByLabel('Username').fill(options.username || 'admin');
+  await page.getByLabel('Password').fill(options.password || 'admin123!');
+  await page.getByRole('button', { name: 'Sign In to XenMange' }).click();
+}
+
+async function connectSavedPoolTarget(page, options = {}) {
+  await page.locator('.section-head').getByRole('button', { name: /Registered Pool Targets/ }).click();
+  const registeredTargetsWindow = getFloatingWindowByTitle(page, 'Registered Pool Targets');
+  await registeredTargetsWindow
+    .locator('.stack-item')
+    .filter({ hasText: options.connectionName || 'Production Pool' })
+    .getByRole('button', { name: 'Connect' })
+    .click();
+  await page.getByLabel('Pool Password').fill(options.password || 'secret');
+  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+}
+
+async function signInAndConnectDefaultTarget(page, options = {}) {
+  await signInToControlPlane(page, options);
+  await expect(page).toHaveURL(/\/pools(?:\?.*)?$/);
+  await connectSavedPoolTarget(page, options);
+}
+
 async function stubAuthenticatedRoutes(page, options = {}) {
   const connections = [
     { id: 1, name: 'Production Pool', host: '10.0.0.1', username: 'root', port: 443, is_default: 1 },
@@ -5478,13 +5509,13 @@ async function stubAuthenticatedRoutes(page, options = {}) {
   };
 }
 
-test('login shell renders the control-plane and direct xen entry points', async ({ page }) => {
+test('login shell renders the control-plane sign-in flow', async ({ page }) => {
   await page.goto('/');
 
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('heading', { name: 'XenMange' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'XenMange Sign In' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Direct Xen Login' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign In to XenMange' })).toBeVisible();
+  await expect(page.getByText('Pool and host target registration now happens after sign-in from the Pools and Hosts workspaces.')).toBeVisible();
   await expect(page.getByText('admin / admin123!')).toBeVisible();
 });
 
@@ -5509,13 +5540,8 @@ test('demo button opens the dashboard with built-in mock infrastructure data', a
 
 test('dashboard loads after login and shows aggregated metrics', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
-  await page.goto('/');
-
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
+  await page.getByText('Dashboard').first().click();
 
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
@@ -5536,12 +5562,37 @@ test('control-plane sign-in can attach a saved pool target from the pools worksp
 
   await expect(page).toHaveURL(/\/pools$/);
   await expect(page.getByText('Connect a registered pool target to load live topology.')).toBeVisible();
-  await page.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
+  await page.locator('.section-head').getByRole('button', { name: /Registered Pool Targets/ }).click();
+  const registeredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
+  await registeredTargetsWindow.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByLabel('Pool Password').fill('secret');
   await page.getByRole('button', { name: 'Connect to Pool' }).click();
 
   await expect(page.getByText('connected now')).toBeVisible();
   await expect(page.locator('.data-table').getByText('Production Pool', { exact: true })).toBeVisible();
+});
+
+test('hosts workspace can connect a registered standalone host target without leaving the app', async ({ page }) => {
+  await stubAuthenticatedRoutes(page);
+  await signInAndConnectDefaultTarget(page);
+
+  await page.getByText('Hosts').first().click();
+  await expect(page).toHaveURL(/\/hosts$/);
+  await page.getByRole('button', { name: 'Register Host' }).click();
+  await page.getByLabel('Host Name').fill('edge-a');
+  await page.getByLabel('Host Address').fill('10.0.0.44');
+  await page.getByRole('button', { name: 'Save Host Target' }).click();
+
+  await page.locator('.section-head').getByRole('button', { name: /Registered Host Targets/ }).click();
+  const registeredHostTargetsWindow = getFloatingWindowByTitle(page, 'Registered Host Targets');
+  const targetRow = registeredHostTargetsWindow.locator('.stack-item').filter({ hasText: 'edge-a' });
+  await targetRow.getByRole('button', { name: 'Connect' }).click();
+  const connectHostWindow = getFloatingWindowByTitle(page, 'Connect to Host Target');
+  await connectHostWindow.getByLabel('Host Password').fill('secret');
+  await connectHostWindow.getByRole('button', { name: 'Connect to Host' }).click();
+
+  await expect(registeredHostTargetsWindow.getByText('edge-a', { exact: true })).toBeVisible();
+  await expect(page.getByText('connected now')).toBeVisible();
 });
 
 test('pools workspace can activate and detach multiple attached live sessions', async ({ page }) => {
@@ -5552,7 +5603,9 @@ test('pools workspace can activate and detach multiple attached live sessions', 
   await page.getByLabel('Password').fill('admin123!');
   await page.getByRole('button', { name: 'Sign In to XenMange' }).click();
 
-  await page.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
+  await page.locator('.section-head').getByRole('button', { name: /Registered Pool Targets/ }).click();
+  let registeredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
+  await registeredTargetsWindow.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByLabel('Pool Password').fill('secret');
   await page.getByRole('button', { name: 'Connect to Pool' }).click();
 
@@ -5561,20 +5614,21 @@ test('pools workspace can activate and detach multiple attached live sessions', 
   await page.getByLabel('Pool Address').fill('10.0.0.55');
   await page.getByRole('button', { name: 'Save Pool Target' }).click();
 
-  await page.locator('.stack-item').filter({ hasText: 'DR Pool' }).getByRole('button', { name: 'Connect' }).click();
+  await page.locator('.section-head').getByRole('button', { name: /Registered Pool Targets/ }).click();
+  registeredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
+  await registeredTargetsWindow.locator('.stack-item').filter({ hasText: 'DR Pool' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByLabel('Pool Password').fill('secret');
   await page.getByRole('button', { name: 'Connect to Pool' }).click();
 
-  const attachedTargetsCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label', { hasText: 'Attached Live Targets' }),
-  }).first();
-  await expect(attachedTargetsCard).toContainText('Production Pool');
-  await expect(attachedTargetsCard).toContainText('DR Pool');
+  await page.locator('.section-head').getByRole('button', { name: /Attached Live Targets/ }).click();
+  const attachedTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Attached Live Targets' }).last();
+  await expect(attachedTargetsWindow).toContainText('Production Pool');
+  await expect(attachedTargetsWindow).toContainText('DR Pool');
 
-  const drRow = attachedTargetsCard.locator('.stack-item').filter({ hasText: 'DR Pool' }).first();
+  const drRow = attachedTargetsWindow.locator('.stack-item').filter({ hasText: 'DR Pool' }).first();
 
   await drRow.getByRole('button', { name: 'Detach' }).click();
-  await expect(attachedTargetsCard.locator('.stack-item').filter({ hasText: 'DR Pool' })).toHaveCount(0);
+  await expect(attachedTargetsWindow.locator('.stack-item').filter({ hasText: 'DR Pool' })).toHaveCount(0);
 });
 
 test('local governance workspace can manage control-plane users and session role posture', async ({ page }) => {
@@ -6229,12 +6283,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     });
   });
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Virtual Machines').first().click();
   await expect(page).toHaveURL(/\/vms$/);
@@ -6417,12 +6466,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
 test('hosts workspace supports selected-row maintenance batching', async ({ page }) => {
   const fixtures = await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
@@ -6440,12 +6484,7 @@ test('hosts workspace supports selected-row maintenance batching', async ({ page
 test('storage workspace supports selected-row rescans', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
@@ -6466,32 +6505,26 @@ test('storage workspace supports selected-row rescans', async ({ page }) => {
 test('storage workspace can create a new nfs storage repository from the top-level form', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
 
-  const createCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Create Storage Repository' }),
-  }).first();
-  await createCard.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
-  await createCard.getByLabel('Repository Type').selectOption('nfs');
-  await createCard.getByLabel('Repository Name').fill('Tier 2 NFS');
-  await createCard.getByLabel('Description').fill('Archive-capacity NFS storage');
-  await createCard.getByLabel('NFS Server').fill('10.42.0.25');
-  await createCard.getByLabel('NFS Export Path').fill('/exports/xen/tier2');
+  await page.locator('.section-head').getByRole('button', { name: 'Create Storage Repository' }).click();
+  const createStorageWindow = page.locator('.floating-window').filter({ hasText: 'Create Storage Repository' }).last();
+  await createStorageWindow.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
+  await createStorageWindow.getByLabel('Repository Type').selectOption('nfs');
+  await createStorageWindow.getByLabel('Repository Name').fill('Tier 2 NFS');
+  await createStorageWindow.getByLabel('Description').fill('Archive-capacity NFS storage');
+  await createStorageWindow.getByLabel('NFS Server').fill('10.42.0.25');
+  await createStorageWindow.getByLabel('NFS Export Path').fill('/exports/xen/tier2');
 
   const [createResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().endsWith('/api/storage')
     ),
-    createCard.getByRole('button', { name: 'Create Storage Repository' }).click(),
+    createStorageWindow.getByRole('button', { name: 'Create Storage Repository' }).click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect.poll(async () => (await createResponse.json())?.name_label || '').toBe('Tier 2 NFS');
@@ -6505,67 +6538,55 @@ test('storage workspace can create a new nfs storage repository from the top-lev
 test('storage workspace can probe an existing repository target before create', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
 
-  const createCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Create Storage Repository' }),
-  }).first();
-  await createCard.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
-  await createCard.getByLabel('Repository Type').selectOption('nfs');
-  await createCard.getByLabel('NFS Server').fill('10.42.0.25');
-  await createCard.getByLabel('NFS Export Path').fill('/exports/xen/imported');
+  await page.locator('.section-head').getByRole('button', { name: 'Create Storage Repository' }).click();
+  const createStorageWindow = page.locator('.floating-window').filter({ hasText: 'Create Storage Repository' }).last();
+  await createStorageWindow.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
+  await createStorageWindow.getByLabel('Repository Type').selectOption('nfs');
+  await createStorageWindow.getByLabel('NFS Server').fill('10.42.0.25');
+  await createStorageWindow.getByLabel('NFS Export Path').fill('/exports/xen/imported');
 
   const [probeResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().endsWith('/api/storage/probe')
     ),
-    createCard.getByRole('button', { name: 'Probe Existing SRs' }).click(),
+    createStorageWindow.getByRole('button', { name: 'Probe Existing SRs' }).click(),
   ]);
   expect(probeResponse.status()).toBe(200);
   await expect.poll(async () => (await probeResponse.json())?.results?.[0]?.sr?.name_label || '').toBe('Imported Archive SR');
 
-  await expect(createCard.getByText('Probe Discovery')).toBeVisible();
-  await expect(createCard.getByText('Imported Archive SR')).toBeVisible();
-  await expect(createCard.getByText('1 candidate · 1 existing SR · 1 complete configuration')).toBeVisible();
-  await expect(createCard.getByText('server=10.42.0.25 · serverpath=/exports/xen/imported')).toBeVisible();
+  await expect(createStorageWindow.getByText('Probe Discovery')).toBeVisible();
+  await expect(createStorageWindow.getByText('Imported Archive SR')).toBeVisible();
+  await expect(createStorageWindow.getByText('1 candidate · 1 existing SR · 1 complete configuration')).toBeVisible();
+  await expect(createStorageWindow.getByText('server=10.42.0.25 · serverpath=/exports/xen/imported')).toBeVisible();
 });
 
 test('storage workspace can introduce a probed repository into inventory and attach it to the selected host', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
 
-  const createCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Create Storage Repository' }),
-  }).first();
-  await createCard.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
-  await createCard.getByLabel('Repository Type').selectOption('nfs');
-  await createCard.getByLabel('NFS Server').fill('10.42.0.25');
-  await createCard.getByLabel('NFS Export Path').fill('/exports/xen/imported');
+  await page.locator('.section-head').getByRole('button', { name: 'Create Storage Repository' }).click();
+  const createStorageWindow = page.locator('.floating-window').filter({ hasText: 'Create Storage Repository' }).last();
+  await createStorageWindow.getByLabel('Placement Host').selectOption('OpaqueRef:host1');
+  await createStorageWindow.getByLabel('Repository Type').selectOption('nfs');
+  await createStorageWindow.getByLabel('NFS Server').fill('10.42.0.25');
+  await createStorageWindow.getByLabel('NFS Export Path').fill('/exports/xen/imported');
 
   await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().endsWith('/api/storage/probe')
     ),
-    createCard.getByRole('button', { name: 'Probe Existing SRs' }).click(),
+    createStorageWindow.getByRole('button', { name: 'Probe Existing SRs' }).click(),
   ]);
 
   const [importResponse] = await Promise.all([
@@ -6573,7 +6594,7 @@ test('storage workspace can introduce a probed repository into inventory and att
       response.request().method() === 'POST'
       && response.url().endsWith('/api/storage/import')
     ),
-    createCard.getByRole('button', { name: 'Introduce Or Attach' }).click(),
+    createStorageWindow.getByRole('button', { name: 'Introduce Or Attach' }).click(),
   ]);
   expect(importResponse.status()).toBe(201);
   await expect.poll(async () => (await importResponse.json())?.name_label || '').toBe('Imported Archive SR');
@@ -6587,54 +6608,57 @@ test('storage workspace can introduce a probed repository into inventory and att
 test('storage detail operations create detached vdis, resize them, delete them, and rescan the repository', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
-  await expect(page.locator('.dash-card-label').filter({ hasText: 'Create Or Attach VDI' }).first()).toBeVisible();
-
-  const createVdiCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Create Or Attach VDI' }),
-  }).first();
-  await createVdiCard.getByLabel('VDI Name').fill('logs-archive-01');
-  await createVdiCard.getByLabel('VDI Type').selectOption('metadata');
-  await createVdiCard.getByLabel('Capacity (GiB)', { exact: true }).fill('12');
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Create Or Attach VDI' }).click();
+  const createVdiWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Create Or Attach VDI' }),
+  }).last();
+  await createVdiWindow.getByLabel('VDI Name').fill('logs-archive-01');
+  await createVdiWindow.getByLabel('VDI Type').selectOption('metadata');
+  await createVdiWindow.getByLabel('Capacity (GiB)', { exact: true }).fill('12');
   const [createResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/storage/OpaqueRef%3Asr1/vdis')
     ),
-    page.getByRole('button', { name: 'Create VDI' }).click(),
+    createVdiWindow.getByRole('button', { name: 'Create VDI' }).click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect.poll(async () => (await createResponse.json())?.name_label || '').toBe('logs-archive-01');
-  const attachedVdisSection = page.locator('.detail-section').filter({
+  const attachedVdisSection = storageDetailWindow.locator('.detail-section').filter({
     has: page.locator('.detail-section-title').filter({ hasText: 'Attached VDIs' }),
   });
   await expect(attachedVdisSection.getByText('logs-archive-01').first()).toBeVisible();
+  await expect(createVdiWindow).not.toBeVisible();
 
-  const resizeVdiCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Resize Existing VDI' }),
-  }).first();
-  await resizeVdiCard.getByLabel('Target VDI').selectOption('OpaqueRef:vdi2');
-  await resizeVdiCard.getByLabel('New Capacity (GiB)', { exact: true }).fill('24');
+  const refreshedStorageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await refreshedStorageDetailWindow.getByRole('button', { name: 'Resize Existing VDI' }).click();
+  const resizeVdiWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Resize Existing VDI' }),
+  }).last();
+  await resizeVdiWindow.getByLabel('Target VDI').selectOption('OpaqueRef:vdi2');
+  await resizeVdiWindow.getByLabel('New Capacity (GiB)', { exact: true }).fill('24');
   const [resizeResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/storage/OpaqueRef%3Asr1/vdis/OpaqueRef%3Avdi2/resize')
     ),
-    resizeVdiCard.getByRole('button', { name: 'Resize VDI' }).click(),
+    resizeVdiWindow.getByRole('button', { name: 'Resize VDI' }).click(),
   ]);
   expect(resizeResponse.ok()).toBe(true);
   await expect.poll(async () => (await resizeResponse.json())?.virtual_size || 0).toBe(25769803776);
   await expect(attachedVdisSection.getByText('24 GiB').first()).toBeVisible();
+  await expect(resizeVdiWindow).not.toBeVisible();
 
   const createdVdiRow = attachedVdisSection.locator('.stack-item').filter({
     hasText: 'logs-archive-01',
@@ -6649,12 +6673,16 @@ test('storage detail operations create detached vdis, resize them, delete them, 
   expect(deleteResponse.ok()).toBe(true);
   await expect(attachedVdisSection.getByText('logs-archive-01')).toHaveCount(0);
 
+  await refreshedStorageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const repositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
   const [rescanResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/storage/OpaqueRef%3Asr1/rescan')
     ),
-    page.getByRole('button', { name: 'Rescan Repository' }).click(),
+    repositoryActionsWindow.getByRole('button', { name: 'Rescan Repository' }).click(),
   ]);
   expect(rescanResponse.ok()).toBe(true);
   await expect.poll(async () => (await rescanResponse.json())?.other_config?.last_rescan_at || '').toBe('2026-08-26T18:45:00.000Z');
@@ -6663,37 +6691,35 @@ test('storage detail operations create detached vdis, resize them, delete them, 
 test('storage detail operations can create and attach a new vdi directly to a workload', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Create Or Attach VDI' }).click();
+  const createVdiWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Create Or Attach VDI' }),
+  }).last();
 
-  const createCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Create Or Attach VDI' }),
-  }).first();
-
-  await createCard.getByLabel('VDI Name').fill('analytics-cache-01');
-  await createCard.getByLabel('Provisioning Mode').selectOption('attach');
-  await createCard.getByLabel('Target VM').selectOption('OpaqueRef:vm1');
-  await createCard.getByLabel('Capacity (GiB)').fill('18');
+  await createVdiWindow.getByLabel('VDI Name').fill('analytics-cache-01');
+  await createVdiWindow.getByLabel('Provisioning Mode').selectOption('attach');
+  await createVdiWindow.getByLabel('Target VM').selectOption('OpaqueRef:vm1');
+  await createVdiWindow.getByLabel('Capacity (GiB)').fill('18');
 
   const [attachResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/vms/OpaqueRef%3Avm1/disks')
     ),
-    createCard.getByRole('button', { name: 'Create VDI' }).click(),
+    createVdiWindow.getByRole('button', { name: 'Create VDI' }).click(),
   ]);
   expect(attachResponse.status()).toBe(201);
   await expect(page.getByText('analytics-cache-01 was created on Primary SR and attached to app-01.')).toBeVisible();
-  await expect(page.locator('.detail-section').filter({
+  await expect(storageDetailWindow.locator('.detail-section').filter({
     has: page.locator('.detail-section-title').filter({ hasText: 'Attached VDIs' }),
   }).getByText('analytics-cache-01')).toBeVisible();
 });
@@ -6701,82 +6727,96 @@ test('storage detail operations can create and attach a new vdi directly to a wo
 test('storage detail operations can repair the selected repository', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const repositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
 
   const [repairResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/storage/OpaqueRef%3Asr1/repair')
     ),
-    page.getByRole('button', { name: 'Repair Repository' }).click(),
+    repositoryActionsWindow.getByRole('button', { name: 'Repair Repository' }).click(),
   ]);
   expect(repairResponse.ok()).toBe(true);
   await expect.poll(async () => (await repairResponse.json())?.reattachedCount || 0).toBe(1);
   await expect(page.getByText('Storage operation completed')).toBeVisible();
   await expect(page.getByText('Primary SR repair refreshed storage metadata and reattached 1 path.')).toBeVisible();
-  await expect(page.getByText('2026-08-26T19:10:00.000Z')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const refreshedRepositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
+  await expect(refreshedRepositoryActionsWindow.getByText('2026-08-26T19:10:00.000Z')).toBeVisible();
 });
 
 test('storage detail operations can update the selected repository metadata', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Identity' }).click();
+  const repositoryIdentityWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Identity' }),
+  }).last();
 
-  await page.getByLabel('Repository Display Name').fill('Primary SR Renamed');
-  await page.getByLabel('Repository Description').fill('Updated operator-facing description for the primary repository.');
-  await page.getByLabel('Repository Tags').fill('flash, tier-2, archive');
-  await page.getByLabel('Repository other_config').fill('owner=storage-team\ntier=gold');
+  await repositoryIdentityWindow.getByLabel('Repository Display Name').fill('Primary SR Renamed');
+  await repositoryIdentityWindow.getByLabel('Repository Description').fill('Updated operator-facing description for the primary repository.');
+  await repositoryIdentityWindow.getByLabel('Repository Tags').fill('flash, tier-2, archive');
+  await repositoryIdentityWindow.getByLabel('Repository other_config').fill('owner=storage-team\ntier=gold');
 
   const [configResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'PUT'
       && response.url().includes('/api/storage/OpaqueRef%3Asr1/config')
     ),
-    page.getByRole('button', { name: 'Save Repository Metadata' }).click(),
+    repositoryIdentityWindow.getByRole('button', { name: 'Save Repository Metadata' }).click(),
   ]);
   expect(configResponse.ok()).toBe(true);
   await expect(page.getByText('Primary SR Renamed repository metadata was updated.')).toBeVisible();
-  await expect(page.getByText('Primary SR Renamed').first()).toBeVisible();
-  await expect(page.getByText('Updated operator-facing description for the primary repository.')).toBeVisible();
-  await expect(page.getByText('flash, tier-2, archive')).toBeVisible();
-  await expect(page.getByText('owner=storage-team · tier=gold')).toBeVisible();
+  await expect(repositoryIdentityWindow).not.toBeVisible();
+  const refreshedStorageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(refreshedStorageDetailWindow.getByText('Primary SR Renamed').first()).toBeVisible();
+  await expect(refreshedStorageDetailWindow.getByText('Updated operator-facing description for the primary repository.')).toBeVisible();
+  await expect(refreshedStorageDetailWindow.getByText('flash, tier-2, archive')).toBeVisible();
+  await expect(refreshedStorageDetailWindow.getByText('owner=storage-team · tier=gold')).toBeVisible();
 });
 
 test('storage detail operations can enable and disable local cache on an attached host path', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
-  const localCacheButton = page.getByRole('button', { name: 'Enable Local Cache' });
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const repositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
+  const localCacheButton = repositoryActionsWindow.getByRole('button', { name: 'Enable Local Cache' });
   await expect(localCacheButton).toBeEnabled();
 
   const [enableResponse] = await Promise.all([
@@ -6788,7 +6828,11 @@ test('storage detail operations can enable and disable local cache on an attache
   ]);
   expect(enableResponse.ok()).toBe(true);
   await expect(page.getByText('Primary SR is now the local cache SR for alpha-xen.')).toBeVisible();
-  const disableButton = page.getByRole('button', { name: 'Disable Local Cache' });
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const refreshedRepositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
+  const disableButton = refreshedRepositoryActionsWindow.getByRole('button', { name: 'Disable Local Cache' });
   await expect(disableButton).toBeEnabled();
 
   const [disableResponse] = await Promise.all([
@@ -6800,34 +6844,35 @@ test('storage detail operations can enable and disable local cache on an attache
   ]);
   expect(disableResponse.ok()).toBe(true);
   await expect(page.getByText('Primary SR local cache assignment was cleared for alpha-xen.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Enable Local Cache' })).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const finalRepositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
+  await expect(finalRepositoryActionsWindow.getByRole('button', { name: 'Enable Local Cache' })).toBeVisible();
 });
 
 test('networking workspace can create a managed network', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.getByLabel('Network Name').fill('Replication Transit');
-  await page.getByLabel('Bridge Name').fill('xenbr10');
-  await page.getByLabel('Description').fill('Dedicated replication bridge for backup copy traffic.');
-  await page.getByLabel('MTU').fill('1600');
-  await page.getByLabel('Tags').fill('replication, backup');
-  await page.getByLabel('Network other_config').fill('vlan=330\ndomain=replication');
+  await page.locator('.section-head').getByRole('button', { name: 'Create Network' }).click();
+  const createNetworkWindow = page.locator('.floating-window').filter({ hasText: 'Create Network' }).last();
+  await createNetworkWindow.getByLabel('Network Name').fill('Replication Transit');
+  await createNetworkWindow.getByLabel('Bridge Name').fill('xenbr10');
+  await createNetworkWindow.getByLabel('Description').fill('Dedicated replication bridge for backup copy traffic.');
+  await createNetworkWindow.getByLabel('MTU').fill('1600');
+  await createNetworkWindow.getByLabel('Tags').fill('replication, backup');
+  await createNetworkWindow.getByLabel('Network other_config').fill('vlan=330\ndomain=replication');
 
   const [createResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/networks')
     ),
-    page.getByRole('button', { name: 'Create Network' }).click(),
+    createNetworkWindow.getByRole('button', { name: 'Create Network' }).click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect(page.getByText('Replication Transit was created on xenbr10.')).toBeVisible();
@@ -6839,28 +6884,22 @@ test('networking workspace can create a managed network', async ({ page }) => {
 test('networking workspace can create a vlan mapping on an existing uplink path', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  const vlanCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Create VLAN' }),
-  }).first();
-  await vlanCard.getByLabel('Target Network').selectOption('OpaqueRef:net2');
-  await vlanCard.getByLabel('Tagged Host Uplink').selectOption('OpaqueRef:pif2');
-  await vlanCard.getByLabel('VLAN ID').fill('330');
+  await page.locator('.section-head').getByRole('button', { name: 'Create VLAN' }).click();
+  const createVlanWindow = page.locator('.floating-window').filter({ hasText: 'Create VLAN' }).last();
+  await createVlanWindow.getByLabel('Target Network').selectOption('OpaqueRef:net2');
+  await createVlanWindow.getByLabel('Tagged Host Uplink').selectOption('OpaqueRef:pif2');
+  await createVlanWindow.getByLabel('VLAN ID').fill('330');
 
   const [createResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/networks/vlans')
     ),
-    vlanCard.getByRole('button', { name: 'Create VLAN' }).click(),
+    createVlanWindow.getByRole('button', { name: 'Create VLAN' }).click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect(page.getByText('VLAN 330 was created on alpha-xen · uplink 2 · OpaqueRef:pif2 for Backup Network.')).toBeVisible();
@@ -6871,25 +6910,22 @@ test('networking workspace can create a vlan mapping on an existing uplink path'
 test('networking workspace can create a bond mapping on selected uplinks', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.getByLabel('Target Network').nth(1).selectOption('OpaqueRef:net2');
-  await page.getByLabel('Bond Mode').selectOption('lacp');
-  await page.getByLabel('Bond Members').selectOption(['OpaqueRef:pif2', 'OpaqueRef:pif4']);
+  await page.locator('.section-head').getByRole('button', { name: 'Create Bond' }).click();
+  const createBondWindow = page.locator('.floating-window').filter({ hasText: 'Create Bond' }).last();
+  await createBondWindow.getByLabel('Target Network').selectOption('OpaqueRef:net2');
+  await createBondWindow.getByLabel('Bond Mode').selectOption('lacp');
+  await createBondWindow.getByLabel('Bond Members').selectOption(['OpaqueRef:pif2', 'OpaqueRef:pif4']);
 
   const [createResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/networks/bonds')
     ),
-    page.getByRole('button', { name: 'Create Bond' }).click(),
+    createBondWindow.getByRole('button', { name: 'Create Bond' }).click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect(page.getByText('Bond lacp was created across 2 uplinks for Backup Network.')).toBeVisible();
@@ -6900,34 +6936,28 @@ test('networking workspace can create a bond mapping on selected uplinks', async
 test('networking detail operations can attach a workload interface to the selected network', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
   await page.locator('.data-table').getByText('Backup Network', { exact: true }).click();
   await expect(page.getByText('Network Operations')).toBeVisible();
 
-  const attachCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Attach Workload Interface' }),
-  }).first();
-  await attachCard.getByLabel('Target VM').selectOption('OpaqueRef:vm1');
-  await attachCard.getByLabel('Device Slot').fill('2');
+  const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
+  await detailWindow.getByRole('button', { name: 'Attach Workload Interface' }).click();
+  const attachWindow = getFloatingWindowByTitle(page, 'Attach Workload Interface');
+  await attachWindow.getByLabel('Target VM').selectOption('OpaqueRef:vm1');
+  await attachWindow.getByLabel('Device Slot').fill('2');
 
   const [attachResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/vms/OpaqueRef%3Avm1/nics')
     ),
-    attachCard.getByRole('button', { name: 'Attach VIF' }).click(),
+    attachWindow.getByRole('button', { name: 'Attach VIF' }).click(),
   ]);
   expect(attachResponse.status()).toBe(201);
   await expect(page.getByText('app-01 was connected to Backup Network.')).toBeVisible();
-  const detailWindow = page.locator('.floating-window').filter({ hasText: 'Network Properties' }).first();
   await expect(detailWindow.getByText('Focused Interface Handoff')).toBeVisible();
   await expect(detailWindow.getByText('app-01', { exact: true }).first()).toBeVisible();
 });
@@ -6935,17 +6965,12 @@ test('networking detail operations can attach a workload interface to the select
 test('networking detail operations can hot-unplug a workload interface from the selected network', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
   await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
-  const detailWindow = page.locator('.floating-window').filter({ hasText: 'Network Properties' }).first();
+  const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   const workloadRow = detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first();
   await expect(workloadRow).toContainText('attached');
 
@@ -6968,17 +6993,12 @@ test('networking detail operations can hot-unplug a workload interface from the 
 test('networking detail operations can remove a workload interface from the selected network', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
   await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
-  const detailWindow = page.locator('.floating-window').filter({ hasText: 'Network Properties' }).first();
+  const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   await expect(detailWindow.getByText('Connected Workloads')).toBeVisible();
   const workloadRow = detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first();
 
@@ -7001,33 +7021,30 @@ test('networking detail operations can remove a workload interface from the sele
 test('networking detail operations can update the selected network metadata', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
   await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
   await expect(page.getByText('Network Operations')).toBeVisible();
 
-  const detailWindow = page.locator('.floating-window').filter({ hasText: 'Network Properties' }).first();
-  await detailWindow.getByLabel('Network Name').fill('Production VM Network');
-  await detailWindow.getByLabel('MTU').fill('1600');
-  await detailWindow.getByLabel('Description').fill('Updated east-west traffic segment.');
-  await detailWindow.getByLabel('Tags').fill('prod, east-west');
-  await detailWindow.getByLabel('Default Locking Mode').selectOption('disabled');
-  await detailWindow.getByText('NBD', { exact: true }).click();
-  await detailWindow.getByLabel('Network other_config').fill('vlan=130\nowner=platform-ops');
+  const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
+  await detailWindow.getByRole('button', { name: 'Network Metadata' }).click();
+  const metadataWindow = getFloatingWindowByTitle(page, 'Network Metadata');
+  await metadataWindow.getByLabel('Network Name').fill('Production VM Network');
+  await metadataWindow.getByLabel('MTU').fill('1600');
+  await metadataWindow.getByLabel('Description').fill('Updated east-west traffic segment.');
+  await metadataWindow.getByLabel('Tags').fill('prod, east-west');
+  await metadataWindow.getByLabel('Default Locking Mode').selectOption('disabled');
+  await metadataWindow.getByText('NBD', { exact: true }).click();
+  await metadataWindow.getByLabel('Network other_config').fill('vlan=130\nowner=platform-ops');
 
   const [updateResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'PUT'
       && response.url().includes('/api/networks/OpaqueRef%3Anet1/config')
     ),
-    detailWindow.getByRole('button', { name: 'Save Network Metadata' }).click(),
+    metadataWindow.getByRole('button', { name: 'Save Network Metadata' }).click(),
   ]);
   expect(updateResponse.status()).toBe(200);
   await expect(page.getByText('Production VM Network network metadata was updated.')).toBeVisible();
@@ -7042,29 +7059,26 @@ test('networking detail operations can update the selected network metadata', as
 test('networking detail operations can update attached VIF QoS shaping', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
   await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
 
-  const detailWindow = page.locator('.floating-window').filter({ hasText: 'Network Properties' }).first();
-  await expect(detailWindow.getByRole('button', { name: 'Save Interface QoS' })).toBeVisible();
-  await detailWindow.getByLabel('Attached Interface').selectOption('OpaqueRef:vif1');
-  await detailWindow.getByLabel('QoS Algorithm').fill('ratelimit');
-  await detailWindow.getByLabel('QoS Parameters').fill('kbps=75000\ntimeslice_us=50000');
+  const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
+  await detailWindow.getByRole('button', { name: 'Interface QoS' }).click();
+  const qosWindow = getFloatingWindowByTitle(page, 'Interface QoS');
+  await expect(qosWindow.getByRole('button', { name: 'Save Interface QoS' })).toBeVisible();
+  await qosWindow.getByLabel('Attached Interface').selectOption('OpaqueRef:vif1');
+  await qosWindow.getByLabel('QoS Algorithm').fill('ratelimit');
+  await qosWindow.getByLabel('QoS Parameters').fill('kbps=75000\ntimeslice_us=50000');
 
   const [updateResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'PUT'
       && response.url().includes('/api/networks/interfaces/OpaqueRef%3Avif1/config')
     ),
-    detailWindow.getByRole('button', { name: 'Save Interface QoS' }).click(),
+    qosWindow.getByRole('button', { name: 'Save Interface QoS' }).click(),
   ]);
   expect(updateResponse.status()).toBe(200);
   await expect(page.getByText('app-01 interface OpaqueRef:vif1 QoS policy was updated on VM Network.')).toBeVisible();
@@ -7075,25 +7089,26 @@ test('networking detail operations can update attached VIF QoS shaping', async (
 test('networking detail operations gate attached network destroy and can destroy a detached network', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
 
   await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
   await expect(page.getByText('Network Operations')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Destroy Network' })).toBeDisabled();
-  await expect(page.getByText('Destroy requires a detached managed network. 2 host uplinks and 1 workload interface still map to this network.')).toBeVisible();
+  let detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
+  await detailWindow.getByRole('button', { name: 'Network Identity' }).click();
+  let identityWindow = getFloatingWindowByTitle(page, 'Network Identity');
+  await expect(identityWindow.getByRole('button', { name: 'Destroy Network' })).toBeDisabled();
+  await expect(identityWindow.getByText('Destroy requires a detached managed network. 2 host uplinks and 1 workload interface still map to this network.')).toBeVisible();
 
-  await page.locator('.floating-window .fw-close').first().click();
+  await detailWindow.locator('.fw-close').click();
   await page.locator('.data-table').getByText('Archive Transit', { exact: true }).click();
   await expect(page.getByText('Network Operations')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Destroy Network' })).toBeEnabled();
+  detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
+  await detailWindow.getByRole('button', { name: 'Network Identity' }).click();
+  identityWindow = getFloatingWindowByTitle(page, 'Network Identity');
+  await expect(identityWindow.getByRole('button', { name: 'Destroy Network' })).toBeEnabled();
 
   page.once('dialog', (dialog) => dialog.accept());
   const [destroyResponse] = await Promise.all([
@@ -7101,7 +7116,7 @@ test('networking detail operations gate attached network destroy and can destroy
       response.request().method() === 'POST'
       && response.url().includes('/api/networks/OpaqueRef%3Anet3/destroy')
     ),
-    page.getByRole('button', { name: 'Destroy Network' }).click(),
+    identityWindow.getByRole('button', { name: 'Destroy Network' }).click(),
   ]);
   expect(destroyResponse.ok()).toBe(true);
 
@@ -7113,46 +7128,47 @@ test('networking detail operations gate attached network destroy and can destroy
 test('storage detail operations block attached vdi deletion with attachment-aware guidance', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
 
-  const attachedVdiRow = page.locator('.detail-section').filter({
+  const attachedVdiRow = storageDetailWindow.locator('.detail-section').filter({
     has: page.locator('.detail-section-title').filter({ hasText: 'Attached VDIs' }),
   }).locator('.stack-item').filter({ hasText: 'disk-01' }).first();
-  const resizeCard = page.locator('.dash-card').filter({
-    has: page.locator('.dash-card-label').filter({ hasText: 'Resize Existing VDI' }),
-  }).first();
+  await storageDetailWindow.getByRole('button', { name: 'Resize Existing VDI' }).click();
+  const resizeVdiWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Resize Existing VDI' }),
+  }).last();
 
   await expect(attachedVdiRow.getByText('attached')).toBeVisible();
   await expect(attachedVdiRow.getByText('Delete is limited to detached VDIs. 1 workload attachment still map to this disk.')).toBeVisible();
   await expect(attachedVdiRow.getByRole('button', { name: 'Delete' })).toBeDisabled();
-  await expect(resizeCard.getByText('Resize Guidance')).toBeVisible();
-  await expect(resizeCard.getByText('This VDI is attached to 1 workload. Resize grows the virtual disk, but guest partition and filesystem expansion still need follow-through inside the workload.')).toBeVisible();
+  await expect(resizeVdiWindow.getByText('Resize Guidance')).toBeVisible();
+  await expect(resizeVdiWindow.getByText('This VDI is attached to 1 workload. Resize grows the virtual disk, but guest partition and filesystem expansion still need follow-through inside the workload.')).toBeVisible();
 });
 
 test('storage detail operations can forget a repository from the current workspace inventory', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
+  const storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  const repositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
 
   page.once('dialog', (dialog) => dialog.accept());
   const [forgetResponse] = await Promise.all([
@@ -7160,7 +7176,7 @@ test('storage detail operations can forget a repository from the current workspa
       response.request().method() === 'POST'
       && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
     ),
-    page.getByRole('button', { name: 'Forget Repository' }).click(),
+    repositoryActionsWindow.getByRole('button', { name: 'Forget Repository' }).click(),
   ]);
   expect(forgetResponse.ok()).toBe(true);
 
@@ -7196,30 +7212,40 @@ test('storage detail operations gate destroy for non-empty repositories and can 
     ],
   });
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
   await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Destroy Repository' })).toBeDisabled();
-  await expect(page.getByText('Destroy requires an empty repository. 1 disk still map to this storage repository.')).toBeVisible();
+  let storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  let repositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
+  await expect(repositoryActionsWindow.getByRole('button', { name: 'Destroy Repository' })).toBeDisabled();
+  await expect(repositoryActionsWindow.getByText('Destroy requires an empty repository. 1 disk still map to this storage repository.')).toBeVisible();
 
-  await page.locator('.floating-window .fw-close').first().click();
+  await repositoryActionsWindow.locator('.fw-close').click();
+  await storageDetailWindow.locator('.fw-close').click();
   await page.locator('.data-table').getByText('Archive SR', { exact: true }).click();
-  await expect(page.getByText('Storage Operations')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Destroy Repository' })).toBeEnabled();
+  storageDetailWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
+  }).last();
+  await expect(storageDetailWindow.getByText('Storage Operations')).toBeVisible();
+  await storageDetailWindow.getByRole('button', { name: 'Repository Actions' }).click();
+  repositoryActionsWindow = page.locator('.floating-window').filter({
+    has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
+  }).last();
+  await expect(repositoryActionsWindow.getByRole('button', { name: 'Destroy Repository' })).toBeEnabled();
   page.once('dialog', (dialog) => dialog.accept());
   const [destroyResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
       && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
     ),
-    page.getByRole('button', { name: 'Destroy Repository' }).click(),
+    repositoryActionsWindow.getByRole('button', { name: 'Destroy Repository' }).click(),
   ]);
   expect(destroyResponse.ok()).toBe(true);
 
@@ -7276,12 +7302,7 @@ test('pool and host registration flows live alongside the broader operator workb
     });
   });
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Pools').first().click();
   await expect(page).toHaveURL(/\/pools$/);
@@ -7289,18 +7310,24 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Profile Name').fill('DR Pool');
   await page.getByLabel('Pool Address').fill('10.0.0.55');
   await page.getByRole('button', { name: 'Save Pool Target' }).click();
-  await expect(page.getByText('DR Pool')).toBeVisible();
+  await page.locator('.section-head').getByRole('button', { name: /Registered Pool Targets/ }).click();
+  const operatorRegisteredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
+  await expect(operatorRegisteredTargetsWindow.getByText('DR Pool')).toBeVisible();
+  await operatorRegisteredTargetsWindow.locator('.fw-close').click();
   await page.locator('.data-table').getByText('Production Pool', { exact: true }).click();
-  await page.getByLabel('Pool Name').fill('Production Pool West');
-  await page.getByLabel('Description').fill('Updated operator-facing pool summary for the west cluster.');
-  await page.getByLabel('Default Storage Repository').selectOption('OpaqueRef:sr2');
-  await page.getByLabel('Legacy vSwitch Controller').fill('10.0.0.81');
-  await page.getByLabel('Enable pool-wide migration compression by default').check();
-  await page.getByLabel('Enable workload balancing for this pool').check();
-  await page.getByLabel('Enable IGMP snooping for multicast-sensitive pool networks').check();
-  await page.getByLabel('Pool Tags').fill('prod, west, governed');
-  await page.getByLabel('Pool other_config').fill('owner=platform-ops\ngovernance_tier=gold');
-  await page.getByRole('button', { name: 'Save Pool Metadata' }).click();
+  const poolDetailWindow = page.locator('.floating-window').filter({ hasText: 'Pool Properties' }).last();
+  await poolDetailWindow.getByRole('button', { name: 'Pool Identity' }).click();
+  const poolIdentityWindow = page.locator('.floating-window').filter({ hasText: 'Pool Identity' }).last();
+  await poolIdentityWindow.getByLabel('Pool Name').fill('Production Pool West');
+  await poolIdentityWindow.getByLabel('Description').fill('Updated operator-facing pool summary for the west cluster.');
+  await poolIdentityWindow.getByLabel('Default Storage Repository').selectOption('OpaqueRef:sr2');
+  await poolIdentityWindow.getByLabel('Legacy vSwitch Controller').fill('10.0.0.81');
+  await poolIdentityWindow.getByLabel('Enable pool-wide migration compression by default').check();
+  await poolIdentityWindow.getByLabel('Enable workload balancing for this pool').check();
+  await poolIdentityWindow.getByLabel('Enable IGMP snooping for multicast-sensitive pool networks').check();
+  await poolIdentityWindow.getByLabel('Pool Tags').fill('prod, west, governed');
+  await poolIdentityWindow.getByLabel('Pool other_config').fill('owner=platform-ops\ngovernance_tier=gold');
+  await poolIdentityWindow.getByRole('button', { name: 'Save Pool Metadata' }).click();
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.name_label || '').toBe('Production Pool West');
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.default_SR || '').toBe('OpaqueRef:sr2');
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.vswitch_controller || '').toBe('10.0.0.81');
@@ -7309,26 +7336,31 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.IGMP_snooping_enabled || false).toBe(true);
   await expect.poll(() => (fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.tags || []).join(',')).toBe('prod,west,governed');
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.other_config?.owner || '').toBe('platform-ops');
+  await poolIdentityWindow.locator('.fw-close').click();
+  await poolDetailWindow.getByRole('button', { name: 'Pool Context' }).click();
+  const poolContextWindow = page.locator('.floating-window').filter({ hasText: 'Pool Context' }).last();
   await expect(page.getByText('Associated Hosts')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Production Pool West', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Operations Archive SR', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Same-pool migration workflows default to a compressed transfer stream for this pool.', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Workload balancing is enabled via https://wlb-west.example.internal', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Legacy pool-level controller 10.0.0.81 is still configured here. Upstream deprecated this field in XenServer 7.2 in favor of SDN_controller workflows.', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Multicast membership tracking is enforced for pool networking.', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('prod, west, governed', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('owner=platform-ops · governance_tier=gold', { exact: true }).first()).toBeVisible();
-  await page.getByLabel('Heartbeat Storage Repository').selectOption('OpaqueRef:sr2');
-  await page.getByLabel('Host Failures To Tolerate').fill('2');
-  await page.getByRole('button', { name: 'Enable HA' }).click();
+  await expect(poolContextWindow.getByText('Operations Archive SR', { exact: true })).toBeVisible();
+  await expect(poolContextWindow.getByText('Same-pool migration workflows default to a compressed transfer stream for this pool.', { exact: true })).toBeVisible();
+  await expect(poolContextWindow.getByText('Workload balancing is enabled via https://wlb-west.example.internal', { exact: true })).toBeVisible();
+  await expect(poolContextWindow.getByText('Legacy pool-level controller 10.0.0.81 is still configured here. Upstream deprecated this field in XenServer 7.2 in favor of SDN_controller workflows.', { exact: true })).toBeVisible();
+  await expect(poolContextWindow.getByText('Multicast membership tracking is enforced for pool networking.', { exact: true })).toBeVisible();
+  await expect(poolContextWindow.getByText('owner=platform-ops · governance_tier=gold', { exact: true })).toBeVisible();
+  await poolContextWindow.locator('.fw-close').click();
+  await poolDetailWindow.getByRole('button', { name: /High Availability/ }).click();
+  const poolHaWindow = page.locator('.floating-window').filter({ hasText: 'High Availability' }).last();
+  await poolHaWindow.getByLabel('Heartbeat Storage Repository').selectOption('OpaqueRef:sr2');
+  await poolHaWindow.getByLabel('Host Failures To Tolerate').fill('2');
+  await poolHaWindow.getByRole('button', { name: 'Enable HA' }).click();
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.ha_enabled || false).toBe(true);
   await expect.poll(() => fixtures.poolInventory.find((entry) => entry.ref === 'OpaqueRef:pool1')?.ha_host_failures_to_tolerate || 0).toBe(2);
-  await expect(page.locator('.floating-window').getByText('Enabled', { exact: true }).first()).toBeVisible();
+  await expect(poolHaWindow.getByText('Enabled', { exact: true })).toBeVisible();
   await expect(page.getByText('Production Pool West high availability is now enabled with a 2 host-failure target.')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('2 host failure(s)', { exact: true }).first()).toBeVisible();
+  await expect(poolDetailWindow.getByText('2 host failure(s)', { exact: true })).toBeVisible();
   await expect(page.getByText('Associated Hosts')).toBeVisible();
   await expect(page.getByText('alpha-xen')).toBeVisible();
-  await page.locator('.floating-window').getByRole('button').last().click();
+  await poolDetailWindow.locator('.fw-close').click();
 
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
@@ -7338,7 +7370,9 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Saved Vault Credential').selectOption('2');
   await page.getByLabel('Attach this standalone host to the current session after save').check();
   await page.getByRole('button', { name: 'Save Host Target' }).click();
-  await expect(page.locator('.dash-card').filter({ hasText: 'Registered Host Targets' }).getByText('delta-edge', { exact: true })).toBeVisible();
+  await page.locator('.section-head').getByRole('button', { name: /Registered Host Targets/ }).click();
+  const registeredHostTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Host Targets' }).last();
+  await expect(registeredHostTargetsWindow.getByText('delta-edge', { exact: true })).toBeVisible();
   await expect(page.getByText('connected now')).toBeVisible();
 
   await page.getByRole('button', { name: 'Register Host' }).click();
@@ -7347,56 +7381,78 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Registration Mode').selectOption('pool-member');
   await page.getByLabel('Target Pool').selectOption('1');
   await page.getByRole('button', { name: 'Save Host Target' }).click();
-  await expect(page.locator('.dash-card').filter({ hasText: 'Registered Host Targets' }).getByText('gamma-xen', { exact: true })).toBeVisible();
+  await expect(registeredHostTargetsWindow.getByText('gamma-xen', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open Pool' }).click();
   await expect(page).toHaveURL(/\/pools/);
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
   await page.locator('.data-table').getByText('alpha-xen', { exact: true }).first().click();
-  await expect(page.locator('.floating-window').getByText('Pool Membership').first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Operations', { exact: true }).first()).toBeVisible();
+  const hostDetailWindow = page.locator('.floating-window').filter({ hasText: 'Host Properties' }).last();
+  await expect(hostDetailWindow.getByText('Pool Membership').first()).toBeVisible();
+  await expect(hostDetailWindow.getByText('Operations', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Related Host Inventory')).toBeVisible();
   await expect(page.getByText('Primary SR')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('app-01', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Enterprise', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('24 CPUs · 2 sockets · 6 cores/socket · 2 threads/core · AMD EPYC', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('product_version=8.4.0 · product_brand=XenServer · platform_name=west-cluster-master', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('address=10.0.0.90 · port=27000', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('1, 2, 3, 4', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('AD', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('corp.example.internal', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('domain=corp.example.internal · server=ldap01.corp.example.internal', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('weight=256 · cap=0', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('CPU scheduling', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Disabled', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('system-manufacturer=Dell Inc. · system-product-name=PowerEdge R750 · bios-version=1.12.2', { exact: true }).first()).toBeVisible();
-  await page.getByLabel('Host Name').fill('alpha-xen-west');
-  await page.getByLabel('Description').fill('Updated operator-facing description for the west production host.');
-  await page.getByLabel('Host Tags').fill('prod, west, governed');
-  await page.getByRole('button', { name: 'Save Host Metadata' }).click();
+  await expect(hostDetailWindow.getByText('app-01', { exact: true }).first()).toBeVisible();
+  await hostDetailWindow.getByRole('button', { name: 'Host Context' }).click();
+  const hostContextWindow = page.locator('.floating-window').filter({ hasText: 'Host Context' }).last();
+  await expect(hostContextWindow.getByText('Production Pool West', { exact: true })).toBeVisible();
+  await hostContextWindow.locator('.fw-close').click();
+  await hostDetailWindow.getByRole('button', { name: 'Platform and Licensing' }).click();
+  const hostPlatformWindow = page.locator('.floating-window').filter({ hasText: 'Platform and Licensing' }).last();
+  await expect(hostPlatformWindow.getByText('Enterprise', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('24 CPUs · 2 sockets · 6 cores/socket · 2 threads/core · AMD EPYC', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('product_version=8.4.0 · product_brand=XenServer · platform_name=west-cluster-master', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('address=10.0.0.90 · port=27000', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('1, 2, 3, 4', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('AD · corp.example.internal', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('domain=corp.example.internal · server=ldap01.corp.example.internal', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('weight=256 · cap=0', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('CPU scheduling', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('Disabled', { exact: true })).toBeVisible();
+  await expect(hostPlatformWindow.getByText('system-manufacturer=Dell Inc. · system-product-name=PowerEdge R750 · bios-version=1.12.2', { exact: true })).toBeVisible();
+  await hostPlatformWindow.locator('.fw-close').click();
+  await hostDetailWindow.getByRole('button', { name: 'Host Identity' }).click();
+  const hostIdentityWindow = page.locator('.floating-window').filter({ hasText: 'Host Identity' }).last();
+  await hostIdentityWindow.getByLabel('Host Name').fill('alpha-xen-west');
+  await hostIdentityWindow.getByLabel('Description').fill('Updated operator-facing description for the west production host.');
+  await hostIdentityWindow.getByLabel('Host Tags').fill('prod, west, governed');
+  await hostIdentityWindow.getByRole('button', { name: 'Save Host Metadata' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.name_label || '').toBe('alpha-xen-west');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.name_description || '').toBe('Updated operator-facing description for the west production host.');
   await expect.poll(() => (fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.tags || []).join(',')).toBe('prod,west,governed');
   await expect(page.getByText('alpha-xen-west metadata was updated.')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Updated operator-facing description for the west production host.', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('prod, west, governed', { exact: true }).first()).toBeVisible();
-  await page.getByLabel('Guest VCPU Parameters').fill('weight=384\ncap=0');
-  await page.getByRole('button', { name: 'Save Guest VCPU Policy' }).click();
+  await hostIdentityWindow.locator('.fw-close').click();
+  await hostDetailWindow.getByRole('button', { name: 'Host Context' }).click();
+  const updatedHostContextWindow = page.locator('.floating-window').filter({ hasText: 'Host Context' }).last();
+  await expect(updatedHostContextWindow.getByText('Updated operator-facing description for the west production host.', { exact: true })).toBeVisible();
+  await updatedHostContextWindow.locator('.fw-close').click();
+  await expect(hostDetailWindow.getByText('prod, west, governed', { exact: true }).first()).toBeVisible();
+  await hostDetailWindow.getByRole('button', { name: 'Guest CPU Policy' }).click();
+  const hostGuestCpuWindow = page.locator('.floating-window').filter({ hasText: 'Guest CPU Policy' }).last();
+  await hostGuestCpuWindow.getByLabel('Guest VCPU Parameters').fill('weight=384\ncap=0');
+  await hostGuestCpuWindow.getByRole('button', { name: 'Save Guest VCPU Policy' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.guest_VCPUs_params?.weight || '').toBe('384');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.guest_VCPUs_params?.cap || '').toBe('0');
   await expect(page.getByText('alpha-xen-west guest VCPU policy was updated.')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('weight=384 · cap=0', { exact: true }).first()).toBeVisible();
-  await page.getByLabel('Scheduler Granularity').selectOption('core');
-  await page.getByRole('button', { name: 'Save Scheduler Policy' }).click();
+  await expect(hostDetailWindow.getByText('weight=384 · cap=0', { exact: true }).first()).toBeVisible();
+  await hostGuestCpuWindow.locator('.fw-close').click();
+  await hostDetailWindow.getByRole('button', { name: 'Scheduler Policy' }).click();
+  const hostSchedulerWindow = page.locator('.floating-window').filter({ hasText: 'Scheduler Policy' }).last();
+  await hostSchedulerWindow.getByLabel('Scheduler Granularity').selectOption('core');
+  await hostSchedulerWindow.getByRole('button', { name: 'Save Scheduler Policy' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.sched_gran || '').toBe('core');
   await expect(page.getByText('alpha-xen-west scheduler policy was updated.')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('Core scheduling', { exact: true }).first()).toBeVisible();
-  await page.getByLabel('Host Logging').fill('syslog_destination=10.0.0.51\nsyslog_level=warning');
-  await page.getByRole('button', { name: 'Save Host Logging' }).click();
+  await expect(hostDetailWindow.getByText('Core scheduling', { exact: true }).first()).toBeVisible();
+  await hostSchedulerWindow.locator('.fw-close').click();
+  await hostDetailWindow.getByRole('button', { name: 'Host Logging' }).click();
+  const hostLoggingWindow = page.locator('.floating-window').filter({ hasText: 'Host Logging' }).last();
+  await hostLoggingWindow.getByLabel('Host Logging').fill('syslog_destination=10.0.0.51\nsyslog_level=warning');
+  await hostLoggingWindow.getByRole('button', { name: 'Save Host Logging' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_destination || '').toBe('10.0.0.51');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_level || '').toBe('warning');
   await expect(page.getByText('alpha-xen-west logging configuration was updated.')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('syslog_destination=10.0.0.51 · syslog_level=warning', { exact: true }).first()).toBeVisible();
+  await expect(hostDetailWindow.getByText('syslog_destination=10.0.0.51 · syslog_level=warning', { exact: true }).first()).toBeVisible();
+  await hostLoggingWindow.locator('.fw-close').click();
   await page.getByLabel('Migration Network').selectOption('OpaqueRef:net1');
   await page.getByLabel('Evacuation Batch Size').fill('2');
   await page.getByRole('button', { name: 'Enter Maintenance Mode' }).click();
@@ -7410,13 +7466,15 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
   await expect(page.getByRole('heading', { name: 'Networks' })).toBeVisible();
-  await page.getByLabel('Network Name').fill('Replication Transit');
-  await page.getByLabel('Bridge Name').fill('xenbr10');
-  await page.getByLabel('Description').fill('Dedicated replication bridge for backup copy traffic.');
-  await page.getByLabel('MTU').fill('1600');
-  await page.getByLabel('Tags').fill('replication, backup');
-  await page.getByLabel('Network other_config').fill('vlan=330\ndomain=replication');
-  await page.getByRole('button', { name: 'Create Network' }).click();
+  await page.locator('.section-head').getByRole('button', { name: 'Create Network' }).click();
+  const operatorCreateNetworkWindow = page.locator('.floating-window').filter({ hasText: 'Create Network' }).last();
+  await operatorCreateNetworkWindow.getByLabel('Network Name').fill('Replication Transit');
+  await operatorCreateNetworkWindow.getByLabel('Bridge Name').fill('xenbr10');
+  await operatorCreateNetworkWindow.getByLabel('Description').fill('Dedicated replication bridge for backup copy traffic.');
+  await operatorCreateNetworkWindow.getByLabel('MTU').fill('1600');
+  await operatorCreateNetworkWindow.getByLabel('Tags').fill('replication, backup');
+  await operatorCreateNetworkWindow.getByLabel('Network other_config').fill('vlan=330\ndomain=replication');
+  await operatorCreateNetworkWindow.getByRole('button', { name: 'Create Network' }).click();
   await expect(page.getByText('Replication Transit was created on xenbr10.')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Replication Transit', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('1600', { exact: true })).toBeVisible();
@@ -8009,12 +8067,7 @@ test('pool and host registration flows live alongside the broader operator workb
 test('settings workspace saves runtime configuration and previews retention', async ({ page }) => {
   await stubAuthenticatedRoutes(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Direct Xen Login' }).click();
-  await page.getByLabel('Host Address').fill('10.0.0.1');
-  await page.getByLabel('Username').fill('root');
-  await page.getByLabel('Password').fill('secret');
-  await page.getByRole('button', { name: 'Initialize Connection' }).click();
+  await signInAndConnectDefaultTarget(page);
 
   await page.getByText('Settings').first().click();
   await expect(page).toHaveURL(/\/settings$/);

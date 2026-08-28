@@ -15,6 +15,16 @@ const PoolsView = {
             <span class="mdi mdi-plus"></span>
             Register Pool
           </button>
+          <button class="btn btn-sm"
+                  v-if="attachedTargets.length"
+                  @click="showAttachedTargetsWindow = true">
+            <span class="mdi mdi-lan-connect"></span>
+            Attached Live Targets ({{ attachedTargets.length }})
+          </button>
+          <button class="btn btn-sm" @click="showRegisteredTargetsWindow = true">
+            <span class="mdi mdi-server-network-outline"></span>
+            Registered Pool Targets ({{ connections.length }})
+          </button>
           <button class="btn btn-primary" @click="loadAll">
             <span class="mdi mdi-refresh"></span>
             Refresh
@@ -36,87 +46,17 @@ const PoolsView = {
               <span class="mdi mdi-connection"></span>
               Connect {{ preferredConnection.name || preferredConnection.host }}
             </button>
+            <button class="btn"
+                    @click="showRegisteredTargetsWindow = true">
+              <span class="mdi mdi-server-network-outline"></span>
+              Browse Registered Targets
+            </button>
             <button class="btn" @click="openRegistration()">
               <span class="mdi mdi-plus"></span>
               Register Another Pool
             </button>
           </div>
           <div class="form-error" v-if="liveDataError" style="text-align:left;margin-top:12px">{{ liveDataError }}</div>
-        </div>
-
-        <div class="dash-card" v-if="attachedTargets.length">
-          <div class="dash-card-label">Attached Live Targets</div>
-          <div class="stack-list">
-            <div class="stack-item" v-for="target in attachedTargets" :key="target.targetKey">
-              <div>
-                <strong>{{ target.connectionName || target.host }}</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ target.host }} · {{ target.username }} · :{{ target.port || 443 }}</div>
-                <div class="text-muted" style="font-size:12px;margin-top:6px">
-                  Attached {{ formatDateTime(target.connectedAt) }}
-                  <span v-if="target.lastActivatedAt"> · active since {{ formatDateTime(target.lastActivatedAt) }}</span>
-                </div>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
-                <status-badge :status="target.active ? 'connected' : 'success'"></status-badge>
-                <button class="btn btn-sm" v-if="!target.active" @click="activateLiveTarget(target)">
-                  <span class="mdi mdi-target"></span>
-                  Activate
-                </button>
-                <button class="btn btn-sm" @click="disconnectLiveTarget(target)">
-                  <span class="mdi mdi-link-variant-remove"></span>
-                  Detach
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="dash-card">
-          <div class="dash-card-label">Registered Pool Targets</div>
-          <div class="stack-list" v-if="connections.length">
-            <div class="stack-item" v-for="connection in connections" :key="connection.id">
-              <div>
-                <strong>{{ connection.name }}</strong>
-                <div class="text-muted mono" style="font-size:11px">{{ connection.host }} · {{ connection.username }} · :{{ connection.port || 443 }}</div>
-                <div class="text-muted" style="font-size:12px;margin-top:6px">
-                  {{ connection.is_default ? 'Default saved target' : 'Saved pool target' }}
-                  <span v-if="isCurrentConnection(connection)"> · connected now</span>
-                  <span v-else-if="isConnectionAttached(connection)"> · attached in session</span>
-                  <span v-if="connection.vault_credential_id"> · vault credential linked</span>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                  <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
-                  <span class="badge badge-info" v-if="connection.owner_display_name || connection.owner_username">{{ ownershipLabel(connection) }}</span>
-                </div>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
-                <status-badge :status="isCurrentConnection(connection) ? 'connected' : (isConnectionAttached(connection) ? 'success' : (connection.is_default ? 'success' : 'notice'))"></status-badge>
-                <button class="btn btn-sm"
-                        v-if="!isConnectionAttached(connection)"
-                        @click="openConnectDialog(connection)">
-                  <span class="mdi mdi-connection"></span>
-                  Connect
-                </button>
-                <button class="btn btn-sm"
-                        v-if="isConnectionAttached(connection) && !isCurrentConnection(connection)"
-                        @click="activateConnection(connection)">
-                  <span class="mdi mdi-target"></span>
-                  Activate
-                </button>
-                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="openRegistration(connection)">
-                  <span class="mdi mdi-pencil-outline"></span>
-                </button>
-                <button class="btn btn-sm" v-if="!connection.is_default && connection.can_manage !== false" @click="makeDefault(connection.id)">
-                  <span class="mdi mdi-star-outline"></span>
-                </button>
-                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="removeConnection(connection.id)">
-                  <span class="mdi mdi-delete-outline"></span>
-                </button>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-state" style="padding:18px 12px">Register pool targets here for future logins and multi-pool operations.</div>
-          <div class="form-error" v-if="connectionError" style="text-align:left">{{ connectionError }}</div>
         </div>
       </div>
 
@@ -141,7 +81,7 @@ const PoolsView = {
         <div v-else>No pools were returned by the currently attached Xen target.</div>
       </div>
 
-      <floating-window :show="showProps" title="Pool Properties" :width="820" :height="560" @close="showProps = false">
+      <floating-window :show="showProps" title="Pool Properties" :width="820" :height="560" @close="closePoolProperties">
         <div v-if="selectedPool">
           <div class="property-grid">
             <span class="text-muted">Name</span><span>{{ selectedPool.name_label || '-' }}</span>
@@ -163,122 +103,23 @@ const PoolsView = {
           </div>
 
           <div class="detail-section">
-            <div class="detail-section-title">Pool Metadata</div>
-            <div class="dashboard-panels">
-              <div class="dash-card">
-                <div class="dash-card-label">Pool Identity</div>
-                <p class="text-muted" style="margin-bottom:12px">Update the operator-facing pool name and description without leaving the pool detail workspace.</p>
-                <pool-config-form
-                  :initial-value="selectedPool"
-                  :storage-options="selectedPoolStorageOptions"
-                  :submit-label="'Save Pool Metadata'"
-                  :saving="poolConfigSaving"
-                  @submit="submitSelectedPoolConfig">
-                </pool-config-form>
-              </div>
-
-              <div class="dash-card">
-                <div class="dash-card-label">Pool Context</div>
-                <div class="stack-list">
-                  <div class="stack-item">
-                    <div>
-                      <strong>{{ selectedPool.name_label || 'Selected pool' }}</strong>
-                      <div class="text-muted mono" style="font-size:11px">
-                        {{ selectedPool.uuid || selectedPool.ref || 'pool ref unavailable' }}
-                      </div>
-                    </div>
-                    <span class="badge badge-info">{{ summarizeCount('hosts', selectedPoolHosts.length) }}</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Default SR</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolDefaultStorageLabel }}</div>
-                    </div>
-                    <span class="badge badge-info">sr</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Migration Compression</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolMigrationCompressionDetail }}</div>
-                    </div>
-                    <span class="badge" :class="selectedPool?.migration_compression ? 'badge-success' : 'badge-warning'">
-                      {{ selectedPoolMigrationCompressionLabel }}
-                    </span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Workload Balancing</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolWlbDetail }}</div>
-                    </div>
-                    <span class="badge" :class="selectedPool?.wlb_enabled ? 'badge-success' : 'badge-warning'">
-                      {{ selectedPoolWlbEnabledLabel }}
-                    </span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Legacy vSwitch Controller</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolVswitchControllerDetail }}</div>
-                    </div>
-                    <span class="badge" :class="selectedPoolVswitchControllerConfigured ? 'badge-warning' : 'badge-info'">
-                      {{ selectedPoolVswitchControllerConfigured ? 'legacy' : 'none' }}
-                    </span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>IGMP Snooping</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolIgmpSnoopingDetail }}</div>
-                    </div>
-                    <span class="badge" :class="selectedPool?.IGMP_snooping_enabled ? 'badge-success' : 'badge-warning'">
-                      {{ selectedPoolIgmpSnoopingLabel }}
-                    </span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Migration Network</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPool.migration_network || 'not configured' }}</div>
-                    </div>
-                    <span class="badge badge-info">network</span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Pool other_config</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolOtherConfigSummary }}</div>
-                    </div>
-                    <span class="badge badge-info">{{ selectedPoolOtherConfigEntries.length }}</span>
-                  </div>
-                </div>
-                <p class="text-muted" style="margin:0">Deeper SDN controller lifecycle workflows and richer WLB enrollment still remain follow-on parity work.</p>
-              </div>
+            <div class="detail-section-title">Pool Workspaces</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" type="button" @click="showPoolIdentityWindow = true">
+                <span class="mdi mdi-form-textbox"></span>
+                Pool Identity
+              </button>
+              <button class="btn btn-sm" type="button" @click="showPoolContextWindow = true">
+                <span class="mdi mdi-file-tree-outline"></span>
+                Pool Context
+              </button>
+              <button class="btn btn-sm" type="button" @click="showPoolHaWindow = true">
+                <span class="mdi mdi-shield-check-outline"></span>
+                High Availability ({{ selectedPoolHaEnabledLabel }})
+              </button>
             </div>
-            <div class="dashboard-panels" style="margin-top:16px">
-              <div class="dash-card">
-                <div class="dash-card-label">High Availability</div>
-                <div class="stack-list" style="margin-bottom:12px">
-                  <div class="stack-item">
-                    <div>
-                      <strong>Status</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolHaStatusDetail }}</div>
-                    </div>
-                    <span class="badge" :class="selectedPool?.ha_enabled ? 'badge-success' : 'badge-warning'">
-                      {{ selectedPoolHaEnabledLabel }}
-                    </span>
-                  </div>
-                  <div class="stack-item">
-                    <div>
-                      <strong>Failover Planner</strong>
-                      <div class="text-muted mono" style="font-size:11px">{{ selectedPoolHaPlannerDetail }}</div>
-                    </div>
-                    <span class="badge badge-info">{{ selectedPool?.ha_plan_exists_for || 0 }}</span>
-                  </div>
-                </div>
-                <pool-ha-form
-                  :initial-value="selectedPool"
-                  :storage-options="selectedPoolStorageOptions"
-                  :saving="poolHaSaving"
-                  :submit-label="selectedPool?.ha_enabled ? 'Save HA Settings' : 'Enable HA'"
-                  @submit="submitSelectedPoolHaState">
-                </pool-ha-form>
-              </div>
+            <div class="text-muted mono" style="font-size:11px;margin-top:10px">
+              {{ selectedPoolDefaultStorageLabel }} · {{ selectedPoolMigrationCompressionLabel }} compression · {{ selectedPoolHaToleranceLabel }}
             </div>
             <div class="stack-item" v-if="poolActionMessage" style="margin-top:12px">
               <div>
@@ -309,6 +150,138 @@ const PoolsView = {
               </template>
             </data-table>
           </div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showPoolIdentityWindow"
+                       title="Pool Identity"
+                       :width="720"
+                       :height="520"
+                       @close="showPoolIdentityWindow = false">
+        <div class="detail-section" v-if="selectedPool">
+          <div class="detail-title">Pool Metadata Editor</div>
+          <p class="text-muted" style="margin-bottom:12px">Update the operator-facing pool name and description without leaving the pool detail workspace.</p>
+          <pool-config-form
+            :initial-value="selectedPool"
+            :storage-options="selectedPoolStorageOptions"
+            :submit-label="'Save Pool Metadata'"
+            :saving="poolConfigSaving"
+            @submit="submitSelectedPoolConfig">
+          </pool-config-form>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showPoolContextWindow"
+                       title="Pool Context"
+                       :width="760"
+                       :height="560"
+                       @close="showPoolContextWindow = false">
+        <div class="detail-section" v-if="selectedPool">
+          <div class="detail-title">Context Snapshot</div>
+          <div class="stack-list">
+            <div class="stack-item">
+              <div>
+                <strong>{{ selectedPool.name_label || 'Selected pool' }}</strong>
+                <div class="text-muted mono" style="font-size:11px">
+                  {{ selectedPool.uuid || selectedPool.ref || 'pool ref unavailable' }}
+                </div>
+              </div>
+              <span class="badge badge-info">{{ summarizeCount('hosts', selectedPoolHosts.length) }}</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Default SR</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolDefaultStorageLabel }}</div>
+              </div>
+              <span class="badge badge-info">sr</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Migration Compression</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolMigrationCompressionDetail }}</div>
+              </div>
+              <span class="badge" :class="selectedPool?.migration_compression ? 'badge-success' : 'badge-warning'">
+                {{ selectedPoolMigrationCompressionLabel }}
+              </span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Workload Balancing</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolWlbDetail }}</div>
+              </div>
+              <span class="badge" :class="selectedPool?.wlb_enabled ? 'badge-success' : 'badge-warning'">
+                {{ selectedPoolWlbEnabledLabel }}
+              </span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Legacy vSwitch Controller</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolVswitchControllerDetail }}</div>
+              </div>
+              <span class="badge" :class="selectedPoolVswitchControllerConfigured ? 'badge-warning' : 'badge-info'">
+                {{ selectedPoolVswitchControllerConfigured ? 'legacy' : 'none' }}
+              </span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>IGMP Snooping</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolIgmpSnoopingDetail }}</div>
+              </div>
+              <span class="badge" :class="selectedPool?.IGMP_snooping_enabled ? 'badge-success' : 'badge-warning'">
+                {{ selectedPoolIgmpSnoopingLabel }}
+              </span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Migration Network</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPool.migration_network || 'not configured' }}</div>
+              </div>
+              <span class="badge badge-info">network</span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Pool other_config</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolOtherConfigSummary }}</div>
+              </div>
+              <span class="badge badge-info">{{ selectedPoolOtherConfigEntries.length }}</span>
+            </div>
+          </div>
+          <p class="text-muted" style="margin:12px 0 0">Deeper SDN controller lifecycle workflows and richer WLB enrollment still remain follow-on parity work.</p>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showPoolHaWindow"
+                       title="High Availability"
+                       :width="720"
+                       :height="520"
+                       @close="showPoolHaWindow = false">
+        <div class="detail-section" v-if="selectedPool">
+          <div class="detail-title">HA Policy</div>
+          <div class="stack-list" style="margin-bottom:12px">
+            <div class="stack-item">
+              <div>
+                <strong>Status</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolHaStatusDetail }}</div>
+              </div>
+              <span class="badge" :class="selectedPool?.ha_enabled ? 'badge-success' : 'badge-warning'">
+                {{ selectedPoolHaEnabledLabel }}
+              </span>
+            </div>
+            <div class="stack-item">
+              <div>
+                <strong>Failover Planner</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ selectedPoolHaPlannerDetail }}</div>
+              </div>
+              <span class="badge badge-info">{{ selectedPool?.ha_plan_exists_for || 0 }}</span>
+            </div>
+          </div>
+          <pool-ha-form
+            :initial-value="selectedPool"
+            :storage-options="selectedPoolStorageOptions"
+            :saving="poolHaSaving"
+            :submit-label="selectedPool?.ha_enabled ? 'Save HA Settings' : 'Enable HA'"
+            @submit="submitSelectedPoolHaState">
+          </pool-ha-form>
         </div>
       </floating-window>
 
@@ -369,6 +342,94 @@ const PoolsView = {
           <div class="form-error" v-if="connectError">{{ connectError }}</div>
         </form>
       </floating-window>
+
+      <floating-window :show="showAttachedTargetsWindow"
+                       title="Attached Live Targets"
+                       :width="760"
+                       :height="500"
+                       @close="showAttachedTargetsWindow = false">
+        <div class="detail-section" style="margin-top:0">
+          <div class="detail-section-title">Current Session Targets</div>
+          <div class="stack-list" v-if="attachedTargets.length">
+            <div class="stack-item" v-for="target in attachedTargets" :key="target.targetKey">
+              <div>
+                <strong>{{ target.connectionName || target.host }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ target.host }} · {{ target.username }} · :{{ target.port || 443 }}</div>
+                <div class="text-muted" style="font-size:12px;margin-top:6px">
+                  Attached {{ formatDateTime(target.connectedAt) }}
+                  <span v-if="target.lastActivatedAt"> · active since {{ formatDateTime(target.lastActivatedAt) }}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
+                <status-badge :status="target.active ? 'connected' : 'success'"></status-badge>
+                <button class="btn btn-sm" v-if="!target.active" @click="activateLiveTarget(target)">
+                  <span class="mdi mdi-target"></span>
+                  Activate
+                </button>
+                <button class="btn btn-sm" @click="disconnectLiveTarget(target)">
+                  <span class="mdi mdi-link-variant-remove"></span>
+                  Detach
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-state" style="padding:18px 12px">No live Xen targets are currently attached to this control-plane session.</div>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showRegisteredTargetsWindow"
+                       title="Registered Pool Targets"
+                       :width="820"
+                       :height="560"
+                       @close="showRegisteredTargetsWindow = false">
+        <div class="detail-section" style="margin-top:0">
+          <div class="detail-section-title">Saved Pool Targets</div>
+          <div class="stack-list" v-if="connections.length">
+            <div class="stack-item" v-for="connection in connections" :key="connection.id">
+              <div>
+                <strong>{{ connection.name }}</strong>
+                <div class="text-muted mono" style="font-size:11px">{{ connection.host }} · {{ connection.username }} · :{{ connection.port || 443 }}</div>
+                <div class="text-muted" style="font-size:12px;margin-top:6px">
+                  {{ connection.is_default ? 'Default saved target' : 'Saved pool target' }}
+                  <span v-if="isCurrentConnection(connection)"> · connected now</span>
+                  <span v-else-if="isConnectionAttached(connection)"> · attached in session</span>
+                  <span v-if="connection.vault_credential_id"> · vault credential linked</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                  <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
+                  <span class="badge badge-info" v-if="connection.owner_display_name || connection.owner_username">{{ ownershipLabel(connection) }}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
+                <status-badge :status="isCurrentConnection(connection) ? 'connected' : (isConnectionAttached(connection) ? 'success' : (connection.is_default ? 'success' : 'notice'))"></status-badge>
+                <button class="btn btn-sm"
+                        v-if="!isConnectionAttached(connection)"
+                        @click="openConnectDialog(connection)">
+                  <span class="mdi mdi-connection"></span>
+                  Connect
+                </button>
+                <button class="btn btn-sm"
+                        v-if="isConnectionAttached(connection) && !isCurrentConnection(connection)"
+                        @click="activateConnection(connection)">
+                  <span class="mdi mdi-target"></span>
+                  Activate
+                </button>
+                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="openRegistration(connection)">
+                  <span class="mdi mdi-pencil-outline"></span>
+                </button>
+                <button class="btn btn-sm" v-if="!connection.is_default && connection.can_manage !== false" @click="makeDefault(connection.id)">
+                  <span class="mdi mdi-star-outline"></span>
+                </button>
+                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="removeConnection(connection.id)">
+                  <span class="mdi mdi-delete-outline"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-state" style="padding:18px 12px">Register pool targets here for future logins and multi-pool operations.</div>
+          <div class="form-error" v-if="connectionError" style="text-align:left">{{ connectionError }}</div>
+        </div>
+      </floating-window>
     </div>
   `,
   data() {
@@ -382,6 +443,9 @@ const PoolsView = {
       credentials: [],
       selectedPool: null,
       showProps: false,
+      showPoolIdentityWindow: false,
+      showPoolContextWindow: false,
+      showPoolHaWindow: false,
       poolConfigSaving: false,
       poolHaSaving: false,
       poolActionError: null,
@@ -392,6 +456,8 @@ const PoolsView = {
       connectionError: null,
       liveDataError: null,
       showConnectDialogWindow: false,
+      showAttachedTargetsWindow: false,
+      showRegisteredTargetsWindow: false,
       connectTarget: null,
       connectPassword: '',
       connectLoading: false,
@@ -490,6 +556,7 @@ const PoolsView = {
     await this.loadAll();
     await this.syncRouteFocus();
     await this.syncPendingConnectionTarget();
+    this.syncRegistrationIntent();
   },
   watch: {
     '$route.query': {
@@ -497,6 +564,7 @@ const PoolsView = {
       async handler() {
         await this.syncRouteFocus();
         await this.syncPendingConnectionTarget();
+        this.syncRegistrationIntent();
       },
     },
   },
@@ -571,9 +639,19 @@ const PoolsView = {
         this.credentials = [];
       }
     },
+    resetPoolWorkspaceWindows() {
+      this.showPoolIdentityWindow = false;
+      this.showPoolContextWindow = false;
+      this.showPoolHaWindow = false;
+    },
+    closePoolProperties() {
+      this.showProps = false;
+      this.resetPoolWorkspaceWindows();
+    },
     openProperties(row) {
       this.poolActionMessage = '';
       this.poolActionError = null;
+      this.resetPoolWorkspaceWindows();
       this.selectedPool = row;
       this.showProps = true;
     },
@@ -653,6 +731,11 @@ const PoolsView = {
       if (!this.showConnectDialogWindow || Number(this.connectTarget?.id || 0) !== connectionId) {
         this.openConnectDialog(connection);
       }
+    },
+    syncRegistrationIntent() {
+      if (String(this.$route.query.register || '').trim() !== '1') return;
+      if (this.showRegistration) return;
+      this.openRegistration();
     },
     async navigateToPendingReturn() {
       const returnTo = String(this.$route.query.returnTo || '').trim();
