@@ -15,6 +15,7 @@ const { validate, schemas } = require('../middleware/validate');
 const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const credentialVaultService = require('../services/credential-vault');
+const managedTargetService = require('../services/managed-targets');
 
 function normalizeConnectionId(value) {
   const normalized = Number(value || 0);
@@ -175,6 +176,30 @@ function buildConnectedTargetPayload(session = {}) {
   }));
 }
 
+function buildManagedTargetPayload(req) {
+  const actor = {
+    userId: req.session?.userId || null,
+    role: governanceService.getSessionRole(req.session),
+  };
+
+  return managedTargetService.list(actor)
+    .filter((target) => target.enabled && target.state === 'Healthy')
+    .map((target) => ({
+      targetKey: target.targetKey,
+      connectionId: target.connectionId,
+      hostTargetId: null,
+      connectionName: target.name,
+      host: target.host,
+      username: target.username,
+      port: target.port,
+      connectedAt: target.lastConnectedAt,
+      lastActivatedAt: '',
+      managed: true,
+      state: target.state,
+      active: String(req.session?.activeXenTargetKey || '') === target.targetKey,
+    }));
+}
+
 function restoreAuthenticatedSessionState(session = {}) {
   if (session?.authenticated) return;
 
@@ -186,7 +211,11 @@ function restoreAuthenticatedSessionState(session = {}) {
 function buildStatusPayload(req) {
   restoreAuthenticatedSessionState(req.session);
   ensureSessionTargetsRehydrated(req.session?.id, req.session);
-  const connectedTargets = buildConnectedTargetPayload(req.session);
+  const sessionTargets = buildConnectedTargetPayload(req.session);
+  const managedTargets = buildManagedTargetPayload(req);
+  const connectedTargets = [...sessionTargets, ...managedTargets.filter((managed) => (
+    !sessionTargets.some((target) => target.targetKey === managed.targetKey)
+  ))];
   const activeTarget = connectedTargets.find((target) => target.active) || connectedTargets[0] || null;
   const connected = connectedTargets.length > 0;
   const authMode = req.session?.authMode
@@ -433,9 +462,18 @@ router.get('/targets', requireAuth, (req, res) => {
 
 router.post('/targets/activate', requireAuth, (req, res) => {
   const target = activateSessionTarget(req.session, req.body || {});
-  if (!target) {
+  const managedTargetId = managedTargetService.parseManagedTargetKey(req.body?.targetKey);
+  const managedTarget = managedTargetId
+    ? managedTargetService.list({
+      userId: req.session?.userId || null,
+      role: governanceService.getSessionRole(req.session),
+    }).find((entry) => entry.id === managedTargetId && entry.state === 'Healthy')
+    : null;
+  if (!target && !managedTarget) {
     return res.status(404).json({ error: 'XEN_TARGET_NOT_FOUND' });
   }
+
+  if (managedTarget) req.session.activeXenTargetKey = managedTarget.targetKey;
 
   ensureSessionTargetsRehydrated(req.session.id, req.session);
   res.json(buildStatusPayload(req));
@@ -467,6 +505,40 @@ function rejectRevokedSession(req, res) {
 }
 
 // Middleware: require authentication for all /api routes below
+function resolveTargetForRequest(req) {
+  const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
+  const requestedTargetKey = resolveRequestedTargetKey(req);
+  const sessionTarget = sessionTargets.find((entry) => entry.targetKey === requestedTargetKey) || sessionTargets[0] || null;
+  if (sessionTarget) {
+    return {
+      target: sessionTarget,
+      xenApi: getConnection(req.session.id, sessionTarget.targetKey) || rehydrateConnection(req.session.id, sessionTarget),
+    };
+  }
+
+  const actor = {
+    userId: req.session?.userId || null,
+    role: governanceService.getSessionRole(req.session),
+  };
+  const managedId = managedTargetService.parseManagedTargetKey(requestedTargetKey);
+  const managedTarget = managedId
+    ? managedTargetService.list(actor).find((entry) => entry.id === managedId) || null
+    : null;
+  return {
+    target: managedTarget ? {
+      targetKey: managedTarget.targetKey,
+      connectionId: managedTarget.connectionId,
+      connectionName: managedTarget.name,
+      host: managedTarget.host,
+      username: managedTarget.username,
+      port: managedTarget.port,
+      managed: true,
+      state: managedTarget.state,
+    } : null,
+    xenApi: managedTargetService.getApiForTargetKey(requestedTargetKey, actor),
+  };
+}
+
 function requireAuth(req, res, next) {
   restoreAuthenticatedSessionState(req.session);
   if (!req.session.authenticated) {
@@ -476,13 +548,9 @@ function requireAuth(req, res, next) {
     return rejectRevokedSession(req, res);
   }
 
-  const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
-  const requestedTargetKey = resolveRequestedTargetKey(req);
-  const target = sessionTargets.find((entry) => entry.targetKey === requestedTargetKey) || sessionTargets[0] || null;
+  const { target, xenApi } = resolveTargetForRequest(req);
   req.xenTarget = target;
-  req.xenApi = target
-    ? getConnection(req.session.id, target.targetKey) || rehydrateConnection(req.session.id, target)
-    : null;
+  req.xenApi = xenApi;
   next();
 }
 
@@ -516,12 +584,7 @@ function requireXenConnection(req, res, next) {
     return rejectRevokedSession(req, res);
   }
 
-  const sessionTargets = ensureSessionTargetsRehydrated(req.session.id, req.session);
-  const requestedTargetKey = resolveRequestedTargetKey(req);
-  const target = sessionTargets.find((entry) => entry.targetKey === requestedTargetKey) || sessionTargets[0] || null;
-  const xenApi = target
-    ? getConnection(req.session.id, target.targetKey) || rehydrateConnection(req.session.id, target)
-    : null;
+  const { target, xenApi } = resolveTargetForRequest(req);
 
   if (!xenApi) {
     return res.status(409).json({ error: 'XEN_TARGET_NOT_CONNECTED' });

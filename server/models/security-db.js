@@ -238,6 +238,33 @@ function initializeSchema() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS permission_grants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      permission TEXT NOT NULL,
+      scope_type TEXT NOT NULL DEFAULT 'global',
+      scope_ref TEXT NOT NULL DEFAULT '*',
+      effect TEXT NOT NULL DEFAULT 'allow',
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, permission, scope_type, scope_ref)
+    );
+    CREATE INDEX IF NOT EXISTS idx_permission_grants_user ON permission_grants(user_id);
+
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      token_prefix TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      permissions_json TEXT NOT NULL DEFAULT '[]',
+      expires_at DATETIME,
+      last_used_at DATETIME,
+      revoked_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, revoked_at);
+
     CREATE TABLE IF NOT EXISTS vault_key_material (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       wrapped_dek BLOB,
@@ -309,6 +336,74 @@ const authEventModel = {
       FROM auth_events
       ORDER BY datetime(created_at) DESC, id DESC
     `).all();
+  },
+};
+
+const permissionGrantModel = {
+  listForUser(userId) {
+    return getSecurityDb().prepare(`
+      SELECT id, user_id, permission, scope_type, scope_ref, effect, created_by, created_at
+      FROM permission_grants WHERE user_id = ? ORDER BY scope_type, scope_ref, permission
+    `).all(Number(userId));
+  },
+
+  upsert({ userId, permission, scopeType = 'global', scopeRef = '*', effect = 'allow', createdBy = null }) {
+    getSecurityDb().prepare(`
+      INSERT INTO permission_grants (user_id, permission, scope_type, scope_ref, effect, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, permission, scope_type, scope_ref)
+      DO UPDATE SET effect = excluded.effect, created_by = excluded.created_by
+    `).run(Number(userId), permission, scopeType, scopeRef, effect, createdBy || null);
+    return getSecurityDb().prepare(`
+      SELECT id, user_id, permission, scope_type, scope_ref, effect, created_by, created_at
+      FROM permission_grants WHERE user_id = ? AND permission = ? AND scope_type = ? AND scope_ref = ?
+    `).get(Number(userId), permission, scopeType, scopeRef);
+  },
+
+  remove(id) {
+    return getSecurityDb().prepare('DELETE FROM permission_grants WHERE id = ?').run(Number(id)).changes > 0;
+  },
+};
+
+const apiTokenModel = {
+  create({ id, userId, name, tokenPrefix, tokenHash, permissions = [], expiresAt = null }) {
+    getSecurityDb().prepare(`
+      INSERT INTO api_tokens (id, user_id, name, token_prefix, token_hash, permissions_json, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, Number(userId), name, tokenPrefix, tokenHash, JSON.stringify(permissions), expiresAt || null);
+    return this.getById(id);
+  },
+
+  getById(id) {
+    const record = getSecurityDb().prepare(`
+      SELECT id, user_id, name, token_prefix, token_hash, permissions_json, expires_at, last_used_at, revoked_at, created_at
+      FROM api_tokens WHERE id = ?
+    `).get(id);
+    return record ? { ...record, permissions: (() => { try { return JSON.parse(record.permissions_json || '[]'); } catch (_) { return []; } })() } : null;
+  },
+
+  listForUser(userId) {
+    return getSecurityDb().prepare(`
+      SELECT id, user_id, name, token_prefix, permissions_json, expires_at, last_used_at, revoked_at, created_at
+      FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC
+    `).all(Number(userId)).map((record) => ({ ...record, permissions: (() => { try { return JSON.parse(record.permissions_json || '[]'); } catch (_) { return []; } })() }));
+  },
+
+  findActiveByHash(tokenHash) {
+    const record = getSecurityDb().prepare(`
+      SELECT id, user_id, name, token_prefix, token_hash, permissions_json, expires_at, last_used_at, revoked_at, created_at
+      FROM api_tokens
+      WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at = '' OR expires_at > CURRENT_TIMESTAMP)
+    `).get(tokenHash);
+    return record ? { ...record, permissions: (() => { try { return JSON.parse(record.permissions_json || '[]'); } catch (_) { return []; } })() } : null;
+  },
+
+  touch(id) {
+    getSecurityDb().prepare('UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+  },
+
+  revoke(id) {
+    return getSecurityDb().prepare('UPDATE api_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL').run(id).changes > 0;
   },
 };
 
@@ -607,4 +702,4 @@ const groupModel = {
   },
 };
 
-module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel };
+module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel, permissionGrantModel, apiTokenModel };

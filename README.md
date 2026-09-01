@@ -2306,6 +2306,8 @@ curl -b cookies.txt -X DELETE "http://localhost:3000/api/template-library/items/
 - **Joi validation** on all request input.
 - **Session-based auth** with an `xenmange.sid` cookie and session regeneration on login.
 - **Durable sessions**: SQLite-backed session store with live Xen session rehydration after process restarts.
+- **Managed targets**: shared, vault-backed pool connections can be registered as control-plane targets. XenManage owns their XenAPI session lifecycle, health state, retry backoff, and telemetry collection independently of an operator browser session.
+- **Scoped automation access**: API tokens are hashed at rest, shown once at creation, can be permission-restricted and expired/revoked, and are accepted only by the versioned `/api/v1` surface.
 - **Encrypted credential vault**: `vault.db` stores encrypted pool/host secrets; `security.db` stores the wrapped data-encryption keys. Plaintext secrets are never returned to the browser after creation.
 - **Governed, auditable cleanup**: retention sweeps and destructive operations route through governance approvals and are logged (see [Governance & Compliance](#governance--compliance)).
 - **Parameterized SQL** via `better-sqlite3` — no string-built queries.
@@ -2359,6 +2361,8 @@ PERF_DB_PATH=./data/perf.db
 - **Storage & networking**: SR create/probe/import across NFS/iSCSI/EXT/LVM with rescan/repair/local-cache/forget/destroy, VDI create/resize/delete, network/VLAN/bond creation and per-VIF configuration.
 - **Pools**: pending-update visibility, join/eject pool membership, HA configuration.
 - **Governance**: role ceilings, per-pool quotas, scoped single-use approvals in front of every destructive route, local user/group administration.
+- **Control-plane foundations**: persistent managed-target health, a durable workflow state machine (idempotency, retries, locks, approval pauses, restart recovery, and structured events), action-based permission grants scoped to organizations/projects/targets/resources, and versioned API-token automation endpoints.
+- **Private-cloud scope**: organizations and projects with membership, managed-target access, expanded compute/storage/GPU/network quota records, and VM/compose project assignment with pre-provision quota enforcement.
 - **Resilience**: derived recovery-tier/restart-priority/backup-freshness posture, operator-authored recovery runbooks, and DR drill tracking.
 - **Capacity**: persisted host/VM/storage telemetry history, host skew/imbalance detection, saturation and headroom guidance.
 - **Alerts**: policy-driven triage fed by XenServer messages, task failures, and persisted metric thresholds, with bulk state changes.

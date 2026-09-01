@@ -1,6 +1,7 @@
 const { settingsModel } = require('../models/connection');
 const metricsHistoryService = require('./metrics-history');
 const { listAllConnections } = require('./xenapi');
+const managedTargetService = require('./managed-targets');
 
 const SETTINGS_KEYS = {
   collectionEnabled: 'performance.collectionEnabled',
@@ -96,6 +97,22 @@ function listUniqueLiveTargets() {
     if (!dedupe.has(dedupeKey)) {
       dedupe.set(dedupeKey, {
         sessionId: entry.sessionId,
+        targetKey: entry.targetKey,
+        host,
+        api: entry.api,
+      });
+    }
+  }
+
+  for (const entry of managedTargetService.listLiveTargets()) {
+    const host = String(entry.api?.host || entry.host || '').trim();
+    const sessionRef = String(entry.api?.sessionRef || '').trim();
+    if (!host || !sessionRef) continue;
+
+    const dedupeKey = `${host}|${sessionRef}`;
+    if (!dedupe.has(dedupeKey)) {
+      dedupe.set(dedupeKey, {
+        sessionId: 'control-plane',
         targetKey: entry.targetKey,
         host,
         api: entry.api,

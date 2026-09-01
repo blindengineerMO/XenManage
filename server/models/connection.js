@@ -148,6 +148,130 @@ function initializeSchema() {
       FOREIGN KEY (pool_connection_id) REFERENCES connections(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS managed_targets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      connection_id INTEGER NOT NULL UNIQUE REFERENCES connections(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      state TEXT NOT NULL DEFAULT 'Offline',
+      last_error TEXT NOT NULL DEFAULT '',
+      last_checked_at DATETIME,
+      last_connected_at DATETIME,
+      next_retry_at DATETIME,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      certificate_fingerprint TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_managed_targets_enabled ON managed_targets(enabled, state);
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      target_id INTEGER REFERENCES managed_targets(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      idempotency_key TEXT,
+      input_json TEXT NOT NULL DEFAULT '{}',
+      result_json TEXT NOT NULL DEFAULT '{}',
+      progress REAL NOT NULL DEFAULT 0,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      scheduled_for DATETIME,
+      started_at DATETIME,
+      finished_at DATETIME,
+      timeout_at DATETIME,
+      lock_key TEXT NOT NULL DEFAULT '',
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      approval_id TEXT NOT NULL DEFAULT '',
+      error_text TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_idempotency
+      ON workflows(type, idempotency_key)
+      WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
+    CREATE INDEX IF NOT EXISTS idx_workflows_status_schedule ON workflows(status, scheduled_for);
+
+    CREATE TABLE IF NOT EXISTS workflow_steps (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      step_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      started_at DATETIME,
+      finished_at DATETIME,
+      error_text TEXT NOT NULL DEFAULT '',
+      UNIQUE(workflow_id, step_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_events (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      level TEXT NOT NULL DEFAULT 'info',
+      message TEXT NOT NULL,
+      detail_json TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_workflow ON workflow_events(workflow_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS organizations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      cost_center TEXT NOT NULL DEFAULT '',
+      default_recovery_tier TEXT NOT NULL DEFAULT '',
+      owner_user_id INTEGER,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(organization_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_members (
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      PRIMARY KEY(project_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_targets (
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      managed_target_id INTEGER NOT NULL REFERENCES managed_targets(id) ON DELETE CASCADE,
+      PRIMARY KEY(project_id, managed_target_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_quotas (
+      project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      max_vm_count INTEGER NOT NULL DEFAULT 0,
+      max_vcpus INTEGER NOT NULL DEFAULT 0,
+      max_memory_gib REAL NOT NULL DEFAULT 0,
+      max_storage_gib REAL NOT NULL DEFAULT 0,
+      max_gpu_count INTEGER NOT NULL DEFAULT 0,
+      max_network_count INTEGER NOT NULL DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS project_resource_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      managed_target_id INTEGER REFERENCES managed_targets(id) ON DELETE SET NULL,
+      resource_type TEXT NOT NULL,
+      resource_ref TEXT NOT NULL,
+      assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(project_id, resource_type, resource_ref)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_resource_assignments_project ON project_resource_assignments(project_id, resource_type);
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT,
@@ -613,6 +737,187 @@ const hostTargetModel = {
 
   delete(id) {
     getDb().prepare('DELETE FROM host_targets WHERE id = ?').run(id);
+  },
+};
+
+function normalizeManagedTargetRecord(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    id: Number(record.id),
+    connection_id: Number(record.connection_id),
+    enabled: Boolean(Number(record.enabled)),
+    retry_count: Number(record.retry_count || 0),
+  };
+}
+
+const managedTargetModel = {
+  list() {
+    return getDb().prepare(`
+      SELECT managed_targets.*, connections.name AS connection_name, connections.host, connections.username,
+        connections.port, connections.vault_credential_id, connections.owner_user_id, connections.visibility
+      FROM managed_targets
+      JOIN connections ON connections.id = managed_targets.connection_id
+      ORDER BY connections.name COLLATE NOCASE, managed_targets.id
+    `).all().map(normalizeManagedTargetRecord);
+  },
+
+  getById(id) {
+    return normalizeManagedTargetRecord(getDb().prepare(`
+      SELECT managed_targets.*, connections.name AS connection_name, connections.host, connections.username,
+        connections.port, connections.vault_credential_id, connections.owner_user_id, connections.visibility
+      FROM managed_targets
+      JOIN connections ON connections.id = managed_targets.connection_id
+      WHERE managed_targets.id = ?
+    `).get(id));
+  },
+
+  getByConnectionId(connectionId) {
+    return normalizeManagedTargetRecord(getDb().prepare(`
+      SELECT managed_targets.*, connections.name AS connection_name, connections.host, connections.username,
+        connections.port, connections.vault_credential_id, connections.owner_user_id, connections.visibility
+      FROM managed_targets
+      JOIN connections ON connections.id = managed_targets.connection_id
+      WHERE managed_targets.connection_id = ?
+    `).get(connectionId));
+  },
+
+  upsert(connectionId, { enabled = true } = {}) {
+    const database = getDb();
+    database.prepare(`
+      INSERT INTO managed_targets (connection_id, enabled, state)
+      VALUES (?, ?, 'Offline')
+      ON CONFLICT(connection_id) DO UPDATE SET enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP
+    `).run(connectionId, enabled ? 1 : 0);
+    return this.getByConnectionId(connectionId);
+  },
+
+  updateStatus(id, {
+    state,
+    lastError = '',
+    lastCheckedAt = new Date().toISOString(),
+    lastConnectedAt,
+    nextRetryAt = '',
+    retryCount = 0,
+    certificateFingerprint,
+  } = {}) {
+    const current = this.getById(id);
+    if (!current) return null;
+    getDb().prepare(`
+      UPDATE managed_targets
+      SET state = ?, last_error = ?, last_checked_at = ?,
+        last_connected_at = COALESCE(?, last_connected_at), next_retry_at = ?, retry_count = ?,
+        certificate_fingerprint = COALESCE(?, certificate_fingerprint), updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      state || current.state,
+      lastError,
+      lastCheckedAt,
+      lastConnectedAt || null,
+      nextRetryAt || null,
+      Math.max(0, Number(retryCount || 0)),
+      certificateFingerprint || null,
+      id
+    );
+    return this.getById(id);
+  },
+
+  setEnabled(id, enabled) {
+    getDb().prepare(`
+      UPDATE managed_targets
+      SET enabled = ?, state = CASE WHEN ? THEN state ELSE 'Maintenance' END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(enabled ? 1 : 0, enabled ? 1 : 0, id);
+    return this.getById(id);
+  },
+
+  remove(id) {
+    getDb().prepare('DELETE FROM managed_targets WHERE id = ?').run(id);
+  },
+};
+
+const projectModel = {
+  listOrganizations() {
+    return getDb().prepare('SELECT * FROM organizations ORDER BY lower(name)').all();
+  },
+  createOrganization({ name, description = '' }) {
+    const result = getDb().prepare('INSERT INTO organizations (name, description) VALUES (?, ?)').run(name, description);
+    return this.getOrganization(result.lastInsertRowid);
+  },
+  getOrganization(id) {
+    return getDb().prepare('SELECT * FROM organizations WHERE id = ?').get(id) || null;
+  },
+  listProjects() {
+    return getDb().prepare(`
+      SELECT projects.*, organizations.name AS organization_name,
+        GROUP_CONCAT(DISTINCT project_targets.managed_target_id) AS target_ids
+      FROM projects JOIN organizations ON organizations.id = projects.organization_id
+      LEFT JOIN project_targets ON project_targets.project_id = projects.id
+      GROUP BY projects.id ORDER BY lower(organizations.name), lower(projects.name)
+    `).all().map((project) => ({
+      ...project, id: Number(project.id), organization_id: Number(project.organization_id), owner_user_id: normalizeOwnerUserId(project.owner_user_id),
+      enabled: Boolean(Number(project.enabled)), target_ids: String(project.target_ids || '').split(',').map(Number).filter(Boolean),
+      quota: this.getQuota(project.id), members: this.listMembers(project.id),
+    }));
+  },
+  getProject(id) {
+    return this.listProjects().find((project) => project.id === Number(id)) || null;
+  },
+  createProject({ organizationId, name, description = '', costCenter = '', defaultRecoveryTier = '', ownerUserId = null, targetIds = [] }) {
+    const database = getDb();
+    const transaction = database.transaction(() => {
+      const result = database.prepare(`
+        INSERT INTO projects (organization_id, name, description, cost_center, default_recovery_tier, owner_user_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(organizationId, name, description, costCenter, defaultRecoveryTier, normalizeOwnerUserId(ownerUserId));
+      const projectId = Number(result.lastInsertRowid);
+      const targetInsert = database.prepare('INSERT OR IGNORE INTO project_targets (project_id, managed_target_id) VALUES (?, ?)');
+      (targetIds || []).forEach((targetId) => targetInsert.run(projectId, Number(targetId)));
+      return projectId;
+    });
+    return this.getProject(transaction());
+  },
+  updateProject(id, { name, description = '', costCenter = '', defaultRecoveryTier = '', ownerUserId = null, enabled = true, targetIds = [] }) {
+    const database = getDb();
+    const transaction = database.transaction(() => {
+      database.prepare(`
+        UPDATE projects SET name = ?, description = ?, cost_center = ?, default_recovery_tier = ?, owner_user_id = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(name, description, costCenter, defaultRecoveryTier, normalizeOwnerUserId(ownerUserId), enabled ? 1 : 0, id);
+      database.prepare('DELETE FROM project_targets WHERE project_id = ?').run(id);
+      const targetInsert = database.prepare('INSERT OR IGNORE INTO project_targets (project_id, managed_target_id) VALUES (?, ?)');
+      (targetIds || []).forEach((targetId) => targetInsert.run(Number(id), Number(targetId)));
+    });
+    transaction();
+    return this.getProject(id);
+  },
+  deleteProject(id) { return getDb().prepare('DELETE FROM projects WHERE id = ?').run(id).changes > 0; },
+  listMembers(projectId) { return getDb().prepare('SELECT project_id, user_id, role FROM project_members WHERE project_id = ? ORDER BY user_id').all(projectId); },
+  setMember(projectId, userId, role = 'member') {
+    getDb().prepare(`INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)
+      ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role`).run(projectId, userId, role);
+    return this.listMembers(projectId);
+  },
+  getQuota(projectId) {
+    const record = getDb().prepare('SELECT * FROM project_quotas WHERE project_id = ?').get(projectId);
+    return record ? { ...record, enabled: Boolean(Number(record.enabled)) } : null;
+  },
+  upsertQuota(projectId, quota = {}) {
+    getDb().prepare(`
+      INSERT INTO project_quotas (project_id, enabled, max_vm_count, max_vcpus, max_memory_gib, max_storage_gib, max_gpu_count, max_network_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, max_vm_count = excluded.max_vm_count,
+        max_vcpus = excluded.max_vcpus, max_memory_gib = excluded.max_memory_gib, max_storage_gib = excluded.max_storage_gib,
+        max_gpu_count = excluded.max_gpu_count, max_network_count = excluded.max_network_count, updated_at = CURRENT_TIMESTAMP
+    `).run(projectId, quota.enabled !== false ? 1 : 0, Number(quota.maxVmCount || 0), Number(quota.maxVcpus || 0), Number(quota.maxMemoryGiB || 0), Number(quota.maxStorageGiB || 0), Number(quota.maxGpuCount || 0), Number(quota.maxNetworkCount || 0));
+    return this.getQuota(projectId);
+  },
+  listAssignments(projectId) { return getDb().prepare('SELECT * FROM project_resource_assignments WHERE project_id = ? ORDER BY assigned_at DESC').all(projectId); },
+  assignResource({ projectId, managedTargetId = null, resourceType, resourceRef }) {
+    getDb().prepare(`INSERT INTO project_resource_assignments (project_id, managed_target_id, resource_type, resource_ref)
+      VALUES (?, ?, ?, ?) ON CONFLICT(project_id, resource_type, resource_ref) DO UPDATE SET managed_target_id = excluded.managed_target_id`).run(projectId, managedTargetId || null, resourceType, resourceRef);
+    return this.listAssignments(projectId);
   },
 };
 
@@ -1125,4 +1430,4 @@ const templateLibraryModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, hostTargetModel, vFabricModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel };
+module.exports = { getDb, connectionModel, hostTargetModel, managedTargetModel, projectModel, vFabricModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel };
