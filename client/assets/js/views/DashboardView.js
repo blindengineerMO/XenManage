@@ -1,3 +1,29 @@
+function dashboardScopeTargets() {
+  return getVFabricScopeTargets();
+}
+
+async function loadDashboardAcrossScope(load) {
+  const targets = dashboardScopeTargets();
+  if (!targets.length) return [await load('')];
+  return Promise.all(targets.map((target) => load(target.targetKey)));
+}
+
+function mergeDashboardSummaries(summaries = []) {
+  const countKeys = ['poolCount', 'hostCount', 'vmCount', 'templateCount', 'srCount', 'networkCount'];
+  const merged = { vmStates: {}, hostStates: {}, pools: [], hosts: [] };
+  summaries.forEach((summary) => {
+    countKeys.forEach((key) => { merged[key] = Number(merged[key] || 0) + Number(summary?.[key] || 0); });
+    ['vmStates', 'hostStates'].forEach((key) => {
+      Object.entries(summary?.[key] || {}).forEach(([state, value]) => {
+        merged[key][state] = Number(merged[key][state] || 0) + Number(value || 0);
+      });
+    });
+    merged.pools.push(...(summary?.pools || []));
+    merged.hosts.push(...(summary?.hosts || []));
+  });
+  return merged;
+}
+
 const DashboardView = {
   components: { StatusBadge, FloatingWindow, PoolPropertiesWindow, HostPropertiesWindow },
   template: `
@@ -15,6 +41,7 @@ const DashboardView = {
               Dashboard
             </h2>
             <p class="section-subtitle">Select a summary card to open its workspace.</p>
+            <p class="section-subtitle text-cyan" v-if="store.vFabricScope?.scope">Read scope: {{ store.vFabricScope.scope.name }} · {{ store.vFabricScope.attachedTargets.length }} attached member{{ store.vFabricScope.attachedTargets.length === 1 ? '' : 's' }}</p>
           </div>
           <button class="btn btn-primary" @click="loadDashboard">
             <span class="mdi mdi-refresh"></span>
@@ -400,6 +427,7 @@ const DashboardView = {
   `,
   data() {
     return {
+      store,
       loading: true,
       summary: {},
       messages: [],
@@ -560,6 +588,7 @@ const DashboardView = {
     }
 
     await this.loadDashboard();
+    this.$watch(() => store.vFabricScope?.scope?.id || '', () => this.loadDashboard());
   },
   methods: {
     formatDateTime,
@@ -600,11 +629,11 @@ const DashboardView = {
       this.poolUpdatesLoading = true;
       try {
         const [record, hostsResult, storageResult, vmsResult, updates] = await Promise.all([
-          api.getPool(pool.ref),
-          api.getHosts(),
-          api.getSRs(),
-          api.getVMs(),
-          api.getPoolUpdates(pool.ref),
+          api.getPool(pool.ref, pool.scopeTargetKey),
+          api.getHosts(pool.scopeTargetKey),
+          api.getSRs(pool.scopeTargetKey),
+          api.getVMs('', pool.scopeTargetKey),
+          api.getPoolUpdates(pool.ref, pool.scopeTargetKey),
         ]);
         this.selectedPool = record;
         this.poolDetailHosts = hostsResult.data || [];
@@ -674,18 +703,34 @@ const DashboardView = {
     async loadDashboard() {
       this.loading = true;
       try {
-        const [summary, messages, tasks, hostsResult, srsResult, vmsResult] = await Promise.all([
-          api.dashboard(),
-          api.dashboardMessages().catch(() => []),
-          api.getTasks().catch(() => ({ data: [] })),
-          api.getHosts().catch(() => ({ data: [] })),
-          api.getSRs().catch(() => ({ data: [] })),
-          api.getVMs().catch(() => ({ data: [] })),
+        const [summaryResults, messageResults, taskResults, hostResults, srResults, vmResults] = await Promise.all([
+          loadDashboardAcrossScope((targetKey) => api.dashboard(targetKey)),
+          loadDashboardAcrossScope((targetKey) => api.dashboardMessages(targetKey).catch(() => [])),
+          loadDashboardAcrossScope((targetKey) => api.getTasks(targetKey).catch(() => ({ data: [] }))),
+          loadDashboardAcrossScope((targetKey) => api.getHosts(targetKey).catch(() => ({ data: [] }))),
+          loadDashboardAcrossScope((targetKey) => api.getSRs(targetKey).catch(() => ({ data: [] }))),
+          loadDashboardAcrossScope((targetKey) => api.getVMs('', targetKey).catch(() => ({ data: [] }))),
         ]);
-        const hostRecords = hostsResult.data || [];
+        const scopeTargets = dashboardScopeTargets();
+        const annotateScopedData = (results) => results.flatMap((result, index) => (
+          (Array.isArray(result) ? result : (result?.data || [])).map((entry) => ({
+            ...entry,
+            scopeTargetKey: scopeTargets[index]?.targetKey || '',
+          }))
+        ));
+        const summary = mergeDashboardSummaries(summaryResults.map((entry, index) => ({
+          ...entry,
+          pools: (entry?.pools || []).map((pool) => ({ ...pool, scopeTargetKey: scopeTargets[index]?.targetKey || '' })),
+          hosts: (entry?.hosts || []).map((host) => ({ ...host, scopeTargetKey: scopeTargets[index]?.targetKey || '' })),
+        })));
+        const messages = annotateScopedData(messageResults);
+        const tasks = annotateScopedData(taskResults);
+        const hostRecords = annotateScopedData(hostResults);
+        const srs = annotateScopedData(srResults);
+        const vms = annotateScopedData(vmResults);
         const metricEntries = await Promise.all(hostRecords.map(async (host) => {
           try {
-            const metrics = await api.getHostMetrics(host.ref);
+            const metrics = await api.getHostMetrics(host.ref, host.scopeTargetKey || '');
             return [host.ref, metrics];
           } catch (error) {
             return [host.ref, { live: false, memory_total: 0, memory_free: 0 }];
@@ -708,7 +753,7 @@ const DashboardView = {
           };
         });
 
-        const capacitySrs = (srsResult.data || []).map((sr) => ({
+        const capacitySrs = srs.map((sr) => ({
           ...sr,
           freeBytes: Math.max(0, Number(sr.physical_size || 0) - Number(sr.virtual_allocation || 0)),
           utilizationPercent: percentValue(Number(sr.virtual_allocation || 0), Number(sr.physical_size || 0)),
@@ -716,12 +761,12 @@ const DashboardView = {
 
         this.summary = summary || {};
         this.messages = messages || [];
-        this.tasks = tasks.data || [];
+        this.tasks = tasks;
         this.capacity = buildCapacityAnalytics({
           hosts: capacityHosts,
           srs: capacitySrs,
-          vms: vmsResult.data || [],
-          tasks: tasks.data || [],
+          vms,
+          tasks,
           messages: messages || [],
         });
       } catch (error) {

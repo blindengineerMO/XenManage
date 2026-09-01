@@ -11,6 +11,7 @@ const store = reactive({
   authMode: 'local',
   currentTargetKey: '',
   connectedTargets: [],
+  vFabricScope: null,
   user: null,
   governance: {
     currentRole: 'admin',
@@ -30,6 +31,19 @@ const GOVERNANCE_APPROVAL_STORAGE_KEY = 'xenmange.pendingGovernanceApproval';
 function getActiveLiveTarget(targets = store.connectedTargets) {
   const list = Array.isArray(targets) ? targets : [];
   return list.find((target) => target?.active) || list[0] || null;
+}
+
+function getVFabricScopeTargets() {
+  const targets = store.vFabricScope?.attachedTargets;
+  return Array.isArray(targets) && targets.length ? targets : [];
+}
+
+function hasVFabricScope() {
+  return Boolean(store.vFabricScope?.scope?.id && getVFabricScopeTargets().length);
+}
+
+function clearVFabricScope() {
+  store.vFabricScope = null;
 }
 
 function formatLiveTargetLabel(target) {
@@ -140,6 +154,9 @@ function applySessionStatus(status = {}) {
   store.authMode = status.authMode || 'local';
   store.currentTargetKey = status.currentTargetKey || '';
   store.connectedTargets = Array.isArray(status.connectedTargets) ? status.connectedTargets : [];
+  if (store.vFabricScope?.attachedTargets?.some((target) => !store.connectedTargets.some((entry) => entry.targetKey === target.targetKey))) {
+    clearVFabricScope();
+  }
   store.user = status.user || null;
   store.governance = status.governance || {
     currentRole: 'admin',
@@ -152,6 +169,7 @@ function applySessionStatus(status = {}) {
 }
 
 function resetSessionState() {
+  clearVFabricScope();
   applySessionStatus({
     authenticated: false,
     connected: false,

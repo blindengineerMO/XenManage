@@ -77,10 +77,8 @@ const NetworkingView = {
                   :selected-keys="selectedNetworkRefs"
                   row-key="ref"
                   @selection-change="handleNetworkSelectionChange"
+                  @cell-edit="saveInlineNetworkEdit"
                   @row-click="openProperties">
-        <template #cell-name_label="{ row }">
-          <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed' }}</span>
-        </template>
         <template #cell-bridge="{ row }">
           <span class="mono text-cyan">{{ row.bridge || '-' }}</span>
         </template>
@@ -208,7 +206,7 @@ const NetworkingView = {
       focusedNetworkClass: '',
       lastAppliedFocusKey: '',
       columns: [
-        { key: 'name_label', label: 'Name' },
+        { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Network' },
         { key: 'bridge', label: 'Bridge' },
         { key: 'vlan', label: 'VLAN' },
         { key: 'managed', label: 'Managed' },
@@ -554,6 +552,26 @@ const NetworkingView = {
         this.detailActionError = error.message || 'Unable to save the selected network metadata.';
       } finally {
         this.detailActionBusy = '';
+      }
+    },
+    async saveInlineNetworkEdit({ row, key, value }) {
+      if (key !== 'name_label' || !row?.ref) return;
+      this.workspaceMessage = '';
+      this.detailActionError = '';
+      try {
+        const record = await api.updateNetworkConfig(row.ref, {
+          nameLabel: value,
+          nameDescription: row.name_description || '',
+          mtu: Number(row.MTU || row.mtu || 1500),
+          defaultLockingMode: row.default_locking_mode || row.defaultLockingMode || 'unlocked',
+          purpose: Array.isArray(row.purpose) ? row.purpose : [],
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          otherConfig: row.other_config || row.otherConfig || {},
+        });
+        this.networks = this.networks.map((entry) => entry.ref === row.ref ? { ...entry, ...record } : entry);
+        this.workspaceMessage = `${value} was renamed.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to rename the network inline.';
       }
     },
     async resolveNetworkGovernanceApproval(action, target) {

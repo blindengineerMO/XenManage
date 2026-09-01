@@ -22,6 +22,12 @@ const SettingsView = {
             <p class="section-subtitle">Centralized runtime configuration, telemetry collection, credential-vault management, proxy posture, logging defaults, and governed data-retention operations.</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary"
+                    :disabled="!dirtySectionCount || savingAll"
+                    @click="saveAllSections">
+              <span class="mdi" :class="savingAll ? 'mdi-loading mdi-spin' : 'mdi-content-save-all-outline'"></span>
+              {{ savingAll ? 'Saving All...' : `Save All${dirtySectionCount ? ` (${dirtySectionCount})` : ''}` }}
+            </button>
             <button class="btn" @click="openCredentialEditor()">
               <span class="mdi mdi-key-plus"></span>
               New Credential
@@ -39,6 +45,14 @@ const SettingsView = {
               Refresh
             </button>
           </div>
+        </div>
+
+        <div class="stack-item" v-if="dirtySectionCount" style="margin-bottom:16px">
+          <div>
+            <strong>{{ dirtySectionCount }} unsaved settings section{{ dirtySectionCount === 1 ? '' : 's' }}</strong>
+            <div class="text-muted mono" style="font-size:11px">{{ dirtySectionLabels.join(' · ') }}</div>
+          </div>
+          <span class="badge badge-warning">pending</span>
         </div>
 
         <div class="dashboard-hero">
@@ -78,9 +92,10 @@ const SettingsView = {
             <system-config-section-form
               :initial-value="config.general"
               :fields="generalFields"
-              :saving="savingSection === 'general'"
+              :saving="savingSection === 'general' || savingAll"
               submit-label="Save General Settings"
-              @submit="saveSection('general', $event)">
+              @submit="saveSection('general', $event)"
+              @draft-change="updateSectionDraft('general', $event)">
             </system-config-section-form>
           </div>
 
@@ -89,9 +104,10 @@ const SettingsView = {
             <system-config-section-form
               :initial-value="config.network"
               :fields="networkFields"
-              :saving="savingSection === 'network'"
+              :saving="savingSection === 'network' || savingAll"
               submit-label="Save Network Settings"
-              @submit="saveSection('network', $event)">
+              @submit="saveSection('network', $event)"
+              @draft-change="updateSectionDraft('network', $event)">
             </system-config-section-form>
           </div>
         </div>
@@ -102,9 +118,10 @@ const SettingsView = {
             <system-config-section-form
               :initial-value="config.security"
               :fields="securityFields"
-              :saving="savingSection === 'security'"
+              :saving="savingSection === 'security' || savingAll"
               submit-label="Save Security Settings"
-              @submit="saveSection('security', $event)">
+              @submit="saveSection('security', $event)"
+              @draft-change="updateSectionDraft('security', $event)">
             </system-config-section-form>
           </div>
 
@@ -113,9 +130,10 @@ const SettingsView = {
             <system-config-section-form
               :initial-value="config.logging"
               :fields="loggingFields"
-              :saving="savingSection === 'logging'"
+              :saving="savingSection === 'logging' || savingAll"
               submit-label="Save Logging Settings"
-              @submit="saveSection('logging', $event)">
+              @submit="saveSection('logging', $event)"
+              @draft-change="updateSectionDraft('logging', $event)">
             </system-config-section-form>
           </div>
         </div>
@@ -126,9 +144,10 @@ const SettingsView = {
             <system-config-section-form
               :initial-value="config.performance"
               :fields="performanceFields"
-              :saving="savingSection === 'performance'"
+              :saving="savingSection === 'performance' || savingAll"
               submit-label="Save Telemetry Settings"
-              @submit="saveSection('performance', $event)">
+              @submit="saveSection('performance', $event)"
+              @draft-change="updateSectionDraft('performance', $event)">
             </system-config-section-form>
           </div>
 
@@ -185,9 +204,10 @@ const SettingsView = {
             <system-config-section-form
               :initial-value="config.retention"
               :fields="retentionRuntimeFields"
-              :saving="savingSection === 'retention'"
+              :saving="savingSection === 'retention' || savingAll"
               submit-label="Save Retention Runtime"
-              @submit="saveSection('retention', $event)">
+              @submit="saveSection('retention', $event)"
+              @draft-change="updateSectionDraft('retention', $event)">
             </system-config-section-form>
           </div>
 
@@ -404,6 +424,8 @@ const SettingsView = {
     return {
       loading: true,
       savingSection: '',
+      savingAll: false,
+      sectionDrafts: {},
       policySaving: false,
       previewLoading: false,
       runLoading: false,
@@ -534,6 +556,23 @@ const SettingsView = {
     vaultGuidance() {
       return buildSettingsVaultGuidance(this.vaultStatus);
     },
+    dirtySectionKeys() {
+      return Object.keys(this.sectionDrafts);
+    },
+    dirtySectionCount() {
+      return this.dirtySectionKeys.length;
+    },
+    dirtySectionLabels() {
+      const labels = {
+        general: 'General',
+        network: 'Network & URL',
+        security: 'Security',
+        logging: 'Logging',
+        performance: 'Telemetry Collection',
+        retention: 'Retention Runtime',
+      };
+      return this.dirtySectionKeys.map((section) => labels[section] || section);
+    },
   },
   mounted() {
     this.loadAll();
@@ -591,10 +630,47 @@ const SettingsView = {
         this.config[section] = response.section || this.config[section];
         this.runtime = response.runtime || this.runtime;
         this.retentionPolicies = Array.isArray(response.retentionPolicies) ? response.retentionPolicies : this.retentionPolicies;
+        this.clearSectionDraft(section);
       } catch (error) {
         this.pageError = error.message || 'Failed to save settings.';
       } finally {
         this.savingSection = '';
+      }
+    },
+    updateSectionDraft(section, payload) {
+      if (this.isSectionDraftDirty(section, payload)) {
+        this.sectionDrafts = { ...this.sectionDrafts, [section]: payload };
+        return;
+      }
+      this.clearSectionDraft(section);
+    },
+    isSectionDraftDirty(section, payload) {
+      const current = this.config[section] || {};
+      return Object.entries(payload || {}).some(([key, value]) => current[key] !== value);
+    },
+    clearSectionDraft(section) {
+      if (!Object.prototype.hasOwnProperty.call(this.sectionDrafts, section)) return;
+      const { [section]: _discarded, ...remainingDrafts } = this.sectionDrafts;
+      this.sectionDrafts = remainingDrafts;
+    },
+    async saveAllSections() {
+      const pendingEntries = Object.entries(this.sectionDrafts);
+      if (!pendingEntries.length) return;
+
+      this.savingAll = true;
+      this.pageError = '';
+      try {
+        for (const [section, payload] of pendingEntries) {
+          const response = await api.saveSystemConfigSection(section, payload);
+          this.config[section] = response.section || this.config[section];
+          this.runtime = response.runtime || this.runtime;
+          this.retentionPolicies = Array.isArray(response.retentionPolicies) ? response.retentionPolicies : this.retentionPolicies;
+          this.clearSectionDraft(section);
+        }
+      } catch (error) {
+        this.pageError = error.message || 'Failed to save all pending settings.';
+      } finally {
+        this.savingAll = false;
       }
     },
     openPolicyEditor(policy) {

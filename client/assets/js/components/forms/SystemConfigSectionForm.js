@@ -11,7 +11,7 @@ function buildSystemConfigDraft(initialValue = {}, fields = []) {
 
 const SystemConfigSectionForm = {
   props: ['initialValue', 'fields', 'saving', 'submitLabel'],
-  emits: ['submit'],
+  emits: ['submit', 'draft-change'],
   template: `
     <form @submit.prevent="handleSubmit">
       <div class="vm-inline-form-grid">
@@ -83,6 +83,12 @@ const SystemConfigSectionForm = {
     },
   },
   watch: {
+    draft: {
+      deep: true,
+      handler() {
+        this.$emit('draft-change', this.buildPayload());
+      },
+    },
     initialValue: {
       deep: true,
       handler(value) {
@@ -97,7 +103,7 @@ const SystemConfigSectionForm = {
     },
   },
   methods: {
-    handleSubmit() {
+    buildPayload() {
       const payload = {};
 
       for (const field of this.normalizedFields) {
@@ -114,6 +120,10 @@ const SystemConfigSectionForm = {
         payload[field.key] = value;
       }
 
+      return payload;
+    },
+    handleSubmit() {
+      const payload = this.buildPayload();
       this.$emit('submit', payload);
     },
   },

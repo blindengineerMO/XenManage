@@ -1,3 +1,27 @@
+const DEMO_BUNDLED_OS_PROFILES = [
+  ['windows-server-2003', 'Windows Server 2003', 'bios', 32, 2, 1],
+  ['windows-server-2008-r2', 'Windows Server 2008 R2', 'bios', 40, 2, 2],
+  ['windows-server-2012-r2', 'Windows Server 2012 R2', 'bios', 60, 4, 2],
+  ['windows-server-2016', 'Windows Server 2016', 'bios', 60, 4, 2],
+  ['windows-server-2019', 'Windows Server 2019', 'bios', 60, 4, 2],
+  ['windows-server-2022', 'Windows Server 2022', 'uefi', 64, 4, 2],
+  ['windows-server-2025', 'Windows Server 2025', 'uefi', 64, 4, 2],
+  ['windows-10', 'Windows 10', 'uefi', 64, 4, 2],
+  ['windows-11', 'Windows 11', 'uefi-secure', 64, 4, 2],
+  ['ubuntu-server-24-04', 'Ubuntu Server 24.04 LTS', 'uefi', 32, 2, 2],
+  ['ubuntu-server-22-04', 'Ubuntu Server 22.04 LTS', 'uefi', 32, 2, 2],
+  ['debian-12', 'Debian 12', 'uefi', 24, 2, 2],
+  ['rocky-linux-9', 'Rocky Linux 9', 'uefi', 40, 2, 2],
+  ['other-linux', 'Other Linux (ISO or PXE)', 'bios', 32, 2, 2],
+].map(([profileId, name_label, bootMode, diskGiB, memoryGiB, vcpus]) => ({
+  profileId,
+  sourceRef: `OpaqueRef:os-profile-${profileId}`,
+  name_label,
+  name_description: 'Bundled diskless installation profile for ISO or PXE installation.',
+  disks: [],
+  defaults: { bootMode, diskGiB, memoryGiB, vcpus },
+}));
+
 function handleDemoVmTransferRoutes(method, path, body, parsedUrl, search, targetKey) {
   if (method === 'GET' && path === '/api/vms') {
     let vms = buildDemoVmInventory(targetKey).filter((vm) => !vm.is_a_template);
@@ -9,6 +33,117 @@ function handleDemoVmTransferRoutes(method, path, body, parsedUrl, search, targe
       );
     }
     return { total: vms.length, data: clone(vms) };
+  }
+
+  if (method === 'GET' && path === '/api/vms/groups') {
+    return { total: 2, data: clone([
+      { ref: 'OpaqueRef:vm-group-demo-1', uuid: 'vm-group-demo-1', name_label: 'Production anti-affinity', name_description: 'Keep production workloads on separate hosts.', placement: 'anti_affinity', VMs: [] },
+      { ref: 'OpaqueRef:vm-group-demo-2', uuid: 'vm-group-demo-2', name_label: 'Analytics placement', name_description: 'Analytics workload placement group.', placement: 'normal', VMs: [] },
+    ]) };
+  }
+
+  if (method === 'GET' && path === '/api/vms/creation-sources') {
+    const templates = buildDemoVmInventory(targetKey).filter((vm) => vm.is_a_template);
+    return clone({
+      operatingSystems: [
+        { ref: 'OpaqueRef:os-profile-ubuntu-24', name_label: 'Ubuntu Server 24.04 LTS', name_description: 'Empty HVM installation profile for ISO or PXE installation.', disks: [] },
+        { ref: 'OpaqueRef:os-profile-windows-2025', name_label: 'Windows Server 2025', name_description: 'Empty UEFI installation profile for ISO installation.', disks: [] },
+        ...templates.filter((template) => template.templateKind === 'operating-system').map((template) => ({ ...template, disks: [] })),
+      ],
+      bundledOperatingSystems: DEMO_BUNDLED_OS_PROFILES,
+      deployableTemplates: templates.filter((template) => template.templateKind !== 'operating-system').map((template, index) => ({
+        ...template,
+        disks: [{ sourceDevice: '0', bootable: true, nameLabel: `${template.name_label}-root`, nameDescription: 'Template system disk', sizeGiB: index ? 80 : 32, srRef: 'OpaqueRef:sr-demo-1' }],
+      })),
+    });
+  }
+
+  if (method === 'GET' && path === '/api/vms/gpu-profiles') {
+    return { total: 0, data: [] };
+  }
+
+  if (method === 'POST' && path === '/api/vms') {
+    ensureDemoMutationAllowed({ actionKey: 'vm_create', entityType: 'vm', entityRef: 'new' });
+
+    const nameLabel = String(body?.nameLabel || '').trim();
+    if (!nameLabel) throw new Error('VM_NAME_REQUIRED');
+    const creationMode = body?.creationMode;
+    const operatingSystems = DEMO_BUNDLED_OS_PROFILES.map((profile) => profile.sourceRef).concat(['OpaqueRef:os-profile-ubuntu-24', 'OpaqueRef:os-profile-windows-2025']);
+    const sourceTemplate = demoDb.vms.find((vm) => vm.ref === body?.sourceRef && vm.is_a_template);
+    if (!['operating-system', 'template'].includes(creationMode)) throw new Error('VM_CREATION_MODE_INVALID');
+    if (creationMode === 'operating-system' && !operatingSystems.includes(body?.sourceRef)) throw new Error('VM_OPERATING_SYSTEM_NOT_FOUND');
+    if (creationMode === 'template' && !sourceTemplate) throw new Error('VM_TEMPLATE_NOT_FOUND');
+
+    const vcpus = Math.min(64, Math.max(1, Number(body?.vcpus) || 2));
+    const memoryGiB = Math.min(1024, Math.max(1, Number(body?.memoryGiB) || 4));
+    const memoryBytes = memoryGiB * 1024 * 1024 * 1024;
+    const targetHost = demoDb.hosts.find((host) => host.ref === body?.hostRef)
+      || demoDb.hosts.find((host) => host.enabled && !host.maintenance_mode) || demoDb.hosts[0] || null;
+    const targetPool = demoDb.pools.find((pool) => pool.ref === targetHost?.pool) || demoDb.pools[0] || null;
+    const nextVmRef = nextDemoOpaqueRef('vm');
+    const nextVm = {
+      ref: nextVmRef,
+      uuid: `${nextVmRef.replace('OpaqueRef:', '')}-uuid`,
+      name_label: nameLabel,
+      name_description: String(body?.nameDescription || '').trim(),
+      power_state: body?.startAfter ? 'Running' : 'Halted',
+      VCPUs_at_startup: vcpus,
+      VCPUs_max: vcpus,
+      memory_static_max: memoryBytes,
+      memory_dynamic_max: memoryBytes,
+      is_a_template: false,
+      resident_on: targetHost?.ref || '',
+      affinity: targetHost?.ref || '',
+      VBDs: [],
+      VIFs: [],
+      HVM_boot_policy: 'BIOS order',
+      HVM_boot_params: { order: body?.installMedia === 'pxe' ? 'ncd' : 'dc', firmware: body?.bootMode === 'bios' ? 'bios' : 'uefi' },
+      VCPUs_params: { 'cores-per-socket': String(body?.coresPerSocket || 1) },
+      platform: body?.bootMode === 'uefi-secure' ? { 'device-model': 'qemu-upstream-uefi', secureboot: 'true' } : {},
+      groups: body?.vmGroupRef ? [body.vmGroupRef] : [],
+      VTPMs: body?.addVtpm ? [nextDemoOpaqueRef('vtpm')] : [],
+      VGPUs: body?.vgpuTypeRef ? [nextDemoOpaqueRef('vgpu')] : [],
+      tags: ['created', ...(Array.isArray(body?.tags) ? body.tags : [])],
+      pool: targetPool?.ref || '',
+      created_at: new Date().toISOString(),
+    };
+
+    for (const [index, disk] of (Array.isArray(body?.diskPlan) ? body.diskPlan : []).entries()) {
+      const vbdRef = nextDemoOpaqueRef('vbd');
+      const vdiRef = nextDemoOpaqueRef('vdi');
+      nextVm.VBDs.push(vbdRef);
+      const srRef = disk.srRef;
+      demoDb.vdis[srRef] = demoDb.vdis[srRef] || [];
+      demoDb.vdis[srRef].push({ ref: vdiRef, uuid: `${vdiRef.replace('OpaqueRef:', '')}-uuid`, SR: srRef, name_label: disk.nameLabel || `${nameLabel}-${index === 0 ? 'root' : `disk-${index}`}`, virtual_size: Math.max(1, Number(disk.sizeGiB) || 32) * 1024 * 1024 * 1024, type: 'user', managed: true, VBDs: [vbdRef] });
+    }
+    for (const [index, nic] of (Array.isArray(body?.networkInterfaces) ? body.networkInterfaces : []).slice(0, 4).entries()) {
+      const network = demoDb.networks.find((entry) => entry.ref === nic?.networkRef);
+      if (network) {
+        const vifRef = nextDemoOpaqueRef('vif');
+        nextVm.VIFs.push(vifRef);
+        network.VIFs = [...(network.VIFs || []), vifRef];
+        registerDemoVifState(vifRef, { device: String(index), MAC: nic?.mac || '', currently_attached: Boolean(body?.startAfter) });
+      }
+    }
+
+    demoDb.vms.push(nextVm);
+    if (targetHost) {
+      targetHost.resident_VMs = [...(targetHost.resident_VMs || []), nextVmRef];
+    }
+
+    recordDemoAudit({
+      category: 'vms',
+      action: 'vm_created',
+      actionLabel: 'Created VM',
+      entityType: 'vm',
+      entityRef: nextVmRef,
+      entityName: nextVm.name_label,
+      route: '/vms',
+      after: nextVm,
+      detail: `Provisioned from ${sourceTemplate?.name_label || 'an operating system profile'} with ${vcpus} vCPUs and ${memoryGiB} GiB of memory.`,
+    });
+
+    return clone(nextVm);
   }
 
   if (method === 'PUT' && path === '/api/vms/import') {

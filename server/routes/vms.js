@@ -8,6 +8,7 @@ const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const { ensureMutationAllowed } = require('../middleware/governance');
 const { planCompose, executeCompose } = require('../services/deployment-engine');
+const { buildBundledOsProfiles } = require('../services/os-profiles');
 
 async function safeGetVmRecord(xenApi, ref) {
   try {
@@ -153,6 +154,68 @@ router.get('/templates', async (req, res) => {
     res.json({ total: templates.length, data: templates });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/creation-sources', async (req, res) => {
+  try {
+    const sources = await req.xenApi.getVmCreationSources();
+    res.json({
+      operatingSystems: sources.operatingSystems,
+      bundledOperatingSystems: buildBundledOsProfiles(sources.operatingSystems),
+      deployableTemplates: sources.deployableTemplates,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/templates', validate(schemas.templateCreate), async (req, res) => {
+  try {
+    if (!ensureMutationAllowed(req, res, { actionKey: 'template_create', entityType: 'template', entityRef: 'new' })) return;
+    const template = await req.xenApi.createVmTemplate(req.body);
+    auditLogService.record({
+      category: 'templates', action: 'template_created', actionLabel: 'Created template',
+      entityType: 'template', entityRef: template.ref, entityName: template.name_label || req.body.nameLabel,
+      operator: req.session?.appUsername || req.session?.xenUser || 'system', route: '/templates', status: 'success', after: template,
+      detail: req.body.kind === 'operating-system' ? 'Created an operating-system installation profile.' : 'Created a deployable golden template from a VM copy.',
+    });
+    res.status(201).json(template);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/groups', async (req, res) => {
+  try {
+    const result = await req.xenApi.getVMGroups();
+    const groups = Object.entries(result.records || {}).map(([ref, record]) => ({ ref, ...record }));
+    res.json({ total: groups.length, data: groups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/gpu-profiles', async (req, res) => {
+  try {
+    const result = await req.xenApi.getVmGpuProfiles();
+    const profiles = Object.entries(result.records || {}).map(([ref, record]) => ({ ref, ...record }));
+    res.json({ total: profiles.length, data: profiles });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/', validate(schemas.vmCreate), async (req, res) => {
+  try {
+    const nameLabel = String(req.body?.nameLabel || '').trim();
+    if (!nameLabel) return res.status(400).json({ error: 'nameLabel is required' });
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_create', entityType: 'vm', entityRef: 'new' })) return;
+    const vm = await req.xenApi.provisionVM({ ...req.body, nameLabel });
+    auditLogService.record({ category: 'vms', action: 'vm_created', actionLabel: 'Created VM', entityType: 'vm', entityRef: vm.ref, entityName: vm.name_label || nameLabel, operator: req.session?.appUsername || req.session?.xenUser || 'system', route: '/vms', status: 'success', after: vm });
+    res.status(201).json(vm);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

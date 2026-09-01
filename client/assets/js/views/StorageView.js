@@ -86,10 +86,8 @@ const StorageView = {
                   :selected-keys="selectedSrRefs"
                   row-key="ref"
                   @selection-change="handleSrSelectionChange"
+                  @cell-edit="saveInlineStorageEdit"
                   @row-click="openProperties">
-        <template #cell-name_label="{ row }">
-          <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed' }}</span>
-        </template>
         <template #cell-type="{ row }">
           <span class="badge badge-info">{{ row.type || 'unknown' }}</span>
         </template>
@@ -382,6 +380,25 @@ const StorageView = {
         this.detailActionError = error.message || 'Unable to save the repository identity for the selected storage repository.';
       } finally {
         this.detailActionBusy = '';
+      }
+    },
+    async saveInlineStorageEdit({ row, key, value }) {
+      if (key !== 'name_label' || !row?.ref) return;
+
+      this.workspaceMessage = '';
+      this.detailActionError = '';
+      try {
+        const record = await api.updateSRConfig(row.ref, {
+          nameLabel: value,
+          nameDescription: row.name_description || '',
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          otherConfig: row.other_config || {},
+        });
+        this.srs = this.srs.map((entry) => (entry.ref === row.ref ? { ...entry, ...record } : entry));
+        if (this.selectedSR?.ref === row.ref) this.selectedSR = { ...this.selectedSR, ...record };
+        this.workspaceMessage = `${record?.name_label || value} was renamed.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to rename the storage repository inline.';
       }
     },
     syncSelectedSrLocalCacheHost() {

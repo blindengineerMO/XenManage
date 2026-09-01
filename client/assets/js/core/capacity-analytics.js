@@ -335,7 +335,12 @@ function buildCapacityAnalytics({
   const taskList = Array.isArray(tasks) ? tasks : [];
   const messageList = Array.isArray(messages) ? messages : [];
 
-  const hostsByRef = Object.fromEntries(hostList.map((host) => [host.ref, host]));
+  const scopedEntityKey = (record = {}, ref = '') => {
+    const targetKey = String(record?.scopeTargetKey || '').trim();
+    const entityRef = String(ref || record?.ref || '').trim();
+    return targetKey ? `${targetKey}::${entityRef}` : entityRef;
+  };
+  const hostsByRef = Object.fromEntries(hostList.map((host) => [scopedEntityKey(host), host]));
   const clusterMemoryTotal = hostList.reduce((sum, host) => sum + Number(host.memoryTotal || 0), 0);
   const clusterMemoryUsed = hostList.reduce((sum, host) => sum + Number(host.memoryUsed || 0), 0);
   const clusterStorageTotal = srList.reduce((sum, sr) => sum + Number(sr.physical_size || 0), 0);
@@ -343,7 +348,7 @@ function buildCapacityAnalytics({
 
   const normalizedVms = vmList.map((vm) => {
     const hostRef = vm.resident_on || vm.affinity || '';
-    const host = hostsByRef[hostRef];
+    const host = hostsByRef[scopedEntityKey(vm, hostRef)];
     const memoryDemand = normalizeVmMemory(vm);
     const configuredMemoryDemand = normalizeVmConfiguredMemory(vm);
     const vcpuDemand = normalizeVmVcpus(vm);
@@ -354,6 +359,7 @@ function buildCapacityAnalytics({
     return {
       ...vm,
       hostRef,
+      hostScopeEntityKey: scopedEntityKey(vm, hostRef),
       hostName: host?.name_label || host?.hostname || host?.address || hostRef || 'Unplaced',
       memoryDemand,
       configuredMemoryDemand,
@@ -372,7 +378,7 @@ function buildCapacityAnalytics({
   const averageHostVmMemory = hostList.length ? totalVmObservedMemoryDemand / hostList.length : 0;
 
   const hostBalanceRows = hostList.map((host) => {
-    const assignedVms = normalizedVms.filter((vm) => vm.hostRef === host.ref);
+    const assignedVms = normalizedVms.filter((vm) => vm.hostScopeEntityKey === scopedEntityKey(host));
     const vmMemoryDemand = assignedVms.reduce((sum, vm) => sum + vm.memoryDemand, 0);
     const vmConfiguredMemoryDemand = assignedVms.reduce((sum, vm) => sum + vm.configuredMemoryDemand, 0);
     const vmVcpuDemand = assignedVms.reduce((sum, vm) => sum + vm.vcpuDemand, 0);

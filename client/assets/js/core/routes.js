@@ -9,6 +9,7 @@ const appRoutes = [
   { path: '/storage', component: StorageView },
   { path: '/networking', component: NetworkingView },
   { path: '/inventory', component: InventoryView },
+  { path: '/vfabrics', component: VFabricsView },
   { path: '/governance', component: GovernanceView },
   { path: '/settings', component: SettingsView },
   { path: '/lifecycle', component: LifecycleView },

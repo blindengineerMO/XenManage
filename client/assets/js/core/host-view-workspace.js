@@ -49,7 +49,7 @@ function createHostsViewState() {
     relatedStorage: [],
     relatedNetworks: [],
     columns: [
-      { key: 'name_label', label: 'Name' },
+      { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Host' },
       { key: 'enabled', label: 'Status' },
       { key: 'address', label: 'Address' },
       { key: 'uuid', label: 'UUID' },

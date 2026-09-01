@@ -3,6 +3,7 @@ const GovernanceView = {
     StatusBadge,
     'governance-policy-form': GovernancePolicyForm,
     GovernanceWorkspaceDialogs,
+    GovernanceControlPanel,
   },
   template: `
     <div class="animate-fade-in">
@@ -187,13 +188,8 @@ const GovernanceView = {
         <div class="dashboard-panels">
           <div class="dash-card">
             <div class="dash-card-label">Governance Policy</div>
-            <governance-policy-form
-              :initial-value="policy"
-              :saving="policySaving"
-              submit-label="Save Governance Policy"
-              @submit="savePolicy">
-            </governance-policy-form>
-            <div class="form-error" v-if="policyError" style="text-align:left">{{ policyError }}</div>
+            <p class="text-muted">Manage default session scope and destructive-action approval requirements in the unified governance panel.</p>
+            <button class="btn" @click="openGovernancePanel('policy')"><span class="mdi mdi-shield-cog-outline"></span>Manage Policy</button>
           </div>
 
           <div class="dash-card">
@@ -306,29 +302,29 @@ const GovernanceView = {
         </div>
 
         <governance-workspace-dialogs
-          :show-quota-editor="showQuotaEditor"
+          :show-quota-editor="false"
           :selected-quota-row="selectedQuotaRow"
           :quota-error="quotaError"
           :quota-saving="quotaSaving"
-          :show-approval-composer="showApprovalComposer"
+          :show-approval-composer="false"
           :approval-error="approvalError"
           :approval-draft="approvalDraft"
           :approval-saving="approvalSaving"
-          :show-user-composer="showUserComposer"
+          :show-user-composer="false"
           :user-error="userError"
           :user-saving="userSaving"
           :groups="groups"
-          :show-user-editor="showUserEditor"
+          :show-user-editor="false"
           :selected-user="selectedUser"
           :selected-user-is-current-session="selectedUserIsCurrentSession"
           :password-saving="passwordSaving"
-          :show-password-reset="showPasswordReset"
+          :show-password-reset="false"
           :password-error="passwordError"
-          :show-group-composer="showGroupComposer"
+          :show-group-composer="false"
           :group-error="groupError"
           :group-saving="groupSaving"
           :users="users"
-          :show-group-editor="showGroupEditor"
+          :show-group-editor="false"
           :selected-group="selectedGroup"
           @close-quota-editor="closeQuotaEditor"
           @save-quota="saveQuota"
@@ -348,6 +344,21 @@ const GovernanceView = {
           @save-existing-group="saveExistingGroup"
           @remove-group="removeGroup">
         </governance-workspace-dialogs>
+
+        <governance-control-panel
+          :show="showGovernancePanel"
+          :active-tab="governancePanelTab"
+          :policy="policy" :policy-saving="policySaving" :policy-error="policyError"
+          :quota-rows="quotaRows" :selected-quota-row="selectedQuotaRow" :quota-saving="quotaSaving" :quota-error="quotaError"
+          :approvals="approvals" :approval-draft="approvalDraft" :approval-saving="approvalSaving" :approval-error="approvalError" :deciding-approval-id="decidingApprovalId"
+          :can-manage-users="canManageUsers" :users="users" :groups="groups" :selected-user="selectedUser" :show-user-composer="showUserComposer" :user-saving="userSaving" :user-error="userError" :show-password-reset="showPasswordReset" :password-saving="passwordSaving" :password-error="passwordError"
+          :selected-group="selectedGroup" :show-group-composer="showGroupComposer" :group-saving="groupSaving" :group-error="groupError"
+          @close="closeGovernancePanel" @select-tab="selectGovernancePanelTab" @save-policy="savePolicy"
+          @select-quota="openQuotaEditor" @save-quota="saveQuota" @delete-quota="deleteQuota"
+          @save-approval="saveApprovalRequest" @decide-approval="decideApproval"
+          @new-user="openUserComposer" @select-user="openUserEditor" @save-user="showUserComposer ? saveNewUser($event) : saveExistingUser($event)" @open-password-reset="openPasswordReset" @save-password="submitPasswordReset"
+          @new-group="openGroupComposer" @select-group="openGroupEditor" @save-group="showGroupComposer ? saveNewGroup($event) : saveExistingGroup($event)" @remove-group="removeGroup">
+        </governance-control-panel>
       </template>
     </div>
   `,
@@ -396,6 +407,8 @@ const GovernanceView = {
       showGroupComposer: false,
       showGroupEditor: false,
       showPasswordReset: false,
+      showGovernancePanel: false,
+      governancePanelTab: 'policy',
       selectedQuotaRow: null,
       selectedUser: null,
       selectedGroup: null,
@@ -522,10 +535,33 @@ const GovernanceView = {
         this.policySaving = false;
       }
     },
+    openGovernancePanel(tab = 'policy') {
+      this.governancePanelTab = tab;
+      this.showGovernancePanel = true;
+    },
+    closeGovernancePanel() {
+      this.showGovernancePanel = false;
+      this.showQuotaEditor = false;
+      this.showApprovalComposer = false;
+      this.showUserComposer = false;
+      this.showUserEditor = false;
+      this.showGroupComposer = false;
+      this.showGroupEditor = false;
+      this.showPasswordReset = false;
+    },
+    selectGovernancePanelTab(tab) {
+      this.governancePanelTab = tab;
+      this.showQuotaEditor = false;
+      this.showApprovalComposer = false;
+      this.showUserComposer = false;
+      this.showGroupComposer = false;
+      this.showPasswordReset = false;
+    },
     openQuotaEditor(row) {
       this.selectedQuotaRow = row;
       this.quotaError = '';
-      this.showQuotaEditor = true;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'quotas';
     },
     closeQuotaEditor() {
       this.showQuotaEditor = false;
@@ -591,6 +627,8 @@ const GovernanceView = {
       this.approvalError = message || '';
       this.approvalDraft = normalizeGovernanceApprovalDraft(draft || {});
       this.showApprovalComposer = true;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'approvals';
     },
     closeApprovalComposer() {
       this.showApprovalComposer = false;
@@ -600,6 +638,9 @@ const GovernanceView = {
     openUserComposer() {
       this.userError = '';
       this.showUserComposer = true;
+      this.selectedUser = null;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'users';
     },
     closeUserComposer() {
       this.showUserComposer = false;
@@ -609,6 +650,9 @@ const GovernanceView = {
       this.selectedUser = user;
       this.userError = '';
       this.showUserEditor = true;
+      this.showUserComposer = false;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'users';
     },
     closeUserEditor() {
       this.showUserEditor = false;
@@ -618,6 +662,9 @@ const GovernanceView = {
     openGroupComposer() {
       this.groupError = '';
       this.showGroupComposer = true;
+      this.selectedGroup = null;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'groups';
     },
     closeGroupComposer() {
       this.showGroupComposer = false;
@@ -627,6 +674,9 @@ const GovernanceView = {
       this.selectedGroup = group;
       this.groupError = '';
       this.showGroupEditor = true;
+      this.showGroupComposer = false;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'groups';
     },
     closeGroupEditor() {
       this.showGroupEditor = false;
@@ -637,6 +687,8 @@ const GovernanceView = {
       this.selectedUser = user;
       this.passwordError = '';
       this.showPasswordReset = true;
+      this.showGovernancePanel = true;
+      this.governancePanelTab = 'users';
     },
     closePasswordReset() {
       this.showPasswordReset = false;

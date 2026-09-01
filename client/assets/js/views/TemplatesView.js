@@ -2,6 +2,8 @@ const TemplatesView = {
   components: {
     DataTable,
     StatusBadge,
+    FloatingWindow,
+    'template-create-form': TemplateCreateForm,
     TemplateWorkspaceDialogs,
   },
   template: `
@@ -14,10 +16,11 @@ const TemplatesView = {
           </h2>
           <p class="section-subtitle">Golden image inventory for repeatable VM deployment, standards-driven lifecycle tagging, governance metadata, and post-deploy validation follow-through.</p>
         </div>
-        <button class="btn btn-primary" @click="loadAll">
-          <span class="mdi mdi-refresh"></span>
-          Refresh
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-primary" @click="openTemplateCreate('operating-system')"><span class="mdi mdi-file-plus-outline"></span>New OS Profile</button>
+          <button class="btn btn-sm" @click="openTemplateCreate('deployable')"><span class="mdi mdi-content-copy"></span>Create Golden Template</button>
+          <button class="btn btn-primary" @click="loadAll"><span class="mdi mdi-refresh"></span>Refresh</button>
+        </div>
       </div>
 
       <div class="dashboard-panels">
@@ -120,10 +123,16 @@ const TemplatesView = {
         </template>
       </data-table>
 
+      <floating-window :show="showTemplateCreate" :title="templateCreateKind === 'operating-system' ? 'Create Operating-System Profile' : 'Create Deployable Golden Template'" :width="760" :height="560" @close="showTemplateCreate = false">
+        <template-create-form :key="templateCreateKind" :saving="templateCreateSaving" :kind="templateCreateKind" :operating-systems="templateOperatingSystems" :virtual-machines="templateSourceVms" @submit="createTemplate"></template-create-form>
+        <div class="form-error" v-if="templateCreateError">{{ templateCreateError }}</div>
+      </floating-window>
+
       <template-workspace-dialogs
         :show-props="showProps"
         :selected-template="selectedTemplate"
         :governance-map="governanceMap"
+        :operating-system-template-refs="operatingSystemTemplateRefs"
         :host-options="hostOptions"
         :storage-options="storageOptions"
         :network-options="networkOptions"
@@ -191,6 +200,13 @@ const TemplatesView = {
       showDeploy: false,
       showDeploymentValidation: false,
       showPromotionReview: false,
+      showTemplateCreate: false,
+      templateCreateKind: 'operating-system',
+      templateCreateSaving: false,
+      templateCreateError: '',
+      templateOperatingSystems: [],
+      templateSourceVms: [],
+      operatingSystemTemplateRefs: [],
       governanceSaving: false,
       governanceError: null,
       deploySaving: false,
@@ -329,6 +345,32 @@ const TemplatesView = {
       this.showProps = true;
       await this.loadTemplateHistory(row.ref);
     },
+    async openTemplateCreate(kind) {
+      this.templateCreateKind = kind === 'deployable' ? 'deployable' : 'operating-system';
+      this.templateCreateError = '';
+      try {
+        const [sources, vms] = await Promise.all([api.getVmCreationSources(), api.getVMs()]);
+        this.templateOperatingSystems = sources.operatingSystems || [];
+        this.templateSourceVms = vms.data || [];
+      } catch (error) {
+        this.templateCreateError = error.message || 'Unable to load template creation sources';
+      }
+      this.showTemplateCreate = true;
+    },
+    async createTemplate(payload) {
+      this.templateCreateSaving = true;
+      this.templateCreateError = '';
+      try {
+        const template = await api.createVmTemplate(payload);
+        await this.loadAll();
+        this.showTemplateCreate = false;
+        await this.openProperties(this.normalizedTemplates.find((entry) => entry.ref === template.ref) || template);
+      } catch (error) {
+        this.templateCreateError = error.message || 'Unable to create template';
+      } finally {
+        this.templateCreateSaving = false;
+      }
+    },
     findTemplateByFocus(focus) {
       return findTemplateByFocus(this.normalizedTemplates, focus);
     },
@@ -394,13 +436,14 @@ const TemplatesView = {
     async loadAll() {
       this.loading = true;
       try {
-        const [templates, hosts, storage, networks, governance, deployments] = await Promise.all([
+        const [templates, hosts, storage, networks, governance, deployments, creationSources] = await Promise.all([
           api.getTemplates(),
           api.getHosts().catch(() => ({ data: [] })),
           api.getSRs().catch(() => ({ data: [] })),
           api.getNetworks().catch(() => ({ data: [] })),
           api.getTemplateGovernance().catch(() => ({ data: [] })),
           api.getTemplateDeployments().catch(() => ({ data: [] })),
+          api.getVmCreationSources().catch(() => ({ operatingSystems: [] })),
         ]);
 
         this.templates = templates.data || [];
@@ -409,6 +452,7 @@ const TemplatesView = {
         this.networks = networks.data || [];
         this.governanceRecords = governance.data || [];
         this.deployments = deployments.data || [];
+        this.operatingSystemTemplateRefs = (creationSources.operatingSystems || []).map((source) => source.ref);
       } catch (error) {
         console.error(error);
       } finally {

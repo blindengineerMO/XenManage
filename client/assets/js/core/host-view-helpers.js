@@ -91,6 +91,13 @@ function buildSelectedHostLoggingSummary(host) {
 
 function findAttachedHostTarget(attachedTargets = [], target = null) {
   if (!target || target.mode !== 'standalone') return null;
+  const targetId = Number(target.id || 0);
+  if (targetId > 0) {
+    const byId = (Array.isArray(attachedTargets) ? attachedTargets : []).find((entry) =>
+      Number(entry.hostTargetId || 0) === targetId
+    );
+    if (byId) return byId;
+  }
   const host = String(target.host || '').toLowerCase();
   const username = String(target.username || '').toLowerCase();
   const port = Number(target.port || 443) || 443;

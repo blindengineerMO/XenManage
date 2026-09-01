@@ -46,6 +46,10 @@ const SideNav = {
           <span class="mdi mdi-sitemap-outline"></span>
           <span class="tree-label" v-if="!collapsed">Inventory</span>
         </div>
+        <div class="tree-item" :class="{ active: $route.path === '/vfabrics' }" @click="$router.push('/vfabrics')">
+          <span class="mdi mdi-vector-combine"></span>
+          <span class="tree-label" v-if="!collapsed">vFabrics</span>
+        </div>
         <div class="tree-item" :class="{ active: $route.path === '/governance' }" @click="$router.push('/governance')">
           <span class="mdi mdi-shield-account-outline"></span>
           <span class="tree-label" v-if="!collapsed">Governance</span>
@@ -78,12 +82,12 @@ const SideNav = {
         <div v-if="!collapsed" class="tree-section">
           <div class="tree-section-label">Live Inventory</div>
 
-          <div class="tree-item tree-item-subtle" @click="toggleGroup('pools')">
-            <span class="mdi mdi-chevron-right tree-toggle" :class="{ open: expandedGroups.pools }"></span>
+          <div class="tree-item tree-item-subtle" @click="$router.push('/pools')">
+            <span class="mdi mdi-source-branch"></span>
             <span class="tree-label">Pool Records</span>
             <span class="tree-count">{{ inventory.pools.length }}</span>
           </div>
-          <div class="tree-children" v-if="expandedGroups.pools">
+          <div class="tree-children" v-if="false">
             <div class="tree-empty" v-if="inventoryLoading">Syncing live pool records...</div>
             <div class="tree-item tree-item-child"
                  v-for="pool in inventory.pools.slice(0, 6)"
@@ -94,12 +98,12 @@ const SideNav = {
             </div>
           </div>
 
-          <div class="tree-item tree-item-subtle" @click="toggleGroup('templates')">
-            <span class="mdi mdi-chevron-right tree-toggle" :class="{ open: expandedGroups.templates }"></span>
+          <div class="tree-item tree-item-subtle" @click="$router.push('/templates')">
+            <span class="mdi mdi-file-document-multiple-outline"></span>
             <span class="tree-label">Template Library</span>
             <span class="tree-count">{{ inventory.templates.length }}</span>
           </div>
-          <div class="tree-children" v-if="expandedGroups.templates">
+          <div class="tree-children" v-if="false">
             <div class="tree-empty" v-if="inventoryLoading">Syncing template catalog...</div>
             <div class="tree-item tree-item-child"
                  v-for="template in inventory.templates.slice(0, 6)"
@@ -110,12 +114,12 @@ const SideNav = {
             </div>
           </div>
 
-          <div class="tree-item tree-item-subtle" @click="toggleGroup('hosts')">
-            <span class="mdi mdi-chevron-right tree-toggle" :class="{ open: expandedGroups.hosts }"></span>
+          <div class="tree-item tree-item-subtle" @click="$router.push('/hosts')">
+            <span class="mdi mdi-server"></span>
             <span class="tree-label">Host Records</span>
             <span class="tree-count">{{ inventory.hosts.length }}</span>
           </div>
-          <div class="tree-children" v-if="expandedGroups.hosts">
+          <div class="tree-children" v-if="false">
             <div class="tree-empty" v-if="inventoryLoading">Syncing live host records...</div>
             <div class="tree-item tree-item-child"
                  v-for="host in inventory.hosts.slice(0, 8)"
@@ -126,12 +130,12 @@ const SideNav = {
             </div>
           </div>
 
-          <div class="tree-item tree-item-subtle" @click="toggleGroup('storage')">
-            <span class="mdi mdi-chevron-right tree-toggle" :class="{ open: expandedGroups.storage }"></span>
+          <div class="tree-item tree-item-subtle" @click="$router.push('/storage')">
+            <span class="mdi mdi-harddisk"></span>
             <span class="tree-label">Storage Repositories</span>
             <span class="tree-count">{{ inventory.srs.length }}</span>
           </div>
-          <div class="tree-children" v-if="expandedGroups.storage">
+          <div class="tree-children" v-if="false">
             <div class="tree-empty" v-if="inventoryLoading">Syncing storage inventory...</div>
             <div class="tree-item tree-item-child"
                  v-for="sr in inventory.srs.slice(0, 6)"
@@ -142,12 +146,12 @@ const SideNav = {
             </div>
           </div>
 
-          <div class="tree-item tree-item-subtle" @click="toggleGroup('networks')">
-            <span class="mdi mdi-chevron-right tree-toggle" :class="{ open: expandedGroups.networks }"></span>
+          <div class="tree-item tree-item-subtle" @click="$router.push('/networking')">
+            <span class="mdi mdi-lan"></span>
             <span class="tree-label">Network Fabrics</span>
             <span class="tree-count">{{ inventory.networks.length }}</span>
           </div>
-          <div class="tree-children" v-if="expandedGroups.networks">
+          <div class="tree-children" v-if="false">
             <div class="tree-empty" v-if="inventoryLoading">Syncing network inventory...</div>
             <div class="tree-item tree-item-child"
                  v-for="network in inventory.networks.slice(0, 8)"

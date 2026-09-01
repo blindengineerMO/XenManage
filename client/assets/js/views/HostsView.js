@@ -71,10 +71,8 @@ const HostsView = {
                   :selected-keys="selectedHostRefs"
                   row-key="ref"
                   @selection-change="handleHostSelectionChange"
+                  @cell-edit="saveInlineHostEdit"
                   @row-click="openProperties">
-        <template #cell-name_label="{ row }">
-          <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed Host' }}</span>
-        </template>
         <template #cell-enabled="{ row }">
           <status-badge :status="row.enabled ? 'enabled' : 'disabled'"></status-badge>
         </template>
@@ -311,6 +309,27 @@ const HostsView = {
     applySelectedHostRecord(record) {
       this.selectedHost = { ...this.selectedHost, ...(record || {}) };
       this.hosts = this.hosts.map((entry) => (entry.ref === this.selectedHost.ref ? { ...entry, ...(record || {}) } : entry));
+    },
+    async saveInlineHostEdit({ row, key, value }) {
+      if (key !== 'name_label' || !row?.ref) return;
+
+      this.actionError = null;
+      this.hostActionMessage = '';
+      try {
+        const record = await api.updateHostConfig(row.ref, {
+          nameLabel: value,
+          nameDescription: row.name_description || '',
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          guestVcpusParams: row.guest_VCPUs_params || {},
+          schedGran: row.sched_gran || undefined,
+          logging: row.logging || {},
+        });
+        this.hosts = this.hosts.map((entry) => (entry.ref === row.ref ? { ...entry, ...record } : entry));
+        if (this.selectedHost?.ref === row.ref) this.selectedHost = { ...this.selectedHost, ...record };
+        this.hostActionMessage = `${record?.name_label || value} was renamed.`;
+      } catch (error) {
+        this.actionError = error.message || 'Unable to rename the host inline.';
+      }
     },
     async submitSelectedHostConfig(payload) {
       if (!this.selectedHost?.ref) return;
@@ -599,6 +618,7 @@ const HostsView = {
         if (target.vault_credential_id) {
           const result = await api.xenLogin(target.host, target.username, '', {
             vaultCredentialId: target.vault_credential_id,
+            hostTargetId: target.id,
             connectionName: target.name || '',
             port: target.port || 443,
           });
@@ -628,6 +648,7 @@ const HostsView = {
           this.useSavedCredential ? '' : this.connectPassword,
           {
             vaultCredentialId: this.useSavedCredential ? this.connectTarget.vault_credential_id : null,
+            hostTargetId: this.connectTarget.id,
             connectionName: this.connectTarget.name || '',
             port: this.connectTarget.port || 443,
           }

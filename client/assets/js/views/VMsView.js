@@ -4,6 +4,8 @@ const VMsView = {
     StatusBadge,
     'vm-properties-window': VMPropertiesWindow,
     'vm-import-window': VMImportWindow,
+    FloatingWindow,
+    'vm-create-form': VMCreateForm,
   },
   template: `
     <div class="animate-fade-in">
@@ -16,6 +18,8 @@ const VMsView = {
           <p class="section-subtitle">Searchable VM inventory with a richer operator detail workspace for placement, attached resources, and configuration tasks.</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-primary" @click="openCreateWindow('operating-system')"><span class="mdi mdi-desktop-tower-monitor"></span>New VM</button>
+          <button class="btn btn-sm" @click="openCreateWindow('template')"><span class="mdi mdi-content-copy"></span>Deploy Template</button>
           <button class="btn btn-sm" @click="openImportWindow">
             <span class="mdi mdi-package-up"></span>
             Import XVA
@@ -99,6 +103,8 @@ const VMsView = {
         </template>
       </data-table>
 
+      <floating-window :show="showCreateWindow" :title="createMode === 'template' ? 'Deploy Virtual Machine From Template' : 'Create Virtual Machine From Operating System'" :width="960" :height="780" @close="showCreateWindow = false"><div class="detail-section" style="margin-top:0"><vm-create-form :key="createMode" :saving="creatingVm" :creation-mode="createMode" :operating-systems="createOperatingSystems" :deployable-templates="createDeployableTemplates" :hosts="relatedHosts" :storage="relatedStorage" :networks="relatedNetworks" :iso-options="createIsoOptions" :vm-groups="createVmGroups" :gpu-profiles="createGpuProfiles" @submit="createVM"></vm-create-form><div class="form-error" v-if="createVmError">{{ createVmError }}</div></div></floating-window>
+
       <vm-properties-window
         :show="showProps"
         :selected-vm="selectedVM"
@@ -143,6 +149,15 @@ const VMsView = {
       vms: [],
       showProps: false,
       showImportWindow: false,
+      showCreateWindow: false,
+      creatingVm: false,
+      createVmError: '',
+      createMode: 'operating-system',
+      createOperatingSystems: [],
+      createDeployableTemplates: [],
+      createIsoOptions: [],
+      createVmGroups: [],
+      createGpuProfiles: [],
       selectedVM: null,
       detailLoading: false,
       detailError: null,
@@ -352,6 +367,14 @@ const VMsView = {
       return;
     }
     await this.loadVMs();
+    if (String(this.$route.query.import || '') === '1') {
+      this.openImportWindow();
+      this.$router.replace('/vms');
+    }
+    if (String(this.$route.query.create || '') === '1') {
+      await this.openCreateWindow();
+      this.$router.replace('/vms');
+    }
     await this.syncRouteFocus();
   },
   watch: {
@@ -366,6 +389,43 @@ const VMsView = {
     },
   },
   methods: {
+    async openCreateWindow(mode = 'operating-system') {
+      this.createVmError = '';
+      this.createMode = mode === 'template' ? 'template' : 'operating-system';
+      try {
+        Object.assign(this, await loadVmInventoryContext(api));
+        const [sources, vmGroups, gpuProfiles, vdiResults] = await Promise.all([
+          api.getVmCreationSources(),
+          api.getVMGroups(),
+          api.getVmGpuProfiles(),
+          Promise.all(this.relatedStorage.map(async (sr) => ({ sr, result: await api.getSRVDIs(sr.ref).catch(() => ({ data: [] })) }))),
+        ]);
+        this.createOperatingSystems = sources.bundledOperatingSystems?.length
+          ? sources.bundledOperatingSystems
+          : (sources.operatingSystems || []);
+        this.createDeployableTemplates = sources.deployableTemplates || [];
+        this.createVmGroups = vmGroups.data || [];
+        this.createGpuProfiles = gpuProfiles.data || [];
+        this.createIsoOptions = vdiResults.flatMap(({ sr, result }) => (result.data || []).filter((vdi) => vdi.type === 'iso' || sr.content_type === 'iso').map((vdi) => ({ ...vdi, srName: sr.name_label })));
+      } catch (error) {
+        this.createVmError = error.message || 'Unable to load VM creation options';
+      }
+      this.showCreateWindow = true;
+    },
+    async createVM(payload) {
+      this.creatingVm = true;
+      this.createVmError = '';
+      try {
+        const vm = await api.createVM(payload);
+        await this.loadVMs();
+        this.showCreateWindow = false;
+        this.openProperties(vm);
+      } catch (error) {
+        this.createVmError = error.message || 'Unable to create the virtual machine';
+      } finally {
+        this.creatingVm = false;
+      }
+    },
     formatBytes,
     formatThroughput,
     formatDateTime,

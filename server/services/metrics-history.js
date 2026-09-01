@@ -397,8 +397,8 @@ function groupPoints(rows = []) {
   }));
 }
 
-function buildLatestMetricRows(entityType, metricName) {
-  const rawRows = metricSampleModel.listLatestMetricByEntity(entityType, metricName);
+function buildLatestMetricRows(entityType, metricName, targetKey = '') {
+  const rawRows = metricSampleModel.listLatestMetricByEntity(entityType, metricName, targetKey);
   if (rawRows.length) {
     return {
       resolution: 'raw',
@@ -408,16 +408,16 @@ function buildLatestMetricRows(entityType, metricName) {
 
   return {
     resolution: 'hourly',
-    rows: metricSampleModel.listLatestHourlyMetricByEntity(entityType, metricName),
+    rows: metricSampleModel.listLatestHourlyMetricByEntity(entityType, metricName, targetKey),
   };
 }
 
-function mergeLatestMetricSet(entityType, metricNames = []) {
+function mergeLatestMetricSet(entityType, metricNames = [], targetKey = '') {
   const entities = new Map();
   let resolution = 'raw';
 
   metricNames.forEach((metricName) => {
-    const metricRows = buildLatestMetricRows(entityType, metricName);
+    const metricRows = buildLatestMetricRows(entityType, metricName, targetKey);
     if (metricRows.resolution === 'hourly') {
       resolution = 'hourly';
     }
@@ -493,7 +493,8 @@ const metricsHistoryService = {
 
   async captureSnapshot(xenApi, options = {}) {
     const now = Date.now();
-    const latestTs = metricSampleModel.getLatestTimestamp();
+    const targetKey = String(options.targetKey || '');
+    const latestTs = metricSampleModel.getLatestTimestamp(targetKey);
 
     if (!options.force && latestTs && now - latestTs < STALE_SAMPLE_WINDOW_MS) {
       return { captured: false, ts: latestTs, sampleCount: 0 };
@@ -554,7 +555,7 @@ const metricsHistoryService = {
       ...srs.flatMap((record) => buildSrSamples(record, ts)),
     ];
 
-    metricSampleModel.insertMany(samples);
+    metricSampleModel.insertMany(samples.map((sample) => ({ ...sample, targetKey })));
 
     return {
       captured: true,
@@ -566,7 +567,7 @@ const metricsHistoryService = {
     };
   },
 
-  listEntitySeries(entityType, entityRef, range = '24h') {
+  listEntitySeries(entityType, entityRef, range = '24h', targetKey = '') {
     const normalizedRange = normalizeRange(range);
     const sinceTs = rangeStart(normalizedRange);
     const metricNames = ENTITY_METRICS[entityType] || [];
@@ -582,32 +583,32 @@ const metricsHistoryService = {
         metricName,
         points: groupPoints(
           useHourlyRollups
-            ? metricSampleModel.listEntityMetricHourly(entityType, entityRef, metricName, sinceTs)
-            : metricSampleModel.listEntityMetric(entityType, entityRef, metricName, sinceTs)
+            ? metricSampleModel.listEntityMetricHourly(entityType, entityRef, metricName, sinceTs, targetKey)
+            : metricSampleModel.listEntityMetric(entityType, entityRef, metricName, sinceTs, targetKey)
         ),
       })),
     };
   },
 
-  listClusterSeries(range = '24h') {
+  listClusterSeries(range = '24h', targetKey = '') {
     const normalizedRange = normalizeRange(range);
     const sinceTs = rangeStart(normalizedRange);
     const useHourlyRollups = shouldUseHourlyRollups(normalizedRange);
     const listAcross = useHourlyRollups
       ? metricSampleModel.listMetricAcrossEntitiesHourly.bind(metricSampleModel)
       : metricSampleModel.listMetricAcrossEntities.bind(metricSampleModel);
-    const hostUsed = listAcross('host', 'memory_used_bytes', sinceTs);
-    const hostTotal = listAcross('host', 'memory_total_bytes', sinceTs);
-    const hostCpu = listAcross('host', 'cpu_usage_percent', sinceTs);
-    const hostNetworkRx = listAcross('host', 'network_rx_kib_per_s', sinceTs);
-    const hostNetworkTx = listAcross('host', 'network_tx_kib_per_s', sinceTs);
-    const srUsed = listAcross('sr', 'allocation_bytes', sinceTs);
-    const srTotal = listAcross('sr', 'physical_bytes', sinceTs);
-    const vmActual = listAcross('vm', 'memory_actual_bytes', sinceTs);
-    const vmNetworkRx = listAcross('vm', 'network_rx_kib_per_s', sinceTs);
-    const vmNetworkTx = listAcross('vm', 'network_tx_kib_per_s', sinceTs);
-    const vmDiskRead = listAcross('vm', 'disk_read_kib_per_s', sinceTs);
-    const vmDiskWrite = listAcross('vm', 'disk_write_kib_per_s', sinceTs);
+    const hostUsed = listAcross('host', 'memory_used_bytes', sinceTs, targetKey);
+    const hostTotal = listAcross('host', 'memory_total_bytes', sinceTs, targetKey);
+    const hostCpu = listAcross('host', 'cpu_usage_percent', sinceTs, targetKey);
+    const hostNetworkRx = listAcross('host', 'network_rx_kib_per_s', sinceTs, targetKey);
+    const hostNetworkTx = listAcross('host', 'network_tx_kib_per_s', sinceTs, targetKey);
+    const srUsed = listAcross('sr', 'allocation_bytes', sinceTs, targetKey);
+    const srTotal = listAcross('sr', 'physical_bytes', sinceTs, targetKey);
+    const vmActual = listAcross('vm', 'memory_actual_bytes', sinceTs, targetKey);
+    const vmNetworkRx = listAcross('vm', 'network_rx_kib_per_s', sinceTs, targetKey);
+    const vmNetworkTx = listAcross('vm', 'network_tx_kib_per_s', sinceTs, targetKey);
+    const vmDiskRead = listAcross('vm', 'disk_read_kib_per_s', sinceTs, targetKey);
+    const vmDiskWrite = listAcross('vm', 'disk_write_kib_per_s', sinceTs, targetKey);
 
     return {
       range: normalizedRange,
@@ -658,10 +659,10 @@ const metricsHistoryService = {
     };
   },
 
-  listCapacityBaseline() {
-    const hostMetrics = mergeLatestMetricSet('host', ENTITY_METRICS.host);
-    const vmMetrics = mergeLatestMetricSet('vm', ENTITY_METRICS.vm);
-    const storageMetrics = mergeLatestMetricSet('sr', ENTITY_METRICS.sr);
+  listCapacityBaseline(targetKey = '') {
+    const hostMetrics = mergeLatestMetricSet('host', ENTITY_METRICS.host, targetKey);
+    const vmMetrics = mergeLatestMetricSet('vm', ENTITY_METRICS.vm, targetKey);
+    const storageMetrics = mergeLatestMetricSet('sr', ENTITY_METRICS.sr, targetKey);
 
     return {
       generatedAt: new Date().toISOString(),

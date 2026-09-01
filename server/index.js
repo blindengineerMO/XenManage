@@ -30,6 +30,7 @@ const apiRoutes = require('./routes/api');
 const hostTargetRoutes = require('./routes/host-targets');
 const workspaceRoutes = require('./routes/workspaces');
 const templateLibraryRoutes = require('./routes/template-library');
+const vFabricRoutes = require('./routes/vfabrics');
 const governanceService = require('./services/governance');
 const metricsCollector = require('./services/metrics-collector');
 const systemConfigService = require('./services/system-config');
@@ -95,6 +96,7 @@ app.use('/api/connections', requireAuth, apiRoutes);
 app.use('/api/host-targets', requireAuth, hostTargetRoutes);
 app.use('/api/workspaces', requireAuth, workspaceRoutes);
 app.use('/api/template-library', requireAuth, templateLibraryRoutes);
+app.use('/api/vfabrics', requireAuth, vFabricRoutes);
 
 // Vue SPA - serve index.html for all non-API routes
 app.get('/{*splat}', (req, res) => {

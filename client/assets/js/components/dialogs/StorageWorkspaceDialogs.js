@@ -254,7 +254,7 @@ const StorageWorkspaceDialogs = {
           <p class="text-muted" style="margin-bottom:12px">Attach this ISO as a read-only CD device to a virtual machine.</p>
           <div class="form-group">
             <label>Target VM</label>
-            <select class="form-control"
+            <select class="form-input"
                     :value="attachCdVmRef"
                     @change="$emit('update:attach-cd-vm-ref', $event.target.value)">
               <option value="">Select a VM...</option>
