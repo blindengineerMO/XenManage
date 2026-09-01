@@ -287,6 +287,7 @@ const api = {
   updateNetworkConfig: (ref, payload) => api.request('PUT', `/api/networks/${encodeURIComponent(ref)}/config`, payload),
   destroyNetwork: (ref, payload = {}) => api.request('POST', `/api/networks/${encodeURIComponent(ref)}/destroy`, payload),
   getPools: (targetKey = '') => api.request('GET', appendTargetKey('/api/pools', targetKey)),
+  getPool: (ref) => api.request('GET', `/api/pools/${encodeURIComponent(ref)}`),
   updatePoolConfig: (ref, payload) => api.request('PUT', `/api/pools/${encodeURIComponent(ref)}/config`, payload),
   updatePoolHaState: (ref, payload) => api.request('POST', `/api/pools/${encodeURIComponent(ref)}/ha`, payload),
   joinPool: (payload) => api.request('POST', '/api/pools/join', payload),
