@@ -2,6 +2,7 @@ const VFabricsView = {
   components: {
     FloatingWindow,
     ConfirmWindow,
+    GovernanceQuotaForm,
   },
   template: `
     <div class="animate-fade-in vfabrics-view">
@@ -50,9 +51,15 @@ const VFabricsView = {
               </span>
               <span v-if="!fabric.members.length" class="text-muted mono">No visible members</span>
             </div>
+            <div class="capacity-callout" style="margin-top:14px" v-if="fabric.quotaEvaluation">
+              <strong>Aggregate quota · {{ fabric.quotaEvaluation.status }}</strong>
+              <div class="text-muted" style="font-size:12px;margin-top:5px">{{ fabric.quotaEvaluation.usage.vmCount }} VMs · {{ fabric.quotaEvaluation.usage.runningVmCount }} running · {{ fabric.quotaEvaluation.usage.totalMemoryGiB }} GiB</div>
+              <div class="text-muted" style="font-size:12px;margin-top:5px">{{ fabric.quotaEvaluation.detail }}</div>
+            </div>
             <div class="vfabric-card-footer">
               <span class="text-muted mono">{{ fabric.owner_display_name || 'Shared control-plane record' }}</span>
               <div style="display:flex;gap:8px">
+                <button class="btn btn-sm" :disabled="!fabric.can_manage || !isAdmin" @click="openQuotaEditor(fabric)"><span class="mdi mdi-gauge"></span> Quota</button>
                 <button class="btn btn-sm" :disabled="!fabric.can_manage" @click="openEdit(fabric)"><span class="mdi mdi-pencil"></span> Edit</button>
                 <button class="btn btn-sm btn-danger" :disabled="!fabric.can_manage" @click="fabricPendingDelete = fabric"><span class="mdi mdi-delete-outline"></span> Delete</button>
               </div>
@@ -98,6 +105,24 @@ const VFabricsView = {
       </floating-window>
 
       <confirm-window :show="Boolean(fabricPendingDelete)" title="Delete vFabric" :message="'Delete ' + (fabricPendingDelete?.name || 'this vFabric') + '? Its saved target registrations and XenServer resources will not be changed.'" confirm-label="Delete vFabric" :danger="true" @close="fabricPendingDelete = null" @confirm="deleteFabric"></confirm-window>
+
+      <floating-window :show="showQuotaEditor" title="vFabric Aggregate Quota" :width="680" :height="590" @close="closeQuotaEditor">
+        <div class="detail-section" v-if="quotaFabric">
+          <div class="detail-title">{{ quotaFabric.name }}</div>
+          <p class="text-muted">Caps apply across every member target. Deployment is blocked when the policy is breached or when member coverage is incomplete.</p>
+          <governance-quota-form
+            :initial-value="quotaFabric.quotaEvaluation?.quota || {}"
+            :pool-record="{ poolName: quotaFabric.name }"
+            :saving="quotaSaving"
+            scope-label="vFabric"
+            enforcement-label="Enforce this aggregate quota"
+            submit-label="Save vFabric Quota"
+            @submit="saveQuota">
+          </governance-quota-form>
+          <button v-if="quotaFabric.quotaEvaluation?.quota" class="btn" :disabled="quotaSaving" @click="deleteQuota">Remove vFabric Quota</button>
+          <div v-if="quotaError" class="form-error" style="text-align:left;margin-top:12px">{{ quotaError }}</div>
+        </div>
+      </floating-window>
     </div>
   `,
   data() {
@@ -112,6 +137,10 @@ const VFabricsView = {
       editingFabric: null,
       fabricPendingDelete: null,
       showEditor: false,
+      showQuotaEditor: false,
+      quotaSaving: false,
+      quotaError: '',
+      quotaFabric: null,
       draft: this.emptyDraft(),
     };
   },
@@ -128,6 +157,9 @@ const VFabricsView = {
     isShared: {
       get() { return this.draft.visibility === 'shared'; },
       set(value) { this.draft.visibility = value ? 'shared' : 'private'; },
+    },
+    isAdmin() {
+      return store.governance?.currentRole === 'admin';
     },
   },
   async mounted() {
@@ -146,7 +178,13 @@ const VFabricsView = {
       this.error = '';
       try {
         const [fabrics, connections, hostTargets] = await Promise.all([api.getVFabrics(), api.getConnections(), api.getHostTargets()]);
-        this.fabrics = this.responseData(fabrics);
+        const records = this.responseData(fabrics);
+        const quotaEvaluations = await Promise.all(records.map(async (fabric) => ({
+          id: fabric.id,
+          evaluation: await api.getVFabricQuota(fabric.id).catch(() => null),
+        })));
+        const evaluationById = new Map(quotaEvaluations.map((entry) => [entry.id, entry.evaluation]));
+        this.fabrics = records.map((fabric) => ({ ...fabric, quotaEvaluation: evaluationById.get(fabric.id) || null }));
         this.connections = this.responseData(connections);
         this.hostTargets = this.responseData(hostTargets);
       } catch (error) {
@@ -183,6 +221,46 @@ const VFabricsView = {
     toggleMember(key, id) {
       const values = this.draft[key];
       this.draft[key] = values.includes(id) ? values.filter((value) => value !== id) : [...values, id];
+    },
+    openQuotaEditor(fabric) {
+      if (!this.isAdmin || !fabric?.can_manage) return;
+      this.quotaFabric = fabric;
+      this.quotaError = '';
+      this.showQuotaEditor = true;
+    },
+    closeQuotaEditor(force = false) {
+      if (this.quotaSaving && !force) return;
+      this.showQuotaEditor = false;
+      this.quotaFabric = null;
+      this.quotaError = '';
+    },
+    async saveQuota(payload) {
+      if (!this.quotaFabric) return;
+      this.quotaSaving = true;
+      this.quotaError = '';
+      try {
+        await api.saveVFabricQuota(this.quotaFabric.id, payload);
+        await this.loadWorkspace();
+        this.closeQuotaEditor(true);
+      } catch (error) {
+        this.quotaError = error.message || 'Unable to save the vFabric quota.';
+      } finally {
+        this.quotaSaving = false;
+      }
+    },
+    async deleteQuota() {
+      if (!this.quotaFabric) return;
+      this.quotaSaving = true;
+      this.quotaError = '';
+      try {
+        await api.deleteVFabricQuota(this.quotaFabric.id);
+        await this.loadWorkspace();
+        this.closeQuotaEditor(true);
+      } catch (error) {
+        this.quotaError = error.message || 'Unable to remove the vFabric quota.';
+      } finally {
+        this.quotaSaving = false;
+      }
     },
     responseData(response) {
       return Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);

@@ -1,6 +1,20 @@
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
+
+const TEST_DB = path.join(__dirname, '..', '..', '..', 'data', 'auth-routes.db');
+const TEST_SECURITY_DB = path.join(__dirname, '..', '..', '..', 'data', 'auth-routes-security.db');
+
+process.env.DB_PATH = TEST_DB;
+process.env.SECURITY_DB_PATH = TEST_SECURITY_DB;
+
+[TEST_DB, TEST_SECURITY_DB].forEach((file) => {
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+});
+
 const app = require('../../../../server/index');
 const { clearConnections } = require('../../../../server/services/xenapi');
+const { connectionModel } = require('../../../../server/models/connection');
 
 jest.mock('../../../../server/services/xenapi', () => {
   const actual = jest.requireActual('../../../../server/services/xenapi');
@@ -51,7 +65,12 @@ describe('Auth Routes', () => {
   });
 
   afterAll((done) => {
-    server.close(done);
+    server.close(() => {
+      [TEST_DB, TEST_SECURITY_DB].forEach((file) => {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      });
+      done();
+    });
   });
 
   function appLogin(cookie) {
@@ -246,7 +265,13 @@ describe('Auth Routes', () => {
 
     it('should activate and detach live xen targets within a control-plane session', async () => {
       const local = await appLogin();
-      const first = await xenLogin(local.cookie, { connectionId: 1, connectionName: 'Production Pool' });
+      const production = connectionModel.create({
+        name: 'Production Pool', host: '192.168.1.100', username: 'root', visibility: 'shared',
+      });
+      const recovery = connectionModel.create({
+        name: 'Recovery Pool', host: '192.168.1.101', username: 'root', visibility: 'shared',
+      });
+      const first = await xenLogin(local.cookie, { connectionId: production.id, connectionName: 'Production Pool' });
       expect(first.status).toBe(200);
       expect(first.body.connectedTargets).toHaveLength(1);
 
@@ -254,23 +279,23 @@ describe('Auth Routes', () => {
         host: '192.168.1.101',
         username: 'root',
         password: 'pass',
-        connectionId: 2,
+        connectionId: recovery.id,
         connectionName: 'Recovery Pool',
       }, first.cookie);
       expect(second.status).toBe(200);
       expect(second.body.connectedTargets).toHaveLength(2);
-      expect(second.body.currentTargetKey).toBe('connection:2');
+      expect(second.body.currentTargetKey).toBe(`connection:${recovery.id}`);
 
       const activated = await request('POST', '/api/auth/targets/activate', {
-        connectionId: 1,
+        connectionId: production.id,
       }, second.cookie);
       expect(activated.status).toBe(200);
-      expect(activated.body.currentTargetKey).toBe('connection:1');
-      expect(activated.body.connectedTargets.find((target) => target.targetKey === 'connection:1')?.active).toBe(true);
+      expect(activated.body.currentTargetKey).toBe(`connection:${production.id}`);
+      expect(activated.body.connectedTargets.find((target) => target.targetKey === `connection:${production.id}`)?.active).toBe(true);
 
-      const detached = await request('DELETE', '/api/auth/targets/connection%3A1', null, second.cookie);
+      const detached = await request('DELETE', `/api/auth/targets/${encodeURIComponent(`connection:${production.id}`)}`, null, second.cookie);
       expect(detached.status).toBe(200);
-      expect(detached.body.currentTargetKey).toBe('connection:2');
+      expect(detached.body.currentTargetKey).toBe(`connection:${recovery.id}`);
       expect(detached.body.connectedTargets).toHaveLength(1);
     });
 

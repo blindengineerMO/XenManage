@@ -13,6 +13,7 @@ const ActivityView = {
             Activity
           </h2>
           <p class="section-subtitle">Task history, centralized logs, operator audit entries, exportable records, and recent-change drill-downs across the XenMange control plane.</p>
+          <p class="section-subtitle text-cyan" v-if="store.vFabricScope?.scope">Read scope: {{ store.vFabricScope.scope.name }} · {{ store.vFabricScope.attachedTargets.length }} attached member{{ store.vFabricScope.attachedTargets.length === 1 ? '' : 's' }} · task updates and server exports are disabled</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button
@@ -31,21 +32,21 @@ const ActivityView = {
             @click="activeFilter = filter">
             {{ filter }}
           </button>
-          <button v-if="viewMode === 'logs'"
+          <button v-if="viewMode === 'logs' && !isVFabricScopeReadOnly"
                   class="btn btn-sm"
                   @click="exportLogs('json')"
                   :disabled="exportingFormat === 'json'">
             <span class="mdi mdi-code-json"></span>
             {{ exportingFormat === 'json' ? 'Exporting...' : 'Export JSON' }}
           </button>
-          <button v-if="viewMode === 'logs'"
+          <button v-if="viewMode === 'logs' && !isVFabricScopeReadOnly"
                   class="btn btn-sm"
                   @click="exportLogs('html')"
                   :disabled="exportingFormat === 'html'">
             <span class="mdi mdi-language-html5"></span>
             {{ exportingFormat === 'html' ? 'Exporting...' : 'Export HTML' }}
           </button>
-          <button v-if="viewMode === 'logs' && !store.demoMode"
+          <button v-if="viewMode === 'logs' && !store.demoMode && !isVFabricScopeReadOnly"
                   class="btn btn-sm"
                   @click="exportLogs('pdf')"
                   :disabled="exportingFormat === 'pdf'">
@@ -142,6 +143,7 @@ const ActivityView = {
                   :data="filteredTasks"
                   :loading="loading"
                   :searchable="true"
+                  row-key="scopeRowKey"
                   @row-click="openTaskProperties">
         <template #cell-status="{ row }">
           <status-badge :status="row.status || 'info'"></status-badge>
@@ -151,6 +153,7 @@ const ActivityView = {
             <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed Task' }}</span>
             <div class="text-muted mono" style="font-size:11px">
               {{ taskSourceLabel(row) }} · {{ row.assignee || row.submitted_by || 'unassigned' }}
+              <span v-if="row.scopeTargetKey"> · {{ scopeTargetLabel(row.scopeTargetKey) }}</span>
             </div>
           </div>
         </template>
@@ -195,7 +198,7 @@ const ActivityView = {
                   :searchable="true"
                   :selectable="true"
                   :selected-keys="selectedLogIds"
-                  row-key="id"
+                  row-key="scopeRowKey"
                   @row-click="openLogProperties"
                   @selection-change="handleLogSelection">
         <template #cell-severity="{ row }">
@@ -207,7 +210,7 @@ const ActivityView = {
         <template #cell-message="{ row }">
           <div>
             <span style="color:var(--text-primary);font-weight:500">{{ row.message || row.entityName || 'Log Entry' }}</span>
-            <div class="text-muted mono" style="font-size:11px">{{ row.category || 'operations' }} · {{ row.actor || 'system' }}</div>
+            <div class="text-muted mono" style="font-size:11px">{{ row.category || 'operations' }} · {{ row.actor || 'system' }}<span v-if="row.scopeTargetKey"> · {{ scopeTargetLabel(row.scopeTargetKey) }}</span></div>
           </div>
         </template>
         <template #cell-timestamp="{ row }">
@@ -224,6 +227,7 @@ const ActivityView = {
         :remediation-saving="remediationSaving"
         :remediation-error="remediationError"
         :log-sources="logSources"
+        :read-only="isVFabricScopeReadOnly"
         @close="showProps = false"
         @save-remediation-task="saveRemediationTask"
         @open-task-alert="openTaskAlert"
@@ -328,6 +332,9 @@ const ActivityView = {
     detailTitle() {
       return getActivityDetailTitle(this.selectedItemType);
     },
+    isVFabricScopeReadOnly() {
+      return hasVFabricScope();
+    },
   },
   async mounted() {
     if (!store.authenticated) {
@@ -336,6 +343,10 @@ const ActivityView = {
     }
     await this.loadActivity();
     await this.syncRouteFocus();
+    this.$watch(() => store.vFabricScope?.scope?.id || '', () => {
+      if (hasVFabricScope()) this.showProps = false;
+      this.loadActivity();
+    });
   },
   watch: {
     '$route.query': {
@@ -358,6 +369,10 @@ const ActivityView = {
     taskSourceLabel: getActivityTaskSourceLabel,
     taskSourceTitle: getActivityTaskSourceTitle,
     formatActionTypeLabel: formatActivityActionTypeLabel,
+    scopeTargetLabel(targetKey) {
+      const target = getVFabricScopeTargets().find((entry) => entry.targetKey === targetKey);
+      return target?.connectionName || target?.host || targetKey;
+    },
     formatAuditActionLabel: formatActivityAuditActionLabel,
     summarizeChangedFields: summarizeActivityChangedFields,
     buildTaskFocus: buildActivityTaskFocus,
@@ -381,14 +396,13 @@ const ActivityView = {
     async loadActivity() {
       this.loading = true;
       try {
-        const [tasksResult, auditResult, logsResult] = await Promise.all([
-          api.getTasks().catch(() => ({ data: [] })),
+        const [scopedActivity, auditResult] = await Promise.all([
+          this.loadTargetActivityAcrossScope(),
           api.getAuditLog().catch(() => ({ data: [] })),
-          api.getLogs().catch(() => ({ data: [] })),
         ]);
-        this.tasks = tasksResult.data || [];
+        this.tasks = scopedActivity.tasks;
         this.auditEntries = auditResult.data || [];
-        this.logs = logsResult.data || [];
+        this.logs = scopedActivity.logs;
       } catch (error) {
         console.error(error);
         this.tasks = [];
@@ -517,6 +531,7 @@ const ActivityView = {
       this.$router.push(location);
     },
     async saveRemediationTask(payload) {
+      if (this.isVFabricScopeReadOnly) return;
       if (!this.selectedTask?.ref || !this.isRemediationTask(this.selectedTask)) return;
 
       this.remediationSaving = true;
@@ -555,6 +570,52 @@ const ActivityView = {
       this.viewMode = 'tasks';
       this.openTaskProperties(match);
       this.lastAppliedFocusKey = key;
+    },
+    async loadTargetActivityAcrossScope() {
+      const targets = getVFabricScopeTargets();
+      const scopedTargets = targets.length ? targets : [{ targetKey: '' }];
+      const results = await Promise.all(scopedTargets.map(async (target) => {
+        const [tasksResult, logsResult] = await Promise.all([
+          api.getTasks(target.targetKey).catch(() => ({ data: [] })),
+          api.getLogs(target.targetKey).catch(() => ({ data: [] })),
+        ]);
+        return {
+          targetKey: target.targetKey,
+          tasks: tasksResult.data || [],
+          logs: logsResult.data || [],
+        };
+      }));
+
+      const seenControlPlaneTasks = new Set();
+      const seenControlPlaneLogs = new Set();
+      const controlPlaneLogSources = new Set(['audit', 'auth', 'remediation-task']);
+      const tasks = [];
+      const logs = [];
+      results.forEach((result) => {
+        result.tasks.forEach((task) => {
+          const isControlPlaneTask = ['remediation', 'template_deployment'].includes(String(task.task_kind || task.source || '').toLowerCase());
+          const identity = String(task.ref || task.uuid || '');
+          if (isControlPlaneTask && identity && seenControlPlaneTasks.has(identity)) return;
+          if (isControlPlaneTask && identity) seenControlPlaneTasks.add(identity);
+          tasks.push({
+            ...task,
+            scopeTargetKey: result.targetKey,
+            scopeRowKey: result.targetKey ? `${result.targetKey}::${identity}` : identity,
+          });
+        });
+        result.logs.forEach((entry) => {
+          const isControlPlaneLog = controlPlaneLogSources.has(String(entry.source || '').toLowerCase());
+          const identity = String(entry.id || entry.entityRef || '');
+          if (isControlPlaneLog && identity && seenControlPlaneLogs.has(identity)) return;
+          if (isControlPlaneLog && identity) seenControlPlaneLogs.add(identity);
+          logs.push({
+            ...entry,
+            scopeTargetKey: result.targetKey,
+            scopeRowKey: result.targetKey ? `${result.targetKey}::${identity}` : identity,
+          });
+        });
+      });
+      return { tasks, logs };
     },
     downloadAuditLog() {
       const payload = JSON.stringify(this.sortedAuditEntries, null, 2);
@@ -612,8 +673,9 @@ const ActivityView = {
 </html>`;
     },
     async exportLogs(format) {
+      if (this.isVFabricScopeReadOnly) return;
       const selectedEntries = this.selectedLogIds.length
-        ? this.filteredLogs.filter((entry) => this.selectedLogIds.includes(entry.id))
+        ? this.filteredLogs.filter((entry) => this.selectedLogIds.includes(entry.scopeRowKey || entry.id))
         : this.filteredLogs;
 
       this.exportingFormat = format;

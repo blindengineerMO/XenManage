@@ -13,6 +13,7 @@ const AlertsView = {
             Alerts
           </h2>
           <p class="section-subtitle">Severity-first event triage with bulk state changes, persisted suppression policy, and workflow-aware follow-through.</p>
+          <p class="section-subtitle text-cyan" v-if="store.vFabricScope?.scope">Read scope: {{ store.vFabricScope.scope.name }} · {{ store.vFabricScope.attachedTargets.length }} attached member{{ store.vFabricScope.attachedTargets.length === 1 ? '' : 's' }} · triage changes are disabled</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button
@@ -23,7 +24,7 @@ const AlertsView = {
             @click="activeFilter = filter.value">
             {{ filter.label }}
           </button>
-          <button class="btn" @click="openPolicyEditor(null)">
+          <button v-if="!isVFabricScopeReadOnly" class="btn" @click="openPolicyEditor(null)">
             <span class="mdi mdi-shield-sun-outline"></span>
             New Policy
           </button>
@@ -43,7 +44,7 @@ const AlertsView = {
         </div>
       </div>
 
-      <div class="dash-card" v-if="selectedAlerts.length" style="margin-bottom:16px">
+      <div class="dash-card" v-if="selectedAlerts.length && !isVFabricScopeReadOnly" style="margin-bottom:16px">
         <div class="dash-card-label">Bulk Triage</div>
         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
           <div>
@@ -74,7 +75,7 @@ const AlertsView = {
         :searchable="true"
         :selectable="true"
         :selected-keys="selectedRefs"
-        row-key="ref"
+        row-key="scopeRowKey"
         @selection-change="handleSelectionChange"
         @row-click="openProperties">
         <template #cell-effectiveSeverity="{ row }">
@@ -86,6 +87,7 @@ const AlertsView = {
             <div class="text-muted mono" style="font-size:11px">
               {{ row.stateLabel }} · {{ formatActionLabel(row.healthAction) }}
               <span v-if="row.policyName"> · policy {{ row.policyName }}</span>
+              <span v-if="row.scopeTargetKey"> · {{ scopeTargetLabel(row.scopeTargetKey) }}</span>
             </div>
           </div>
         </template>
@@ -153,7 +155,7 @@ const AlertsView = {
         <div class="dash-card">
           <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px">
             <div class="dash-card-label">Remediation Templates</div>
-            <button class="btn btn-sm" @click="openTemplateEditor(null)">
+            <button v-if="!isVFabricScopeReadOnly" class="btn btn-sm" @click="openTemplateEditor(null)">
               <span class="mdi mdi-file-document-plus-outline"></span>
               New Template
             </button>
@@ -199,6 +201,7 @@ const AlertsView = {
         :template-error="templateError"
         :editing-template="editingTemplate"
         :template-saving="templateSaving"
+        :read-only="isVFabricScopeReadOnly"
         @close-properties="closeProperties"
         @quick-acknowledge="handleQuickAcknowledge"
         @quick-suppress="handleQuickSuppress"
@@ -222,6 +225,7 @@ const AlertsView = {
   `,
   data() {
     return {
+      store,
       loading: true,
       activeFilter: 'all',
       filters: [
@@ -288,6 +292,9 @@ const AlertsView = {
     recommendedTemplates() {
       return getAlertMatchingRemediationTemplates(this.remediationTemplates, this.selectedMessage);
     },
+    isVFabricScopeReadOnly() {
+      return hasVFabricScope();
+    },
   },
   async mounted() {
     if (!store.authenticated) {
@@ -296,6 +303,15 @@ const AlertsView = {
     }
     await this.loadWorkspace();
     await this.syncRouteFocus();
+    this.$watch(() => store.vFabricScope?.scope?.id || '', () => {
+      if (hasVFabricScope()) {
+        this.closeProperties();
+        this.closePolicyEditor();
+        this.closeRemediationComposer();
+        this.closeTemplateEditor();
+      }
+      this.loadWorkspace();
+    });
   },
   watch: {
     '$route.query': {
@@ -328,19 +344,23 @@ const AlertsView = {
     applyResilienceRunbookSeed: applyAlertResilienceRunbookSeed,
     applyVmMigrationSeed: applyAlertVmMigrationSeed,
     formatDueDateFromDays: formatAlertDueDateFromDays,
+    scopeTargetLabel(targetKey) {
+      const target = getVFabricScopeTargets().find((entry) => entry.targetKey === targetKey);
+      return target?.connectionName || target?.host || targetKey;
+    },
     async loadWorkspace() {
       this.loading = true;
       this.bulkError = null;
       try {
-        const [alerts, policies, templates] = await Promise.all([
-          api.getAlerts(),
+        const [alertResults, policies, templates] = await Promise.all([
+          this.loadAlertsAcrossScope(),
           api.getAlertPolicies().catch(() => ({ data: [] })),
           api.getRemediationTemplates().catch(() => ({ data: [] })),
         ]);
-        this.messages = alerts.data || [];
+        this.messages = alertResults;
         this.policies = policies.data || [];
         this.remediationTemplates = templates.data || [];
-        const visibleRefs = new Set(this.messages.map((message) => message.ref));
+        const visibleRefs = new Set(this.messages.map((message) => message.scopeRowKey || message.ref));
         this.selectedRefs = this.selectedRefs.filter((ref) => visibleRefs.has(ref));
       } catch (error) {
         console.error(error);
@@ -353,7 +373,7 @@ const AlertsView = {
       await this.syncRouteFocus();
     },
     openProperties(row) {
-      this.selectedRef = row.ref;
+      this.selectedRef = row.scopeRowKey || row.ref;
       this.saveError = null;
       this.remediationError = null;
       this.showProps = true;
@@ -397,11 +417,13 @@ const AlertsView = {
       return buildAlertRemediationDraftFromTemplate(message, template, store.username || '');
     },
     openRemediationComposer(message) {
+      if (this.isVFabricScopeReadOnly) return;
       this.remediationDraft = this.buildRemediationDraftFromAlert(message);
       this.remediationError = null;
       this.showRemediationComposer = true;
     },
     applyRemediationTemplate(template, message) {
+      if (this.isVFabricScopeReadOnly) return;
       this.remediationDraft = this.buildRemediationDraftFromTemplate(message, template);
       this.remediationError = null;
       this.showRemediationComposer = true;
@@ -411,6 +433,7 @@ const AlertsView = {
       this.applyRemediationTemplate(payload.template, payload.message);
     },
     async queueRemediationTemplate(template, message) {
+      if (this.isVFabricScopeReadOnly) return;
       this.remediationSaving = true;
       this.remediationError = null;
       try {
@@ -444,6 +467,7 @@ const AlertsView = {
       this.remediationSaving = false;
     },
     async submitRemediationTask(payload) {
+      if (this.isVFabricScopeReadOnly) return;
       this.remediationSaving = true;
       this.remediationError = null;
       try {
@@ -463,6 +487,7 @@ const AlertsView = {
       }
     },
     openTemplateEditor(template) {
+      if (this.isVFabricScopeReadOnly) return;
       this.editingTemplate = template ? { ...template } : {
         enabled: true,
         name: '',
@@ -498,6 +523,7 @@ const AlertsView = {
       this.templateSaving = false;
     },
     async saveTemplate(payload) {
+      if (this.isVFabricScopeReadOnly) return;
       this.templateSaving = true;
       this.templateError = null;
       try {
@@ -515,6 +541,7 @@ const AlertsView = {
       }
     },
     async removeTemplate(template) {
+      if (this.isVFabricScopeReadOnly) return;
       if (!template?.id) return;
       this.templateSaving = true;
       this.templateError = null;
@@ -545,6 +572,7 @@ const AlertsView = {
       }
     },
     async persistAlertState(ref, payload) {
+      if (this.isVFabricScopeReadOnly) return;
       this.saving = true;
       this.saveError = null;
       try {
@@ -558,6 +586,7 @@ const AlertsView = {
       }
     },
     async applyBulkState(partialState = {}) {
+      if (this.isVFabricScopeReadOnly) return;
       if (!this.selectedRefs.length) return;
 
       const first = this.selectedAlerts[0] || {};
@@ -610,6 +639,7 @@ const AlertsView = {
       });
     },
     openPolicyEditor(policy) {
+      if (this.isVFabricScopeReadOnly) return;
       this.editingPolicy = policy ? { ...policy } : null;
       this.policyError = null;
       this.showPolicyEditor = true;
@@ -620,6 +650,7 @@ const AlertsView = {
       this.policyError = null;
     },
     async savePolicy(payload) {
+      if (this.isVFabricScopeReadOnly) return;
       this.policySaving = true;
       this.policyError = null;
       try {
@@ -637,6 +668,7 @@ const AlertsView = {
       }
     },
     async removePolicy(policy) {
+      if (this.isVFabricScopeReadOnly) return;
       if (!policy?.id) return;
       this.policySaving = true;
       this.policyError = null;
@@ -686,6 +718,20 @@ const AlertsView = {
 
       this.openProperties(match);
       this.lastAppliedFocusKey = key;
+    },
+    async loadAlertsAcrossScope() {
+      const targets = getVFabricScopeTargets();
+      const results = targets.length
+        ? await Promise.all(targets.map(async (target) => ({
+          targetKey: target.targetKey,
+          data: (await api.getAlerts(target.targetKey)).data || [],
+        })))
+        : [{ targetKey: '', data: (await api.getAlerts()).data || [] }];
+      return results.flatMap((result) => result.data.map((message) => ({
+        ...message,
+        scopeTargetKey: result.targetKey,
+        scopeRowKey: result.targetKey ? `${result.targetKey}::${message.ref}` : message.ref,
+      })));
     },
   },
 };

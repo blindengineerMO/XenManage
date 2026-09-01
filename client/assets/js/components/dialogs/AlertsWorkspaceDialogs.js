@@ -5,7 +5,7 @@ const AlertsWorkspaceDialogs = {
     AlertStateForm,
     AlertPolicyForm,
     RemediationTaskForm,
-    RemediationTaskTemplateForm,
+    'remediation-template-form': RemediationTaskTemplateForm,
   },
   props: {
     showProps: { type: Boolean, default: false },
@@ -26,6 +26,7 @@ const AlertsWorkspaceDialogs = {
     templateError: { type: String, default: null },
     editingTemplate: { type: Object, default: null },
     templateSaving: { type: Boolean, default: false },
+    readOnly: { type: Boolean, default: false },
   },
   emits: [
     'close-properties',
@@ -49,7 +50,7 @@ const AlertsWorkspaceDialogs = {
   ],
   template: `
     <div>
-      <floating-window :show="showProps || showPolicyEditor || showRemediationComposer || showTemplateEditor"
+      <floating-window :show="showProps || showPolicyEditor || showRemediationComposer"
                        title="Alert Control Panel"
                        :width="780"
                        :height="660"
@@ -67,11 +68,11 @@ const AlertsWorkspaceDialogs = {
               <p>{{ selectedMessage.body || 'No additional message body supplied for this alert.' }}</p>
             </div>
             <div class="dashboard-hero-rail">
-              <button class="btn btn-primary" @click="$emit('quick-acknowledge', { message: selectedMessage, acknowledged: !selectedMessage.acknowledged })">
+              <button v-if="!readOnly" class="btn btn-primary" @click="$emit('quick-acknowledge', { message: selectedMessage, acknowledged: !selectedMessage.acknowledged })">
                 <span class="mdi mdi-check-decagram-outline"></span>
                 {{ selectedMessage.acknowledged ? 'Clear Ack' : 'Acknowledge' }}
               </button>
-              <button class="btn" @click="$emit('quick-suppress', { message: selectedMessage, hours: 24 })">
+              <button v-if="!readOnly" class="btn" @click="$emit('quick-suppress', { message: selectedMessage, hours: 24 })">
                 <span class="mdi mdi-bell-off-outline"></span>
                 Suppress 24h
               </button>
@@ -83,7 +84,7 @@ const AlertsWorkspaceDialogs = {
                 <span class="mdi mdi-rocket-launch-outline"></span>
                 {{ resolveWorkflowRoute(selectedMessage).label }}
               </button>
-              <button class="btn" @click="$emit('open-remediation-composer', selectedMessage)">
+              <button v-if="!readOnly" class="btn" @click="$emit('open-remediation-composer', selectedMessage)">
                 <span class="mdi mdi-clipboard-plus-outline"></span>
                 Create Follow-Through Task
               </button>
@@ -139,7 +140,7 @@ const AlertsWorkspaceDialogs = {
             <div class="detail-section-title">Remediation Queue</div>
             <div class="capacity-callout">
               <p>Create a tracked follow-through task when this alert should stay visible in Activity with an assignee, due date, and direct return links into the right workspace.</p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <div v-if="!readOnly" style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn btn-primary btn-sm" @click="$emit('open-remediation-composer', selectedMessage)">
                   <span class="mdi mdi-clipboard-plus-outline"></span>
                   Create Remediation Task
@@ -162,7 +163,7 @@ const AlertsWorkspaceDialogs = {
                   <div class="text-muted mono" style="font-size:11px;margin-top:4px">{{ describeTemplateAutomation(template) }}</div>
                   <div class="text-muted" style="font-size:12px;margin-top:6px">{{ template.defaultNotes || 'This template uses the standard alert guidance defaults.' }}</div>
                 </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <div v-if="!readOnly" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                   <button class="btn btn-sm"
                           :class="template.launchMode !== 'draft' ? 'btn-primary' : ''"
                           @click="$emit('queue-remediation-template', { template, message: selectedMessage })">
@@ -188,7 +189,8 @@ const AlertsWorkspaceDialogs = {
 
           <div class="detail-section">
             <div class="detail-section-title">Alert State</div>
-            <alert-state-form
+            <div class="text-muted" v-if="readOnly">vFabric scope is read-only. Switch to a single live target to change alert state or create follow-through work.</div>
+            <alert-state-form v-else
               :initial-value="selectedMessage"
               :saving="saving"
               @submit="$emit('save-selected-alert-state', $event)">
@@ -256,7 +258,7 @@ const AlertsWorkspaceDialogs = {
         </remediation-task-form>
       </floating-window>
 
-      <floating-window :show="false"
+      <floating-window :show="showTemplateEditor"
                        title="Remediation Template"
                        :width="760"
                        :height="720"

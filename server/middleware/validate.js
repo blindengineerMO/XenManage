@@ -866,6 +866,14 @@ const schemas = {
     maxTotalMemoryGiB: Joi.number().integer().min(0).max(1048576).default(0),
     notes: Joi.string().allow('').max(1000).default(''),
   }),
+  vFabricQuotaUpdate: Joi.object({
+    enabled: Joi.boolean().default(true),
+    owner: Joi.string().allow('').max(120).default(''),
+    maxVmCount: Joi.number().integer().min(0).max(100000).default(0),
+    maxRunningVmCount: Joi.number().integer().min(0).max(100000).default(0),
+    maxTotalMemoryGiB: Joi.number().integer().min(0).max(1048576).default(0),
+    notes: Joi.string().allow('').max(1000).default(''),
+  }),
   governanceApprovalRequest: Joi.object({
     actionKey: Joi.string().trim().required().min(1).max(120),
     entityType: Joi.string().trim().required().min(1).max(60),

@@ -6,6 +6,11 @@ function getFloatingWindowByTitle(page, title) {
   }).last();
 }
 
+async function openDataTableRecord(page, name) {
+  const row = page.locator('.data-table tbody tr').filter({ hasText: name }).first();
+  await row.locator('td').last().click();
+}
+
 async function signInToControlPlane(page, options = {}) {
   await page.goto('/');
   await page.getByLabel('Username').fill(options.username || 'admin');
@@ -1674,7 +1679,11 @@ async function stubAuthenticatedRoutes(page, options = {}) {
   });
 
   await page.route('**/api/auth/login', async (route) => {
-    setLiveTargets([]);
+    // Some workflows begin with already attached live targets; preserve that
+    // bootstrap state instead of discarding the destination fabric on sign-in.
+    if (!Array.isArray(options.liveTargets) || !options.liveTargets.length) {
+      setLiveTargets([]);
+    }
     recordAudit({
       category: 'session',
       action: 'app_session_login',
@@ -2944,6 +2953,10 @@ async function stubAuthenticatedRoutes(page, options = {}) {
 
   await page.route('**/api/users/*', async (route) => {
     const url = route.request().url();
+    if (new URL(url).pathname === '/api/users') {
+      await route.fallback();
+      return;
+    }
     const method = route.request().method();
     const id = Number(url.split('/api/users/')[1].split('/')[0] || 0);
     const index = users.findIndex((entry) => entry.id === id);
@@ -3071,6 +3084,10 @@ async function stubAuthenticatedRoutes(page, options = {}) {
 
   await page.route('**/api/groups/*', async (route) => {
     const url = route.request().url();
+    if (new URL(url).pathname === '/api/groups') {
+      await route.fallback();
+      return;
+    }
     const method = route.request().method();
     const id = Number(url.split('/api/groups/')[1] || 0);
     const index = groups.findIndex((entry) => entry.id === id);
@@ -5677,7 +5694,9 @@ test('local governance workspace can manage control-plane users and session role
   const opsAdminId = fixtures.users.find((entry) => entry.username === 'ops-admin').id;
   await expect.poll(() => fixtures.groups.find((entry) => entry.id === siteReliabilityId)?.memberUserIds.includes(opsAdminId) || false).toBe(true);
 
-  await page.getByRole('button', { name: /^Operations Admin/ }).click();
+  await getFloatingWindowByTitle(page, 'Governance Control Panel')
+    .getByRole('button', { name: /^Operations Admin/ })
+    .click();
   await page.getByLabel('Email').fill('ops-admin+updated@example.com');
   await page.getByLabel('Role Ceiling').selectOption('admin');
   await page.getByLabel('Group Membership').selectOption([String(siteReliabilityId), '2']);
@@ -5695,7 +5714,9 @@ test('local governance workspace can manage control-plane users and session role
   await page.getByLabel('Members').selectOption(String(opsAdminId));
   await page.getByRole('button', { name: 'Save Group' }).click();
   await expect.poll(() => fixtures.groups.find((entry) => entry.id === siteReliabilityId)?.memberUserIds.join(',') || '').toBe(String(opsAdminId));
-  await page.getByRole('button', { name: /Site Reliability/ }).click();
+  await getFloatingWindowByTitle(page, 'Governance Control Panel')
+    .getByRole('button', { name: /Site Reliability/ })
+    .click();
   await page.getByRole('button', { name: 'Remove Group' }).click();
   await expect.poll(() => fixtures.groups.some((entry) => entry.id === siteReliabilityId)).toBe(false);
 
@@ -6297,7 +6318,9 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     });
   });
 
-  await signInAndConnectDefaultTarget(page);
+  // The fixture starts with both source and recovery fabrics attached.
+  await signInToControlPlane(page);
+  await expect(page).toHaveURL(/\/pools(?:\?.*)?$/);
 
   await page.getByText('Virtual Machines').first().click();
   await expect(page).toHaveURL(/\/vms$/);
@@ -6505,6 +6528,7 @@ test('storage workspace supports selected-row rescans', async ({ page }) => {
   await page.getByLabel('Select Primary SR').click();
   await expect(page.getByText('1 repositories selected')).toBeVisible();
   await expect(page.getByText(/across 1 repository/)).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
   const [rescanResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === 'POST'
@@ -6691,7 +6715,7 @@ test('storage detail operations create detached vdis, resize them, delete them, 
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -6774,7 +6798,7 @@ test('storage detail operations can create and attach a new vdi directly to a wo
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -6810,7 +6834,7 @@ test('storage detail operations can repair the selected repository', async ({ pa
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -6845,7 +6869,7 @@ test('storage detail operations can update the selected repository metadata', as
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -6886,7 +6910,7 @@ test('storage detail operations can enable and disable local cache on an attache
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -7019,7 +7043,7 @@ test('networking detail operations can attach a workload interface to the select
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.locator('.data-table').getByText('Backup Network', { exact: true }).click();
+  await openDataTableRecord(page, 'Backup Network');
   await expect(page.getByText('Network Operations')).toBeVisible();
 
   const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
@@ -7048,7 +7072,7 @@ test('networking detail operations can hot-unplug a workload interface from the 
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
+  await openDataTableRecord(page, 'VM Network');
   const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   const workloadRow = detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first();
   await expect(workloadRow).toContainText('attached');
@@ -7076,7 +7100,7 @@ test('networking detail operations can remove a workload interface from the sele
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
+  await openDataTableRecord(page, 'VM Network');
   const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   await expect(detailWindow.getByText('Connected Workloads')).toBeVisible();
   const workloadRow = detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first();
@@ -7104,7 +7128,7 @@ test('networking detail operations can update the selected network metadata', as
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
+  await openDataTableRecord(page, 'VM Network');
   await expect(page.getByText('Network Operations')).toBeVisible();
 
   const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
@@ -7142,7 +7166,7 @@ test('networking detail operations can update attached VIF QoS shaping', async (
 
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
-  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
+  await openDataTableRecord(page, 'VM Network');
 
   const detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   await detailWindow.getByRole('button', { name: 'Interface QoS' }).click();
@@ -7173,7 +7197,7 @@ test('networking detail operations gate attached network destroy and can destroy
   await page.getByText('Networking').first().click();
   await expect(page).toHaveURL(/\/networking$/);
 
-  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
+  await openDataTableRecord(page, 'VM Network');
   await expect(page.getByText('Network Operations')).toBeVisible();
   let detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   await detailWindow.getByRole('button', { name: 'Network Identity' }).click();
@@ -7182,7 +7206,7 @@ test('networking detail operations gate attached network destroy and can destroy
   await expect(identityWindow.getByText('Destroy requires a detached managed network. 2 host uplinks and 1 workload interface still map to this network.')).toBeVisible();
 
   await detailWindow.locator('.fw-close').click();
-  await page.locator('.data-table').getByText('Archive Transit', { exact: true }).click();
+  await openDataTableRecord(page, 'Archive Transit');
   await expect(page.getByText('Network Operations')).toBeVisible();
   detailWindow = getFloatingWindowByTitle(page, 'Network Properties');
   await detailWindow.getByRole('button', { name: 'Network Identity' }).click();
@@ -7261,7 +7285,7 @@ test('storage detail operations block attached vdi deletion with attachment-awar
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -7289,7 +7313,7 @@ test('storage detail operations can forget a repository from the current workspa
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   const storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -7345,7 +7369,7 @@ test('storage detail operations gate destroy for non-empty repositories and can 
 
   await page.getByText('Storage').first().click();
   await expect(page).toHaveURL(/\/storage$/);
-  await page.locator('.data-table').getByText('Primary SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Primary SR');
   let storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -7358,7 +7382,7 @@ test('storage detail operations gate destroy for non-empty repositories and can 
 
   await repositoryActionsWindow.locator('.fw-close').click();
   await storageDetailWindow.locator('.fw-close').click();
-  await page.locator('.data-table').getByText('Archive SR', { exact: true }).click();
+  await openDataTableRecord(page, 'Archive SR');
   storageDetailWindow = page.locator('.floating-window').filter({
     has: page.locator('.fw-title', { hasText: 'Storage Repository' }),
   }).last();
@@ -7443,7 +7467,7 @@ test('pool and host registration flows live alongside the broader operator workb
   const operatorRegisteredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
   await expect(operatorRegisteredTargetsWindow.getByText('DR Pool')).toBeVisible();
   await operatorRegisteredTargetsWindow.locator('.fw-close').click();
-  await page.locator('.data-table').getByText('Production Pool', { exact: true }).click();
+  await openDataTableRecord(page, 'Production Pool');
   const poolDetailWindow = page.locator('.floating-window').filter({ hasText: 'Pool Properties' }).last();
   await poolDetailWindow.getByRole('button', { name: 'Pool Identity' }).click();
   const poolIdentityWindow = page.locator('.floating-window').filter({ hasText: 'Pool Identity' }).last();
@@ -7515,7 +7539,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/pools/);
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
-  await page.locator('.data-table').getByText('alpha-xen', { exact: true }).first().click();
+  await openDataTableRecord(page, 'alpha-xen');
   const hostDetailWindow = page.locator('.floating-window').filter({ hasText: 'Host Properties' }).last();
   await expect(hostDetailWindow.getByText('Pool Membership').first()).toBeVisible();
   await expect(hostDetailWindow.getByText('Operations', { exact: true }).first()).toBeVisible();
@@ -7609,8 +7633,8 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.locator('.floating-window').getByText('1600', { exact: true })).toBeVisible();
   await expect(page.locator('.floating-window').getByText('replication, backup', { exact: true })).toBeVisible();
   await page.locator('.floating-window .fw-close').first().click();
-  await page.locator('.data-table').getByText('VM Network', { exact: true }).click();
-  await expect(page.locator('.floating-window').getByText('Host Uplinks', { exact: true })).toBeVisible();
+  await openDataTableRecord(page, 'VM Network');
+  await expect(getFloatingWindowByTitle(page, 'Network Properties').getByText('Host Uplinks', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Connected Workloads', { exact: true })).toBeVisible();
   await expect(page.locator('.floating-window').getByText('alpha-xen-west', { exact: true })).toBeVisible();
   await expect(page.locator('.floating-window').getByText('app-01', { exact: true })).toBeVisible();
@@ -7936,10 +7960,14 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByLabel('Justification').fill('Controlled suspend request for the Friday, August 21, 2026 recovery validation window.');
   await page.locator('.floating-window').last().locator('form').getByRole('button', { name: 'Request Approval' }).click();
   await expect.poll(() => fixtures.governanceApprovals[0]?.actionKey || '').toBe('vm_suspend');
+  await expect(getFloatingWindowByTitle(page, 'Governance Control Panel')).toHaveCount(0);
   await page.locator('.dash-card').filter({ hasText: 'Session Role' }).getByRole('button', { name: /Admin/ }).click();
-  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByLabel('Default Role').selectOption('operator');
-  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByLabel('Approval Window (minutes)').fill('180');
-  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByRole('button', { name: 'Save Governance Policy' }).click();
+  await page.locator('.dash-card').filter({ hasText: 'Governance Policy' }).getByRole('button', { name: 'Manage Policy' }).click();
+  const governancePolicyWindow = getFloatingWindowByTitle(page, 'Governance Control Panel');
+  await governancePolicyWindow.getByLabel('Default Role').selectOption('operator');
+  await governancePolicyWindow.getByLabel('Approval Window (minutes)').fill('180');
+  await governancePolicyWindow.getByRole('button', { name: 'Save Governance Policy' }).click();
+  await governancePolicyWindow.locator('.fw-close').click();
   await page.locator('.dash-card').filter({ hasText: 'Pool Quotas' }).getByRole('button', { name: /Production Pool/ }).click();
   await page.getByLabel('Max VMs').fill('9');
   await page.getByLabel('Quota Notes').fill('Updated on Friday, August 21, 2026 for the current production envelope.');

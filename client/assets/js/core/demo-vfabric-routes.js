@@ -90,6 +90,103 @@ function validateDemoVFabricMembers(body, actor) {
   return { connectionIds: [...new Set(connectionIds)], hostTargetIds: [...new Set(hostTargetIds)] };
 }
 
+function requireDemoVFabricQuotaAdmin() {
+  if (getDemoGovernanceState().currentRole === 'admin') return;
+  const error = new Error('An administrator role is required to manage vFabric quotas.');
+  error.code = 'ADMIN_ROLE_REQUIRED';
+  throw error;
+}
+
+function getDemoVFabricQuota(vFabricId) {
+  return demoDb.vfabricQuotas.find((quota) => Number(quota.vFabricId) === Number(vFabricId)) || null;
+}
+
+function getDemoMemberHostRefs(member) {
+  if (member.kind === 'pool') {
+    const pool = demoDb.pools.find((entry) => entry.name_label === member.name);
+    return demoDb.hosts.filter((host) => host.pool === pool?.ref).map((host) => host.ref);
+  }
+  return demoDb.hosts
+    .filter((host) => host.address === member.host || host.name_label === member.name)
+    .map((host) => host.ref);
+}
+
+function evaluateDemoVFabricQuota(record, actor = getDemoActor(), requestedVm = null) {
+  const quota = getDemoVFabricQuota(record.id);
+  const scope = getDemoVFabricScope(record, actor);
+  const attachedMembers = getDemoVFabricMembers(record, actor).filter((member) => scope.attachedTargets.some((target) => (
+    member.kind === 'pool'
+      ? Number(target.connectionId || 0) === Number(member.target_id)
+      : Number(target.hostTargetId || 0) === Number(member.target_id)
+  )));
+  const hostRefs = new Set(attachedMembers.flatMap(getDemoMemberHostRefs));
+  const vms = demoDb.vms.filter((vm) => !vm.is_a_template && (hostRefs.has(vm.resident_on) || hostRefs.has(vm.affinity)));
+  const usage = {
+    vmCount: vms.length,
+    runningVmCount: vms.filter((vm) => String(vm.power_state || '').toLowerCase() === 'running').length,
+    totalMemoryGiB: Math.round((vms.reduce((sum, vm) => sum + Number(vm.memory_static_max || vm.memory_dynamic_max || 0), 0) / (1024 ** 3)) * 10) / 10,
+  };
+  const evaluation = quota?.enabled ? {
+    projected: {
+      vmCount: usage.vmCount + (requestedVm ? 1 : 0),
+      runningVmCount: usage.runningVmCount + (requestedVm?.startAfter ? 1 : 0),
+      totalMemoryGiB: Math.round((usage.totalMemoryGiB + (requestedVm ? Number(requestedVm.memoryStaticMax || 0) / (1024 ** 3) : 0)) * 10) / 10,
+    },
+    breaches: [],
+  } : null;
+  if (evaluation) {
+    if (quota.maxVmCount > 0 && evaluation.projected.vmCount > quota.maxVmCount) evaluation.breaches.push('VM count');
+    if (quota.maxRunningVmCount > 0 && evaluation.projected.runningVmCount > quota.maxRunningVmCount) evaluation.breaches.push('running VM count');
+    if (quota.maxTotalMemoryGiB > 0 && evaluation.projected.totalMemoryGiB > quota.maxTotalMemoryGiB) evaluation.breaches.push('memory allocation');
+  }
+  const coverageComplete = scope.scope.memberCount > 0 && scope.unavailableMembers.length === 0;
+  const status = !quota?.enabled ? 'success' : !coverageComplete ? 'warning' : evaluation.breaches.length ? 'critical' : 'info';
+  const detail = !quota?.enabled
+    ? 'No vFabric quota is currently enforced for this scope.'
+    : !coverageComplete
+      ? `Quota coverage is incomplete: ${scope.unavailableMembers.length} member target${scope.unavailableMembers.length === 1 ? '' : 's'} must be attached before this aggregate can be enforced.`
+      : evaluation.breaches.length
+        ? `vFabric quota pressure is present for ${evaluation.breaches.join(', ')}.`
+        : 'vFabric quota is configured and aggregate usage remains within the allowed envelope.';
+  return {
+    vFabricId: record.id,
+    vFabricName: record.name,
+    quota: quota ? clone(quota) : null,
+    status,
+    detail,
+    coverageComplete,
+    usage,
+    evaluation,
+    targetUsage: scope.attachedTargets.map((target) => ({ targetKey: target.targetKey })),
+    attachedTargetCount: scope.attachedTargets.length,
+    memberCount: scope.scope.memberCount,
+    unavailableMembers: scope.unavailableMembers,
+  };
+}
+
+function enforceDemoVFabricQuotas(targetKey, requestedVm = {}) {
+  const target = (store.connectedTargets || []).find((entry) => entry.targetKey === targetKey);
+  if (!target) return;
+  const actor = getDemoActor();
+  demoDb.vfabricQuotas.filter((quota) => quota.enabled).forEach((quota) => {
+    const record = demoDb.vfabrics.find((entry) => entry.id === quota.vFabricId);
+    const applies = record?.connection_ids?.includes(Number(target.connectionId))
+      || record?.host_target_ids?.includes(Number(target.hostTargetId));
+    if (!applies) return;
+    const evaluation = evaluateDemoVFabricQuota(record, actor, requestedVm);
+    if (!evaluation.coverageComplete) {
+      const error = new Error(`Cannot verify vFabric quota for "${record.name}" because not all member targets are attached.`);
+      error.code = 'VFABRIC_QUOTA_SCOPE_INCOMPLETE';
+      throw error;
+    }
+    if (evaluation.evaluation?.breaches.length) {
+      const error = new Error(`The deployment would exceed vFabric quota "${record.name}" for ${evaluation.evaluation.breaches.join(', ')}.`);
+      error.code = 'VFABRIC_QUOTA_EXCEEDED';
+      throw error;
+    }
+  });
+}
+
 function handleDemoVFabricRoutes(method, path, body = {}) {
   if (method === 'GET' && path === '/api/vfabrics') {
     const actor = getDemoActor();
@@ -105,7 +202,48 @@ function handleDemoVFabricRoutes(method, path, body = {}) {
     const record = demoDb.vfabrics.find((entry) => entry.id === id);
     if (!record || !demoRecordIsVisible(record, actor)) throw new Error('VFABRIC_NOT_FOUND');
     if (path.endsWith('/scope')) return getDemoVFabricScope(record, actor);
+    if (path.endsWith('/quota')) return evaluateDemoVFabricQuota(record, actor);
     return enrichDemoVFabric(record, actor);
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/vfabrics/') && path.endsWith('/quota')) {
+    const id = Number(path.split('/')[3]);
+    ensureDemoMutationAllowed({ actionKey: 'vfabric_quota_save', entityType: 'vfabric', entityRef: String(id) });
+    requireDemoVFabricQuotaAdmin();
+    const actor = getDemoActor();
+    const fabric = demoDb.vfabrics.find((entry) => entry.id === id);
+    if (!fabric) throw new Error('VFABRIC_NOT_FOUND');
+    if (!demoCanManageRecord(fabric, actor)) throw new Error('VFABRIC_FORBIDDEN');
+    const previous = getDemoVFabricQuota(id);
+    const quota = {
+      vFabricId: id,
+      enabled: body.enabled !== false,
+      owner: body.owner || '',
+      maxVmCount: Number(body.maxVmCount || 0),
+      maxRunningVmCount: Number(body.maxRunningVmCount || 0),
+      maxTotalMemoryGiB: Number(body.maxTotalMemoryGiB || 0),
+      notes: body.notes || '',
+      updatedAt: new Date().toISOString(),
+    };
+    const index = demoDb.vfabricQuotas.findIndex((entry) => entry.vFabricId === id);
+    if (index === -1) demoDb.vfabricQuotas.push(quota);
+    else demoDb.vfabricQuotas[index] = quota;
+    recordDemoAudit({ category: 'governance', action: 'vfabric_quota_saved', actionLabel: 'Saved vFabric quota for', entityType: 'vfabric', entityRef: String(id), entityName: fabric.name, route: '/vfabrics', before: previous, after: quota, detail: `${quota.maxVmCount || 0} VM cap and ${quota.maxTotalMemoryGiB || 0} GiB cap configured across the vFabric.` });
+    return clone(quota);
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/vfabrics/') && path.endsWith('/quota')) {
+    const id = Number(path.split('/')[3]);
+    ensureDemoMutationAllowed({ actionKey: 'vfabric_quota_delete', entityType: 'vfabric', entityRef: String(id), destructive: true });
+    requireDemoVFabricQuotaAdmin();
+    const actor = getDemoActor();
+    const fabric = demoDb.vfabrics.find((entry) => entry.id === id);
+    if (!fabric) throw new Error('VFABRIC_NOT_FOUND');
+    if (!demoCanManageRecord(fabric, actor)) throw new Error('VFABRIC_FORBIDDEN');
+    const previous = getDemoVFabricQuota(id);
+    demoDb.vfabricQuotas = demoDb.vfabricQuotas.filter((entry) => entry.vFabricId !== id);
+    recordDemoAudit({ category: 'governance', action: 'vfabric_quota_removed', actionLabel: 'Removed vFabric quota for', entityType: 'vfabric', entityRef: String(id), entityName: fabric.name, route: '/vfabrics', before: previous, after: { success: true }, detail: 'Aggregate vFabric quota removed from the governance policy store.' });
+    return { success: true };
   }
 
   if (method === 'POST' && path === '/api/vfabrics') {
@@ -165,6 +303,7 @@ function handleDemoVFabricRoutes(method, path, body = {}) {
       throw error;
     }
     demoDb.vfabrics.splice(index, 1);
+    demoDb.vfabricQuotas = demoDb.vfabricQuotas.filter((entry) => entry.vFabricId !== id);
     return { success: true };
   }
 

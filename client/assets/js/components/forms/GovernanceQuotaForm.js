@@ -11,13 +11,13 @@ function buildGovernanceQuotaDraft(initialValue = {}, poolRecord = {}) {
 }
 
 const GovernanceQuotaForm = {
-  props: ['initialValue', 'poolRecord', 'saving', 'submitLabel'],
+  props: ['initialValue', 'poolRecord', 'saving', 'submitLabel', 'scopeLabel', 'enforcementLabel'],
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
       <div class="vm-inline-form-grid">
         <div class="form-group">
-          <label for="governance-quota-pool">Pool</label>
+          <label for="governance-quota-pool">{{ scopeLabel || 'Pool' }}</label>
           <input id="governance-quota-pool" class="form-input" :value="draft.poolName" disabled>
         </div>
 
@@ -29,7 +29,7 @@ const GovernanceQuotaForm = {
 
       <label class="form-toggle">
         <input type="checkbox" v-model="draft.enabled">
-        <span>Enforce this pool quota</span>
+        <span>{{ enforcementLabel || 'Enforce this pool quota' }}</span>
       </label>
 
       <div class="vm-inline-form-grid">
@@ -57,7 +57,7 @@ const GovernanceQuotaForm = {
                   class="form-input form-textarea"
                   v-model="draft.notes"
                   rows="5"
-                  placeholder="Track budget owners, exception rationale, or future growth notes for this pool."></textarea>
+                  :placeholder="'Track budget owners, exception rationale, or future growth notes for this ' + (scopeLabel || 'pool').toLowerCase() + '.'"></textarea>
       </div>
 
       <div class="form-actions">

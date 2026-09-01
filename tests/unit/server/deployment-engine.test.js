@@ -109,4 +109,21 @@ describe('Compose deployment planning', () => {
     expect(result.failed).toBe(false);
     expect(result.steps).toEqual([expect.objectContaining({ status: 'success', ref: 'OpaqueRef:web-01' })]);
   });
+
+  it('runs admission controls before provisioning each compose VM', async () => {
+    const xenApi = {
+      ...buildXenApi(),
+      deployComposeVM: jest.fn(),
+    };
+    const beforeDeploy = jest.fn().mockRejectedValue(Object.assign(new Error('vFabric quota exceeded'), {
+      code: 'VFABRIC_QUOTA_EXCEEDED',
+    }));
+
+    const result = await executeCompose(xenApi, buildSpec(), { beforeDeploy });
+
+    expect(beforeDeploy).toHaveBeenCalledWith(expect.objectContaining({ nameLabel: 'web-01' }));
+    expect(xenApi.deployComposeVM).not.toHaveBeenCalled();
+    expect(result.failed).toBe(true);
+    expect(result.steps).toEqual([expect.objectContaining({ status: 'failure', error_text: 'vFabric quota exceeded' })]);
+  });
 });

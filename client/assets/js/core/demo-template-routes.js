@@ -324,6 +324,7 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
 
   if (method === 'POST' && path.includes('/api/vms/templates/') && path.endsWith('/deploy')) {
     ensureDemoMutationAllowed({ actionKey: 'template_deploy', entityType: 'template', entityRef: decodeURIComponent(path.split('/')[4] || '') });
+    enforceDemoVFabricQuotas(targetKey, body);
     const templateRef = decodeURIComponent(path.split('/')[4] || '');
     const template = demoDb.vms.find((vm) => vm.ref === templateRef && vm.is_a_template);
     if (!template) throw new Error('TEMPLATE_NOT_FOUND');
@@ -530,6 +531,10 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
       }
 
       try {
+        enforceDemoVFabricQuotas(targetKey, {
+          startAfter: vmPlan.startAfter,
+          memoryStaticMax: vmPlan.memoryStaticMax,
+        });
         const template = demoDb.vms.find((vm) => vm.ref === vmPlan.templateRef);
         if (!template) throw new Error(`Template "${vmPlan.template}" could not be resolved.`);
 

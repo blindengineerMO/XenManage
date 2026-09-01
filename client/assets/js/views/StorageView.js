@@ -239,6 +239,17 @@ const StorageView = {
     formatBytes,
     summarizeCount,
     truncateList,
+    getVdiDeleteBlockedReason(vdi) {
+      const attachmentRefs = new Set(Array.isArray(vdi?.VBDs) ? vdi.VBDs : []);
+      if (!attachmentRefs.size) return '';
+
+      const attachmentCount = this.relatedVMs.filter((vm) =>
+        Array.isArray(vm.VBDs) && vm.VBDs.some((ref) => attachmentRefs.has(ref))
+      ).length;
+      if (!attachmentCount) return '';
+
+      return `Delete is limited to detached VDIs. ${attachmentCount} workload attachment${attachmentCount === 1 ? '' : 's'} still map to this disk.`;
+    },
     async loadCreateHosts() {
       try {
         this.availableHosts = await loadStorageHosts(api);

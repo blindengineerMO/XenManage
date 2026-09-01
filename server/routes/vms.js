@@ -6,6 +6,7 @@ const templateGovernanceService = require('../services/template-governance');
 const templateDeploymentRunService = require('../services/template-deployment-runs');
 const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
+const { enforceVFabricQuotas } = require('../services/vfabric-quota');
 const { ensureMutationAllowed } = require('../middleware/governance');
 const { planCompose, executeCompose } = require('../services/deployment-engine');
 const { buildBundledOsProfiles } = require('../services/os-profiles');
@@ -411,6 +412,7 @@ router.put('/templates/deployments/:id/validation', validate(schemas.templateDep
 router.post('/templates/:ref/deploy', validate(schemas.templateDeploy), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'template_deploy', entityType: 'template', entityRef: req.params.ref })) return;
+    await enforceVFabricQuotas(req, req.body);
     if (req.body.hostRef) {
       const [hostsResult, vmsResult] = await Promise.all([
         req.xenApi.getHosts(),
@@ -489,6 +491,14 @@ router.post('/templates/:ref/deploy', validate(schemas.templateDeploy), async (r
     });
     res.status(201).json({ ...record, deploymentAudit, deploymentRun });
   } catch (err) {
+    if (err.code === 'VFABRIC_QUOTA_EXCEEDED' || err.code === 'VFABRIC_QUOTA_SCOPE_INCOMPLETE') {
+      return res.status(err.status || 409).json({
+        error: err.code,
+        message: err.message,
+        quota: err.quota,
+        evaluation: err.evaluation,
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -505,7 +515,13 @@ router.post('/compose/dry-run', validate(schemas.composeDeploy), async (req, res
 router.post('/compose/deploy', validate(schemas.composeDeploy), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'compose_deploy', entityType: 'compose', entityRef: req.body.name })) return;
-    const { run, failed } = await executeCompose(req.xenApi, req.body, { submittedBy: req.session?.xenUser || '' });
+    const { run, failed } = await executeCompose(req.xenApi, req.body, {
+      submittedBy: req.session?.xenUser || '',
+      beforeDeploy: (plan) => enforceVFabricQuotas(req, {
+        startAfter: plan.startAfter,
+        memoryStaticMax: plan.memoryStaticMax,
+      }),
+    });
     auditLogService.record({
       category: 'templates',
       action: 'compose_deployed',
