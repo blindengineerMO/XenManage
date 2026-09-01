@@ -30,6 +30,14 @@ const config = {
     defaultOriginator: 'xenmange',
     requestTimeout: 30000,
   },
+  storage: {
+    // Root directory under which operators mount each ISO/file SR's network export
+    // (e.g. an NFS mount at `${browserRoot}/<sr-uuid>/`). XenManage reads/writes files
+    // there directly rather than shelling out to `mount` itself or proxying through the
+    // XenServer host, so the actual mount is an ops/deployment concern.
+    browserRoot: process.env.STORAGE_BROWSER_ROOT || path.join(__dirname, '..', 'data', 'storage-browser'),
+    maxUploadBytes: parseInt(process.env.STORAGE_BROWSER_MAX_UPLOAD_BYTES, 10) || 4 * 1024 * 1024 * 1024,
+  },
 };
 
 // Session secrets and bootstrap credentials fall back to well-known, source-visible

@@ -1,7 +1,7 @@
 const VMImportWindow = {
   components: {
     FloatingWindow,
-    VMImportForm,
+    'vm-import-form': VMImportForm,
   },
   props: {
     showImportWindow: {

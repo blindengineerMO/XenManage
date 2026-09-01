@@ -106,7 +106,8 @@ const HostsView = {
         @open-host-platform="showHostPlatformWindow = true"
         @enter-maintenance="enterMaintenanceMode"
         @exit-maintenance="exitMaintenanceMode"
-        @power-action="powerAction">
+        @power-action="powerAction"
+        @toggle-multipathing="toggleHostMultipathing">
       </host-properties-window>
 
       <host-workspace-dialogs
@@ -178,63 +179,7 @@ const HostsView = {
   data() {
     return {
       store,
-      loading: true,
-      hosts: [],
-      hostTargets: [],
-      connections: [],
-      credentials: [],
-      selectedHost: null,
-      showProps: false,
-      showHostIdentityWindow: false,
-      showHostContextWindow: false,
-      showHostLoggingWindow: false,
-      showHostGuestCpuWindow: false,
-      showHostSchedulerWindow: false,
-      showHostPlatformWindow: false,
-      showRegisteredTargetsWindow: false,
-      showRegistration: false,
-      showHostConnectDialogWindow: false,
-      editingTargetId: null,
-      hostTargetDraft: null,
-      metricsLoading: false,
-      metricsError: null,
-      inventoryLoading: false,
-      inventoryError: null,
-      targetError: null,
-      targetActionBusyId: null,
-      targetActionBusyKind: '',
-      connectTarget: null,
-      connectPassword: '',
-      connectLoading: false,
-      connectError: null,
-      useSavedCredential: false,
-      actionError: null,
-      hostActionMessage: '',
-      hostActionBusy: '',
-      hostConfigSaving: false,
-      selectedHostRefs: [],
-      bulkHostActionBusy: '',
-      bulkError: null,
-      hostMetrics: {},
-      hostMetricHistory: { metrics: [] },
-      lastAppliedFocusKey: '',
-      relatedPools: [],
-      relatedVMs: [],
-      relatedStorage: [],
-      relatedNetworks: [],
-      columns: [
-        { key: 'name_label', label: 'Name' },
-        { key: 'enabled', label: 'Status' },
-        { key: 'address', label: 'Address' },
-        { key: 'uuid', label: 'UUID' },
-      ],
-      inventoryColumns: [
-        { key: 'kind', label: 'Kind' },
-        { key: 'name', label: 'Name' },
-        { key: 'detail', label: 'Detail' },
-        { key: 'status', label: 'Status' },
-        { key: 'ref', label: 'Reference' },
-      ],
+      ...createHostsViewState(),
     };
   },
   computed: {
@@ -298,15 +243,14 @@ const HostsView = {
       truncateList,
       summarizeCount,
       resolveHostMaintenanceState,
-      summarizeHostStringMap,
+    summarizeHostStringMap,
     async loadAll() {
       await Promise.all([this.loadHosts(), this.loadHostTargets(), this.loadConnections(), this.loadCredentials()]);
     },
     async loadHosts() {
       this.loading = true;
       try {
-        const result = await api.getHosts();
-        this.hosts = result.data || [];
+        this.hosts = await loadHostRecords(api);
       } catch (error) {
         console.error(error);
       } finally {
@@ -324,103 +268,42 @@ const HostsView = {
     },
     async loadHostTargets() {
       try {
-        this.hostTargets = await api.getHostTargets();
+        this.hostTargets = await loadHostTargetRecords(api);
       } catch (error) {
         this.hostTargets = [];
       }
     },
     async loadConnections() {
       try {
-        this.connections = await api.getConnections();
+        this.connections = await loadHostConnectionRecords(api);
       } catch (error) {
         this.connections = [];
       }
     },
     async loadCredentials() {
       try {
-        const result = await api.getCredentials();
-        this.credentials = result.data || [];
+        this.credentials = await loadHostCredentialRecords(api);
       } catch (error) {
         this.credentials = [];
       }
     },
     resetHostWorkspaceWindows() {
-      this.showHostIdentityWindow = false;
-      this.showHostContextWindow = false;
-      this.showHostLoggingWindow = false;
-      this.showHostGuestCpuWindow = false;
-      this.showHostSchedulerWindow = false;
-      this.showHostPlatformWindow = false;
+      Object.assign(this, buildHostWorkspaceWindowResetState());
     },
     closeHostProperties() {
-      this.showProps = false;
-      this.resetHostWorkspaceWindows();
+      Object.assign(this, buildHostPropertiesClosedState());
     },
     async openProperties(row) {
-      this.resetHostWorkspaceWindows();
-      this.selectedHost = row;
-      this.showProps = true;
-      this.actionError = null;
-      this.hostActionMessage = '';
-      this.hostActionBusy = '';
-      this.metricsLoading = true;
-      this.metricsError = null;
-      this.hostMetrics = {};
-      this.hostMetricHistory = { metrics: [] };
-      this.inventoryLoading = true;
-      this.inventoryError = null;
-      this.relatedPools = [];
-      this.relatedVMs = [];
-      this.relatedStorage = [];
-      this.relatedNetworks = [];
-
-      const [metricsResult, metricHistoryResult, poolsResult, vmsResult, storageResult, networksResult] = await Promise.allSettled([
-        api.getHostMetrics(row.ref),
-        api.getHostMetricHistory(row.ref),
-        api.getPools(),
-        api.getVMs(),
-        api.getSRs(),
-        api.getNetworks(),
-      ]);
-
-      if (metricsResult.status === 'fulfilled') {
-        this.hostMetrics = metricsResult.value;
-      } else {
-        this.metricsError = metricsResult.reason?.message || 'Unable to load metrics';
-      }
-      if (metricHistoryResult.status === 'fulfilled') {
-        this.hostMetricHistory = metricHistoryResult.value;
-      }
-      this.metricsLoading = false;
-
-      if (poolsResult.status === 'fulfilled') {
-        this.relatedPools = poolsResult.value.data || [];
-      }
-      if (vmsResult.status === 'fulfilled') {
-        this.relatedVMs = vmsResult.value.data || [];
-      }
-      if (storageResult.status === 'fulfilled') {
-        this.relatedStorage = storageResult.value.data || [];
-      }
-      if (networksResult.status === 'fulfilled') {
-        this.relatedNetworks = networksResult.value.data || [];
-      }
-
-      if (
-        poolsResult.status === 'rejected' &&
-        vmsResult.status === 'rejected' &&
-        storageResult.status === 'rejected' &&
-        networksResult.status === 'rejected'
-      ) {
-        this.inventoryError = 'Unable to map related pool and host inventory.';
-      }
-
-      this.inventoryLoading = false;
+      Object.assign(this, buildHostPropertiesWorkspaceState(row));
+      const detailContext = await loadHostDetailContext(api, row);
+      Object.assign(this, buildHostDetailWorkspaceState(detailContext));
+      Object.assign(this, buildHostDetailLoadingCompleteState());
     },
     async refreshSelectedHost() {
       if (!this.selectedHost?.ref) return;
+      const selectedHostRef = this.selectedHost.ref;
       await this.loadHosts();
-      const updated = this.hosts.find((host) => host.ref === this.selectedHost.ref);
+      const updated = findRefreshedHostRecord(this.hosts, selectedHostRef);
       if (updated) {
         await this.openProperties(updated);
       }
@@ -452,11 +335,7 @@ const HostsView = {
       this.hostActionMessage = '';
       this.hostConfigSaving = true;
       try {
-        const record = await api.updateHostConfig(this.selectedHost.ref, {
-          nameLabel: this.selectedHost.name_label || this.selectedHost.hostname || this.selectedHost.ref,
-          nameDescription: this.selectedHost.name_description || '',
-          logging: payload.logging || {},
-        });
+        const record = await api.updateHostConfig(this.selectedHost.ref, buildHostLoggingUpdatePayload(this.selectedHost, payload));
         this.applySelectedHostRecord(record);
         this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} logging configuration was updated.`;
       } catch (error) {
@@ -472,12 +351,7 @@ const HostsView = {
       this.hostActionMessage = '';
       this.hostConfigSaving = true;
       try {
-        const record = await api.updateHostConfig(this.selectedHost.ref, {
-          nameLabel: this.selectedHost.name_label || this.selectedHost.hostname || this.selectedHost.ref,
-          nameDescription: this.selectedHost.name_description || '',
-          tags: Array.isArray(this.selectedHost.tags) ? this.selectedHost.tags : [],
-          guestVcpusParams: payload.guestVcpusParams || {},
-        });
+        const record = await api.updateHostConfig(this.selectedHost.ref, buildHostGuestVcpusUpdatePayload(this.selectedHost, payload));
         this.applySelectedHostRecord(record);
         this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} guest VCPU policy was updated.`;
       } catch (error) {
@@ -493,12 +367,7 @@ const HostsView = {
       this.hostActionMessage = '';
       this.hostConfigSaving = true;
       try {
-        const record = await api.updateHostConfig(this.selectedHost.ref, {
-          nameLabel: this.selectedHost.name_label || this.selectedHost.hostname || this.selectedHost.ref,
-          nameDescription: this.selectedHost.name_description || '',
-          tags: Array.isArray(this.selectedHost.tags) ? this.selectedHost.tags : [],
-          schedGran: payload.schedGran || 'cpu',
-        });
+        const record = await api.updateHostConfig(this.selectedHost.ref, buildHostSchedulerUpdatePayload(this.selectedHost, payload));
         this.applySelectedHostRecord(record);
         this.hostActionMessage = `${record?.name_label || this.selectedHost.ref} scheduler policy was updated.`;
       } catch (error) {
@@ -508,22 +377,14 @@ const HostsView = {
       }
     },
     async syncRouteFocus() {
-      const focus = getRouteFocus(this.$route.query);
-      if (!focus || (focus.kind && focus.kind !== 'host')) {
-        this.lastAppliedFocusKey = '';
-        return;
-      }
-
-      if (this.loading || !this.hosts.length) return;
-
-      const key = getRouteFocusKey(focus);
-      if (this.lastAppliedFocusKey === key) return;
-
-      const match = findHostByFocus(this.hosts, focus);
-      if (!match) return;
-
-      await this.openProperties(match);
-      this.lastAppliedFocusKey = key;
+      const nextState = await syncHostRouteFocusWorkflow({
+        routeQuery: this.$route.query,
+        loading: this.loading,
+        hosts: this.hosts,
+        lastAppliedFocusKey: this.lastAppliedFocusKey,
+        openProperties: this.openProperties,
+      });
+      Object.assign(this, nextState);
     },
     async resolveHostGovernanceApproval(actionKey) {
       if (!this.selectedHost?.ref) return '';
@@ -660,38 +521,46 @@ const HostsView = {
         this.hostActionBusy = '';
       }
     },
+    async toggleHostMultipathing(enabled) {
+      if (!this.selectedHost?.ref) return;
+
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(`${enabled ? 'Enable' : 'Disable'} storage multipathing on ${this.selectedHost.name_label || this.selectedHost.ref}? Every storage path on this host will be unplugged and replugged.`);
+      if (!confirmed) return;
+
+      this.actionError = null;
+      this.hostActionMessage = '';
+      this.hostActionBusy = enabled ? 'multipath-enable' : 'multipath-disable';
+      try {
+        const approvalId = await this.resolveHostGovernanceApproval('host_multipathing_update');
+        await api.setHostMultipathing(this.selectedHost.ref, { enabled, approvalId: approvalId || undefined });
+        this.hostActionMessage = `${this.selectedHost.name_label || this.selectedHost.ref} multipathing was ${enabled ? 'enabled' : 'disabled'}.`;
+        await this.refreshSelectedHost();
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.actionError = 'Governance approval is required before changing storage multipathing.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before changing storage multipathing.'
+          );
+          return;
+        }
+        this.actionError = error.message || 'Unable to update storage multipathing.';
+      } finally {
+        this.hostActionBusy = '';
+      }
+    },
     openRegistration(target = null) {
-      this.targetError = null;
-      this.editingTargetId = target?.id || null;
-      this.hostTargetDraft = target ? { ...target } : {
-        name: '',
-        host: '',
-        username: 'root',
-        vault_credential_id: null,
-        port: 443,
-        mode: 'standalone',
-        pool_connection_id: this.connections[0]?.id || null,
-        notes: '',
-        visibility: store.user ? 'private' : 'shared',
-      };
-      this.showRegistration = true;
+      Object.assign(this, buildHostRegistrationOpenState(target, this.connections, store.user));
     },
     openHostConnectDialog(target) {
       if (!target) return;
-      this.connectTarget = { ...target };
-      this.connectPassword = '';
-      this.connectError = null;
-      this.connectLoading = false;
-      this.useSavedCredential = Boolean(target.vault_credential_id);
-      this.showHostConnectDialogWindow = true;
+      Object.assign(this, buildHostConnectDialogOpenState(target));
     },
     closeHostConnectDialog() {
-      this.showHostConnectDialogWindow = false;
-      this.connectTarget = null;
-      this.connectPassword = '';
-      this.connectLoading = false;
-      this.connectError = null;
-      this.useSavedCredential = false;
+      Object.assign(this, buildHostConnectDialogClosedState());
     },
     async submitTarget(payload) {
       this.targetError = null;

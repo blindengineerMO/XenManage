@@ -75,6 +75,10 @@ const StoragePropertiesWindow = {
     'open-sr-create-vdi',
     'open-sr-resize-vdi',
     'delete-vdi',
+    'clone-vdi',
+    'snapshot-vdi',
+    'open-attach-cd',
+    'open-file-browser',
     'open-vm-workspace',
     'open-host-workspace',
   ],
@@ -124,6 +128,10 @@ const StoragePropertiesWindow = {
               <span class="mdi mdi-arrow-expand-horizontal"></span>
               Resize Existing VDI
             </button>
+            <button class="btn btn-sm" type="button" v-if="selectedSr.content_type === 'iso'" @click="$emit('open-file-browser')">
+              <span class="mdi mdi-folder-open-outline"></span>
+              Browse Files
+            </button>
           </div>
           <div class="text-muted mono" style="font-size:11px;margin-top:10px">
             {{ selectedSr.type || 'sr' }} · {{ selectedSr.local_cache_enabled ? 'local cache enabled' : 'local cache disabled' }} · {{ summarizeCount('disks', vdis.length) }}
@@ -154,7 +162,10 @@ const StoragePropertiesWindow = {
               <div>
                 <strong>{{ vdi.name_label || 'Unnamed VDI' }}</strong>
                 <div class="text-muted mono" style="font-size:11px">
-                  {{ formatBytes(vdi.virtual_size) }} · {{ vdi.type || 'disk' }} · {{ summarizeCount('attachments', getVdiAttachmentCount(vdi)) }}
+                  {{ formatBytes(vdi.virtual_size) }}<template v-if="vdi.physical_utilisation != null"> · {{ formatBytes(vdi.physical_utilisation) }} used</template> · {{ vdi.type || 'disk' }} · {{ summarizeCount('attachments', getVdiAttachmentCount(vdi)) }}
+                </div>
+                <div class="text-muted mono" v-if="vdi.is_a_snapshot" style="font-size:11px">
+                  Snapshot of {{ vdi.snapshot_of || 'unknown source disk' }}
                 </div>
                 <div class="text-muted mono" v-if="getVdiDeleteBlockedReason(vdi)" style="font-size:11px">
                   {{ getVdiDeleteBlockedReason(vdi) }}
@@ -163,7 +174,27 @@ const StoragePropertiesWindow = {
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <span class="badge badge-running" v-if="isFocusedVdi(vdi)">focused</span>
                 <span class="badge badge-warning" v-if="getVdiAttachmentCount(vdi)">attached</span>
+                <span class="badge badge-info" v-if="vdi.is_a_snapshot">snapshot</span>
                 <span class="badge badge-info">{{ vdi.managed ? 'managed' : 'unmanaged' }}</span>
+                <button class="btn btn-sm"
+                        :disabled="Boolean(detailActionBusy)"
+                        @click="$emit('clone-vdi', vdi)">
+                  <span class="mdi mdi-content-copy"></span>
+                  {{ detailActionBusy === 'clone-vdi:' + vdi.ref ? 'Cloning...' : 'Clone' }}
+                </button>
+                <button class="btn btn-sm"
+                        :disabled="Boolean(detailActionBusy)"
+                        @click="$emit('snapshot-vdi', vdi)">
+                  <span class="mdi mdi-camera-outline"></span>
+                  {{ detailActionBusy === 'snapshot-vdi:' + vdi.ref ? 'Snapshotting...' : 'Snapshot' }}
+                </button>
+                <button class="btn btn-sm"
+                        v-if="selectedSr.content_type === 'iso'"
+                        :disabled="Boolean(detailActionBusy)"
+                        @click="$emit('open-attach-cd', vdi)">
+                  <span class="mdi mdi-disc"></span>
+                  Attach as CD
+                </button>
                 <button class="btn btn-sm"
                         :disabled="Boolean(detailActionBusy) || Boolean(getVdiDeleteBlockedReason(vdi))"
                         @click="$emit('delete-vdi', vdi)">

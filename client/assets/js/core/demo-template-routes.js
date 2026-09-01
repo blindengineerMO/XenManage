@@ -465,5 +465,288 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
     return clone({ ...vmRecord, deploymentAudit, deploymentRun });
   }
 
+  if (method === 'POST' && (path === '/api/vms/compose/dry-run' || path === '/api/vms/compose/deploy')) {
+    if (path === '/api/vms/compose/deploy') {
+      ensureDemoMutationAllowed({ actionKey: 'compose_deploy', entityType: 'compose', entityRef: body.name || '' });
+    }
+    const plan = buildDemoComposePlan(body);
+
+    if (path === '/api/vms/compose/dry-run') {
+      return clone(plan);
+    }
+
+    const steps = [];
+    let failed = false;
+
+    for (const vmPlan of plan.plans) {
+      const step = {
+        key: vmPlan.key,
+        label: vmPlan.nameLabel,
+        status: 'pending',
+        detail: '',
+        started_at: new Date().toISOString(),
+        finished_at: null,
+        error_text: '',
+      };
+      steps.push(step);
+
+      if (failed) {
+        step.status = 'skipped';
+        step.detail = 'Skipped because an earlier VM in the plan failed.';
+        step.finished_at = new Date().toISOString();
+        continue;
+      }
+
+      try {
+        const template = demoDb.vms.find((vm) => vm.ref === vmPlan.templateRef);
+        if (!template) throw new Error(`Template "${vmPlan.template}" could not be resolved.`);
+
+        const vmRef = nextDemoOpaqueRef('vm');
+        const vbdRef = nextDemoOpaqueRef('vbd');
+        const hostRef = vmPlan.affinityRef || '';
+        const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+
+        const vmRecord = {
+          ref: vmRef,
+          name_label: vmPlan.nameLabel,
+          name_description: vmPlan.nameDescription || '',
+          power_state: vmPlan.startAfter ? 'Running' : 'Halted',
+          VCPUs_at_startup: vmPlan.vcpusAtStartup,
+          VCPUs_max: vmPlan.vcpusMax,
+          memory_static_max: vmPlan.memoryStaticMax,
+          memory_dynamic_max: vmPlan.memoryDynamicMax,
+          uuid: `${vmRef.replace('OpaqueRef:', '')}-uuid`,
+          is_a_template: false,
+          resident_on: hostRef,
+          affinity: hostRef,
+          VBDs: [vbdRef],
+          VIFs: [],
+          HVM_boot_policy: template.HVM_boot_policy || 'UEFI',
+          platform: clone(template.platform || {}),
+          tags: vmPlan.tags || [],
+        };
+        demoDb.vms.push(vmRecord);
+
+        if (host) {
+          host.resident_VMs = [...(host.resident_VMs || []), vmRef];
+        }
+
+        for (const disk of vmPlan.disks) {
+          const vdiRef = nextDemoOpaqueRef('vdi');
+          const diskVbdRef = nextDemoOpaqueRef('vbd');
+          if (!demoDb.vdis[disk.srRef]) demoDb.vdis[disk.srRef] = [];
+          demoDb.vdis[disk.srRef].push({
+            ref: vdiRef,
+            uuid: `${vdiRef.replace('OpaqueRef:', '')}-uuid`,
+            SR: disk.srRef,
+            name_label: `${vmPlan.nameLabel} disk`,
+            virtual_size: disk.sizeBytes,
+            type: 'user',
+            managed: true,
+            VBDs: [diskVbdRef],
+          });
+          vmRecord.VBDs.push(diskVbdRef);
+        }
+
+        for (const nic of vmPlan.networkInterfaces) {
+          const vifRef = nextDemoOpaqueRef('vif');
+          const network = demoDb.networks.find((entry) => entry.ref === nic.networkRef);
+          if (network) {
+            network.VIFs = [...(network.VIFs || []), vifRef];
+            registerDemoVifState(vifRef, { device: nic.device || '0', MAC: '', currently_attached: vmPlan.startAfter });
+          }
+          vmRecord.VIFs.push(vifRef);
+        }
+
+        step.status = 'success';
+        step.detail = `Provisioned from "${vmPlan.template}" as ${vmPlan.nameLabel} (${vmRef}).`;
+        step.finished_at = new Date().toISOString();
+        step.ref = vmRef;
+      } catch (error) {
+        failed = true;
+        step.status = 'failure';
+        step.error_text = error.message || String(error);
+        step.detail = `Deployment of "${vmPlan.nameLabel}" failed: ${step.error_text}`;
+        step.finished_at = new Date().toISOString();
+      }
+    }
+
+    const successCount = steps.filter((step) => step.status === 'success').length;
+    const overallStatus = failed ? (successCount > 0 ? 'warning' : 'failure') : 'success';
+    const result = failed
+      ? `${successCount} of ${plan.plans.length} VM(s) deployed before this compose run stopped on a failure.`
+      : `All ${plan.plans.length} VM(s) in "${body.name}" deployed successfully.`;
+
+    const deploymentRun = {
+      ref: `tmplrun-${Date.now()}`,
+      uuid: `compose-deployment-${Date.now()}`,
+      name_label: body.name,
+      name_description: result,
+      status: overallStatus,
+      progress: plan.plans.length ? successCount / plan.plans.length : 1,
+      created: new Date().toISOString(),
+      finished: new Date().toISOString(),
+      result,
+      error_info: steps.filter((step) => step.status === 'failure').map((step) => step.detail),
+      resident_on: '',
+      task_kind: 'compose_deployment',
+      source: 'compose_deployment',
+      run_kind: 'compose',
+      template_ref: body.name,
+      template_name: body.name,
+      template_version: body.version || '1',
+      vm_ref: '',
+      vm_name: body.name,
+      host_ref: '',
+      host_label: '',
+      storage_ref: '',
+      storage_label: '',
+      network_ref: '',
+      network_label: '',
+      submitted_by: store.username || 'demo',
+      validation_status: 'pending',
+      validation_notes: '',
+      guest_customization: '',
+      boot_verified: false,
+      network_verified: false,
+      storage_verified: false,
+      policy_tagged: false,
+      target_route: '/vms',
+      related_class: 'vm',
+      related_object: '',
+      steps,
+    };
+    demoDb.templateDeploymentRuns.unshift(deploymentRun);
+
+    recordDemoAudit({
+      category: 'templates',
+      action: 'compose_deployed',
+      actionLabel: 'Deployed compose spec',
+      entityType: 'compose',
+      entityRef: body.name,
+      entityName: body.name,
+      route: '/vms',
+      before: null,
+      after: deploymentRun,
+      detail: result,
+    });
+
+    return clone(deploymentRun);
+  }
+
   return undefined;
+}
+
+function buildDemoComposeInterpolate(value, variables) {
+  if (typeof value === 'string') {
+    return value.replace(/\$\{([a-zA-Z0-9_]+)\}/g, (match, name) => {
+      if (!Object.prototype.hasOwnProperty.call(variables, name)) {
+        throw new Error(`Unknown variable "${name}" referenced in the compose spec.`);
+      }
+      return String(variables[name]);
+    });
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => buildDemoComposeInterpolate(entry, variables));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, buildDemoComposeInterpolate(entry, variables)]));
+  }
+  return value;
+}
+
+function buildDemoComposeTopoSort(vmsMap) {
+  const visited = new Set();
+  const visiting = new Set();
+  const order = [];
+
+  function visit(key) {
+    if (visited.has(key)) return;
+    if (visiting.has(key)) throw new Error(`Dependency cycle detected at VM "${key}".`);
+    if (!vmsMap[key]) throw new Error(`VM "${key}" depends on an undefined VM.`);
+    visiting.add(key);
+    for (const dep of vmsMap[key].dependsOn || []) {
+      if (!vmsMap[dep]) throw new Error(`VM "${key}" depends on undefined VM "${dep}".`);
+      visit(dep);
+    }
+    visiting.delete(key);
+    visited.add(key);
+    order.push(key);
+  }
+
+  Object.keys(vmsMap).forEach(visit);
+  return order;
+}
+
+function buildDemoComposeResolveRef(collection, nameOrRef, label) {
+  const value = String(nameOrRef || '').trim();
+  if (!value) throw new Error(`A ${label} reference is required.`);
+  if (value.startsWith('OpaqueRef:')) return value;
+  const match = collection.find((entry) => entry.uuid === value || entry.name_label === value);
+  if (!match) throw new Error(`Could not resolve ${label} "${value}" on the target pool.`);
+  return match.ref;
+}
+
+function buildDemoComposePlan(spec) {
+  const variables = spec.variables || {};
+  const resolvedVms = buildDemoComposeInterpolate(spec.vms || {}, variables);
+  const resolvedNetworks = buildDemoComposeInterpolate(spec.networks || {}, variables);
+  const resolvedStorageRepositories = buildDemoComposeInterpolate(spec.storageRepositories || {}, variables);
+  const order = buildDemoComposeTopoSort(resolvedVms);
+  const templates = demoDb.vms.filter((vm) => vm.is_a_template);
+
+  const plans = order.map((key) => {
+    const vmSpec = resolvedVms[key];
+    const template = buildDemoComposeResolveRef(templates, vmSpec.template, `template "${vmSpec.template}"`);
+    const memoryStaticMax = Number(vmSpec.memoryStaticMax);
+    const memoryDynamicMax = vmSpec.memoryDynamicMax ? Number(vmSpec.memoryDynamicMax) : memoryStaticMax;
+    const memoryDynamicMin = vmSpec.memoryDynamicMin ? Number(vmSpec.memoryDynamicMin) : memoryDynamicMax;
+    const vcpusAtStartup = Math.round(Number(vmSpec.vcpusAtStartup || 1));
+    const vcpusMax = Math.round(Number(vmSpec.vcpusMax || vcpusAtStartup));
+
+    const disks = (vmSpec.disks || []).map((disk) => {
+      const alias = disk.sr;
+      const entry = resolvedStorageRepositories[alias];
+      const srRef = entry
+        ? buildDemoComposeResolveRef(demoDb.srs, entry.ref, `storage repository "${alias}"`)
+        : buildDemoComposeResolveRef(demoDb.srs, alias, 'storage repository');
+      return {
+        srRef,
+        srAlias: alias,
+        sizeBytes: Math.round(Number(disk.sizeGb) * (1024 ** 3)),
+        bootable: Boolean(disk.bootable),
+        mode: disk.mode || 'RW',
+      };
+    });
+
+    const networkInterfaces = (vmSpec.networkInterfaces || []).map((nic) => {
+      const alias = nic.network;
+      const entry = resolvedNetworks[alias];
+      const networkRef = entry
+        ? buildDemoComposeResolveRef(demoDb.networks, entry.ref, `network "${alias}"`)
+        : buildDemoComposeResolveRef(demoDb.networks, alias, 'network');
+      return { networkRef, networkAlias: alias, device: nic.device || '' };
+    });
+
+    return {
+      key,
+      template: vmSpec.template,
+      templateRef: template,
+      nameLabel: vmSpec.nameLabel,
+      nameDescription: vmSpec.nameDescription || '',
+      memoryStaticMax,
+      memoryDynamicMax,
+      memoryDynamicMin,
+      vcpusAtStartup,
+      vcpusMax,
+      affinityRef: vmSpec.affinity ? buildDemoComposeResolveRef(demoDb.hosts, vmSpec.affinity, `host "${vmSpec.affinity}"`) : '',
+      disks,
+      networkInterfaces,
+      tags: vmSpec.tags || [],
+      dependsOn: vmSpec.dependsOn || [],
+      startAfter: typeof vmSpec.startAfter === 'boolean' ? vmSpec.startAfter : Boolean(spec.startAfter),
+    };
+  });
+
+  return { order, plans, variables };
 }

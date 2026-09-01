@@ -12,6 +12,7 @@ function securityMiddleware(app) {
         connectSrc: ["'self'"],
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
+        workerSrc: ["'self'", "blob:"],
       },
     },
     crossOriginEmbedderPolicy: false,

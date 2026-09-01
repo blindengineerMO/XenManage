@@ -6,6 +6,7 @@ const StorageView = {
     StoragePropertiesWindow,
     StorageCreateSrWindow,
     StorageWorkspaceDialogs,
+    StorageBrowserWindow,
   },
   template: `
     <div class="animate-fade-in">
@@ -121,6 +122,10 @@ const StorageView = {
         @open-sr-create-vdi="showSrCreateVdiWindow = true"
         @open-sr-resize-vdi="showSrResizeVdiWindow = true"
         @delete-vdi="deleteSelectedVdi"
+        @clone-vdi="cloneSelectedVdi"
+        @snapshot-vdi="snapshotSelectedVdi"
+        @open-attach-cd="openAttachCdWindow"
+        @open-file-browser="openFileBrowser"
         @open-vm-workspace="openVmWorkspace"
         @open-host-workspace="openHostWorkspace">
       </storage-properties-window>
@@ -137,19 +142,41 @@ const StorageView = {
         :show-sr-actions-window="showSrActionsWindow"
         :show-sr-create-vdi-window="showSrCreateVdiWindow"
         :show-sr-resize-vdi-window="showSrResizeVdiWindow"
+        :show-attach-cd-window="showAttachCdWindow"
+        :attach-cd-vdi="attachCdVdi"
+        :attach-cd-vm-ref="attachCdVmRef"
         @close-sr-identity="showSrIdentityWindow = false"
         @close-sr-actions="showSrActionsWindow = false"
         @close-sr-create-vdi="showSrCreateVdiWindow = false"
         @close-sr-resize-vdi="showSrResizeVdiWindow = false"
+        @close-attach-cd="showAttachCdWindow = false"
         @submit-sr-config="submitSelectedSrConfig"
         @apply-detail-storage-action="applyDetailStorageAction"
         @update:local-cache-host-ref="localCacheHostRef = $event"
+        @update:attach-cd-vm-ref="attachCdVmRef = $event"
         @toggle-local-cache="toggleSelectedSrLocalCache"
         @forget-sr="forgetSelectedSr"
         @destroy-sr="destroySelectedSr"
         @submit-detached-vdi="submitDetachedVdi"
-        @submit-resize-vdi="submitResizeVdi">
+        @submit-resize-vdi="submitResizeVdi"
+        @submit-attach-cd="submitAttachCd">
       </storage-workspace-dialogs>
+
+      <storage-browser-window
+        :show="showFileBrowser"
+        :selected-sr="selectedSR"
+        :current-path="fileBrowserPath"
+        :entries="fileBrowserEntries"
+        :loading="fileBrowserLoading"
+        :error="fileBrowserError"
+        :action-busy="fileBrowserActionBusy"
+        @close="showFileBrowser = false"
+        @navigate="navigateFileBrowser"
+        @mkdir="mkdirFileBrowser"
+        @upload="uploadFileBrowser"
+        @rename="renameFileBrowserEntry"
+        @delete="deleteFileBrowserEntry">
+      </storage-browser-window>
 
       <storage-create-sr-window
         :show="showCreateSrWindow"
@@ -170,51 +197,7 @@ const StorageView = {
     </div>
   `,
   data() {
-    return {
-      loading: true,
-      srs: [],
-      selectedSR: null,
-      showCreateSrWindow: false,
-      showProps: false,
-      showSrIdentityWindow: false,
-      showSrActionsWindow: false,
-      showSrCreateVdiWindow: false,
-      showSrResizeVdiWindow: false,
-      detailLoading: false,
-      detailError: '',
-      vdis: [],
-      relatedVMs: [],
-      relatedHosts: [],
-      availableHosts: [],
-      focusedVdiRef: '',
-      focusedVdiUuid: '',
-      focusedVbdRef: '',
-      focusedStorageClass: '',
-      selectedSrRefs: [],
-      bulkActionBusy: '',
-      bulkError: null,
-      detailActionBusy: '',
-      detailActionError: '',
-      detailActionMessage: '',
-      createSrBusy: false,
-      createSrError: '',
-      createSrProbeBusy: false,
-      createSrProbeError: '',
-      createSrProbeResult: null,
-      createSrProbeRequest: null,
-      createSrImportBusyKey: '',
-      createSrImportError: '',
-      workspaceMessage: '',
-      localCacheHostRef: '',
-      lastAppliedFocusKey: '',
-      columns: [
-        { key: 'name_label', label: 'Name' },
-        { key: 'type', label: 'Type' },
-        { key: 'physical_size', label: 'Physical Size' },
-        { key: 'virtual_allocation', label: 'Virtual Allocation' },
-        { key: 'uuid', label: 'UUID' },
-      ],
-    };
+    return createStorageViewState();
   },
   computed: {
     storageSelectionProfile() {
@@ -260,8 +243,7 @@ const StorageView = {
     truncateList,
     async loadCreateHosts() {
       try {
-        const result = await api.getHosts();
-        this.availableHosts = result.data || [];
+        this.availableHosts = await loadStorageHosts(api);
       } catch (_error) {
         this.availableHosts = [];
       }
@@ -269,8 +251,7 @@ const StorageView = {
     async loadSRs() {
       this.loading = true;
       try {
-        const result = await api.getSRs();
-        this.srs = result.data || [];
+        this.srs = await loadStorageRecords(api);
       } catch (error) {
         console.error(error);
       } finally {
@@ -295,13 +276,12 @@ const StorageView = {
 
       try {
         const record = await api.createSR(payload);
-        const targetHost = this.availableHosts.find((host) => host.ref === payload.hostRef);
         await this.loadSRs();
         this.createSrProbeResult = null;
         this.createSrProbeRequest = null;
         this.showCreateSrWindow = false;
-        this.workspaceMessage = `${record.name_label || payload.nameLabel} was created on ${targetHost?.name_label || payload.hostRef}.`;
-        const created = this.srs.find((entry) => entry.ref === record.ref) || record;
+        this.workspaceMessage = buildStorageRepositoryCreateMessage(record, payload, this.availableHosts);
+        const created = findRefreshedStorageRecord(this.srs, record.ref, record);
         if (created?.ref) {
           await this.openProperties(created, { hosts: this.availableHosts });
         }
@@ -329,34 +309,19 @@ const StorageView = {
         this.createSrProbeBusy = false;
       }
     },
-    buildProbeResultKey(result, index) {
-      return result?.sr?.uuid || result?.sr?.name_label || `probe-${index}`;
-    },
-    isSharedStorageType(type) {
-      return ['nfs', 'lvmoiscsi'].includes(String(type || '').trim());
-    },
-    canIntroduceProbedSr(result) {
-      return Boolean(this.createSrProbeRequest?.hostRef && result?.complete && result?.sr?.uuid);
-    },
     async introduceProbedSr(result, index) {
-      if (!this.canIntroduceProbedSr(result)) {
+      if (!canIntroduceStorageProbeResult(this.createSrProbeRequest, result)) {
         this.createSrImportError = 'Probe results must include a complete discovered SR with a UUID before it can be introduced.';
         return;
       }
 
       const probeRequest = this.createSrProbeRequest || {};
-      const probeKey = this.buildProbeResultKey(result, index);
-      const payload = {
-        hostRef: probeRequest.hostRef,
-        uuid: result.sr.uuid,
-        nameLabel: result.sr.name_label || `Imported ${String(probeRequest.type || 'storage').toUpperCase()} SR`,
-        nameDescription: result.sr.name_description || '',
-        type: probeRequest.type,
-        contentType: 'user',
-        shared: this.isSharedStorageType(probeRequest.type),
-        deviceConfig: Object.keys(result.configuration || {}).length ? result.configuration : (probeRequest.deviceConfig || {}),
-        smConfig: probeRequest.smConfig || {},
-      };
+      const probeKey = buildStorageProbeResultKey(result, index);
+      const payload = buildStorageProbeImportPayload(probeRequest, result);
+      if (!payload) {
+        this.createSrImportError = 'Unable to build the storage repository import payload from the current probe result.';
+        return;
+      }
 
       this.workspaceMessage = '';
       this.createSrError = '';
@@ -366,17 +331,12 @@ const StorageView = {
 
       try {
         const record = await api.importSR(payload);
-        const targetHost = this.availableHosts.find((host) => host.ref === payload.hostRef);
         await this.loadSRs();
         this.createSrProbeResult = null;
         this.createSrProbeRequest = null;
         this.showCreateSrWindow = false;
-        this.workspaceMessage = record.alreadyAttached
-          ? `${record.name_label || payload.nameLabel} was already attached on ${targetHost?.name_label || payload.hostRef}; the SR inventory was refreshed.`
-          : record.introduced
-            ? `${record.name_label || payload.nameLabel} was introduced from ${payload.uuid} and attached to ${targetHost?.name_label || payload.hostRef}.`
-            : `${record.name_label || payload.nameLabel} was attached to ${targetHost?.name_label || payload.hostRef}.`;
-        const imported = this.srs.find((entry) => entry.ref === record.ref) || record;
+        this.workspaceMessage = buildStorageRepositoryImportMessage(record, payload, this.availableHosts);
+        const imported = findRefreshedStorageRecord(this.srs, record.ref, record);
         if (imported?.ref) {
           await this.openProperties(imported, { hosts: this.availableHosts });
         }
@@ -387,39 +347,21 @@ const StorageView = {
       }
     },
     clearSelectedStorageDetail() {
-      this.resetStorageWorkspaceWindows();
-      this.showProps = false;
-      this.selectedSR = null;
-      this.vdis = [];
-      this.relatedVMs = [];
-      this.relatedHosts = [];
-      this.focusedVdiRef = '';
-      this.focusedVdiUuid = '';
-      this.focusedVbdRef = '';
-      this.focusedStorageClass = '';
-      this.lastAppliedFocusKey = '';
+      Object.assign(this, createEmptyStorageDetailState());
     },
     resetStorageWorkspaceWindows() {
-      this.showSrIdentityWindow = false;
-      this.showSrActionsWindow = false;
-      this.showSrCreateVdiWindow = false;
-      this.showSrResizeVdiWindow = false;
+      Object.assign(this, buildStorageWorkspaceWindowResetState());
     },
     buildCurrentDetailFocusOptions() {
-      return {
-        focusedVdiRef: this.focusedVdiRef,
-        focusedVdiUuid: this.focusedVdiUuid,
-        focusedVbdRef: this.focusedVbdRef,
-        focusedStorageClass: this.focusedStorageClass,
-      };
+      return buildStorageDetailFocusOptions(this);
     },
     async refreshSelectedSrDetail() {
       if (!this.selectedSR?.ref) return;
 
       const selectedRef = this.selectedSR.ref;
-      const focusOptions = this.buildCurrentDetailFocusOptions();
+      const focusOptions = buildStorageDetailFocusOptions(this);
       await this.loadSRs();
-      const updated = this.srs.find((sr) => sr.ref === selectedRef) || this.selectedSR;
+      const updated = findRefreshedStorageRecord(this.srs, selectedRef, this.selectedSR);
       await this.openProperties(updated, focusOptions);
     },
     async submitSelectedSrConfig(payload) {
@@ -456,50 +398,17 @@ const StorageView = {
     },
     async openProperties(row, options = {}) {
       this.resetStorageWorkspaceWindows();
-      this.selectedSR = row;
-      this.showProps = true;
-      this.detailLoading = true;
-      this.detailError = '';
-      this.vdis = options.vdis || [];
-      this.relatedVMs = options.vms || [];
-      this.relatedHosts = options.hosts || [];
-      this.focusedVdiRef = options.focusedVdiRef || '';
-      this.focusedVdiUuid = options.focusedVdiUuid || '';
-      this.focusedVbdRef = options.focusedVbdRef || '';
-      this.focusedStorageClass = options.focusedStorageClass || '';
-      this.detailActionError = '';
-      this.detailActionMessage = '';
+      Object.assign(this, buildStoragePropertiesWorkspaceState(row, options));
 
-      const [vdisResult, vmsResult, hostsResult] = await Promise.allSettled([
-        options.vdis ? Promise.resolve({ data: options.vdis }) : api.getSRVDIs(row.ref),
-        options.vms ? Promise.resolve({ data: options.vms }) : api.getVMs(),
-        options.hosts ? Promise.resolve({ data: options.hosts }) : api.getHosts(),
-      ]);
-
-      if (vdisResult.status === 'fulfilled') {
-        this.vdis = vdisResult.value.data || [];
-      } else {
-        this.vdis = [];
+      try {
+        const detailContext = await loadStorageDetailContext(api, row, options);
+        Object.assign(this, buildStorageDetailWorkspaceState(detailContext));
+      } catch (error) {
+        Object.assign(this, buildStorageDetailErrorState(error.message));
+      } finally {
+        this.syncSelectedSrLocalCacheHost();
+        Object.assign(this, buildStorageDetailLoadingCompleteState());
       }
-
-      if (vmsResult.status === 'fulfilled') {
-        this.relatedVMs = vmsResult.value.data || [];
-      } else {
-        this.relatedVMs = [];
-      }
-
-      if (hostsResult.status === 'fulfilled') {
-        this.relatedHosts = hostsResult.value.data || [];
-      } else {
-        this.relatedHosts = [];
-      }
-
-      if (vdisResult.status === 'rejected' && vmsResult.status === 'rejected' && hostsResult.status === 'rejected') {
-        this.detailError = 'Unable to load VDI, VM, and host relationship data.';
-      }
-
-      this.syncSelectedSrLocalCacheHost();
-      this.detailLoading = false;
     },
     async applyBulkStorageAction(action) {
       const isRescan = action === 'rescan';
@@ -841,6 +750,16 @@ const StorageView = {
         });
       }
 
+      if (action === 'delete-file' && target?.ref) {
+        return resolveGovernanceApproval({
+          actionKey: 'sr_file_delete',
+          entityType: 'sr',
+          entityRef: target.ref,
+          entityName: target.name_label || target.uuid || target.ref || 'Storage repository',
+          route: '/storage',
+        });
+      }
+
       return '';
     },
     async deleteSelectedVdi(vdi) {
@@ -875,46 +794,160 @@ const StorageView = {
         this.detailActionBusy = '';
       }
     },
-    describeSrProbeSummary(result) {
-      if (!result) return '';
+    async cloneSelectedVdi(vdi) {
+      if (!this.selectedSR?.ref || !vdi?.ref) return;
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = `clone-vdi:${vdi.ref}`;
 
-      if (result.mode === 'probe') {
-        return result.rawXml
-          ? 'The host returned backend-specific XML output rather than structured probe records.'
-          : 'The host did not return structured probe records for this request.';
+      try {
+        const record = await api.cloneStorageVdi(this.selectedSR.ref, vdi.ref, {
+          nameLabel: `${vdi.name_label || 'disk'} clone`,
+          snapshot: false,
+        });
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${record.name_label || vdi.ref} was cloned on ${this.selectedSR?.name_label || 'the selected repository'}.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to clone the selected VDI.';
+      } finally {
+        this.detailActionBusy = '';
       }
-
-      const summary = result.summary || {};
-      const total = Number(summary.totalResults || 0);
-      const existing = Number(summary.existingSrs || 0);
-      const complete = Number(summary.completeResults || 0);
-      return `${total} candidate${total === 1 ? '' : 's'} · ${existing} existing SR${existing === 1 ? '' : 's'} · ${complete} complete configuration${complete === 1 ? '' : 's'}`;
     },
-    formatProbeMap(record) {
-      const entries = Object.entries(record || {}).filter(([key, value]) =>
-        String(key || '').trim() && String(value || '').trim()
-      );
-      if (!entries.length) return '';
-      return entries.map(([key, value]) => `${key}=${value}`).join(' · ');
+    async snapshotSelectedVdi(vdi) {
+      if (!this.selectedSR?.ref || !vdi?.ref) return;
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = `snapshot-vdi:${vdi.ref}`;
+
+      try {
+        const record = await api.cloneStorageVdi(this.selectedSR.ref, vdi.ref, {
+          nameLabel: `${vdi.name_label || 'disk'} snapshot`,
+          snapshot: true,
+        });
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${record.name_label || vdi.ref} snapshot was created on ${this.selectedSR?.name_label || 'the selected repository'}.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to snapshot the selected VDI.';
+      } finally {
+        this.detailActionBusy = '';
+      }
     },
-    formatProbeSrStat(record) {
-      if (!record) return '';
+    openAttachCdWindow(vdi) {
+      this.attachCdVdi = vdi;
+      this.attachCdVmRef = '';
+      this.showAttachCdWindow = true;
+    },
+    async submitAttachCd() {
+      if (!this.selectedSR?.ref || !this.attachCdVdi?.ref || !this.attachCdVmRef) return;
+      this.detailActionError = '';
+      this.detailActionMessage = '';
+      this.detailActionBusy = 'attach-cd';
 
-      const parts = [];
-      if (record.uuid) {
-        parts.push(record.uuid);
+      try {
+        await api.attachStorageVdiAsCd(this.selectedSR.ref, this.attachCdVdi.ref, { vmRef: this.attachCdVmRef });
+        const targetVm = this.relatedVMs.find((vm) => vm.ref === this.attachCdVmRef);
+        this.showAttachCdWindow = false;
+        await this.refreshSelectedSrDetail();
+        this.detailActionMessage = `${this.attachCdVdi.name_label || this.attachCdVdi.ref} was attached as a CD to ${targetVm?.name_label || this.attachCdVmRef}.`;
+      } catch (error) {
+        this.detailActionError = error.message || 'Unable to attach the selected ISO as a CD.';
+      } finally {
+        this.detailActionBusy = '';
       }
-      if (record.health) {
-        parts.push(record.health);
-      }
-      if (Number(record.total_space || 0) > 0) {
-        parts.push(`${this.formatBytes(record.free_space || 0)} free of ${this.formatBytes(record.total_space || 0)}`);
-      }
-      if (record.clustered) {
-        parts.push('clustered');
-      }
+    },
+    async openFileBrowser() {
+      this.showFileBrowser = true;
+      this.fileBrowserPath = '';
+      await this.loadFileBrowserDirectory('');
+    },
+    async loadFileBrowserDirectory(path) {
+      if (!this.selectedSR?.ref) return;
+      this.fileBrowserLoading = true;
+      this.fileBrowserError = '';
 
-      return parts.join(' · ');
+      try {
+        this.fileBrowserEntries = await api.listStorageFiles(this.selectedSR.ref, path);
+        this.fileBrowserPath = path;
+      } catch (error) {
+        this.fileBrowserError = error.message || 'Unable to load the storage file listing.';
+      } finally {
+        this.fileBrowserLoading = false;
+      }
+    },
+    async navigateFileBrowser(path) {
+      await this.loadFileBrowserDirectory(path);
+    },
+    async mkdirFileBrowser({ path, name }) {
+      if (!this.selectedSR?.ref) return;
+      this.fileBrowserActionBusy = 'mkdir';
+      this.fileBrowserError = '';
+
+      try {
+        await api.mkdirStorageFile(this.selectedSR.ref, { path, name });
+        await this.loadFileBrowserDirectory(this.fileBrowserPath);
+      } catch (error) {
+        this.fileBrowserError = error.message || 'Unable to create the requested folder.';
+      } finally {
+        this.fileBrowserActionBusy = '';
+      }
+    },
+    async uploadFileBrowser({ path, file }) {
+      if (!this.selectedSR?.ref) return;
+      this.fileBrowserActionBusy = 'upload';
+      this.fileBrowserError = '';
+
+      try {
+        await api.uploadStorageFile(this.selectedSR.ref, path, file);
+        await this.loadFileBrowserDirectory(this.fileBrowserPath);
+      } catch (error) {
+        this.fileBrowserError = error.message || 'Unable to upload the selected file.';
+      } finally {
+        this.fileBrowserActionBusy = '';
+      }
+    },
+    async renameFileBrowserEntry({ fromPath, toPath }) {
+      if (!this.selectedSR?.ref) return;
+      this.fileBrowserActionBusy = 'move';
+      this.fileBrowserError = '';
+
+      try {
+        await api.moveStorageFile(this.selectedSR.ref, { fromPath, toPath });
+        await this.loadFileBrowserDirectory(this.fileBrowserPath);
+      } catch (error) {
+        this.fileBrowserError = error.message || 'Unable to rename the selected entry.';
+      } finally {
+        this.fileBrowserActionBusy = '';
+      }
+    },
+    async deleteFileBrowserEntry(entry) {
+      if (!this.selectedSR?.ref) return;
+      const targetPath = this.fileBrowserPath ? `${this.fileBrowserPath}/${entry.name}` : entry.name;
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(`Delete ${entry.name}? This cannot be undone.`);
+      if (!confirmed) return;
+
+      this.fileBrowserActionBusy = `delete:${entry.name}`;
+      this.fileBrowserError = '';
+
+      try {
+        const approvalId = await this.resolveStorageGovernanceApproval('delete-file', { ref: this.selectedSR.ref, name_label: this.selectedSR.name_label });
+        await api.deleteStorageFile(this.selectedSR.ref, targetPath, approvalId || '');
+        await this.loadFileBrowserDirectory(this.fileBrowserPath);
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.fileBrowserError = 'Governance approval is required before deleting this file.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before deleting this storage file.'
+          );
+          return;
+        }
+        this.fileBrowserError = error.message || 'Unable to delete the selected entry.';
+      } finally {
+        this.fileBrowserActionBusy = '';
+      }
     },
     openVmWorkspace(row) {
       if (!row?.vmRef) return;
@@ -940,67 +973,18 @@ const StorageView = {
         source: 'storage',
       }));
     },
-    findStorageByFocus(focus) {
-      return this.srs.find((sr) =>
-        recordMatchesRouteFocus(sr, focus, ['ref', 'uuid', 'name_label'])
-      ) || null;
-    },
-    async resolveFocusedStorageTarget(focus) {
-      const direct = this.findStorageByFocus(focus);
-      if (direct) {
-        return { sr: direct, vdis: null, focusedVdi: null };
-      }
-
-      for (const sr of this.srs) {
-        try {
-          const result = await api.getSRVDIs(sr.ref);
-          const vdis = result.data || [];
-          const match = vdis.find((vdi) =>
-            recordMatchesRouteFocus(
-              vdi,
-              focus,
-              ['ref', 'uuid', 'name_label'],
-              focus.ref && focus.cls === 'vbd' ? (vdi.VBDs || []) : []
-            )
-          );
-
-          if (match) {
-            return { sr, vdis, focusedVdi: match };
-          }
-        } catch (error) {
-          // Keep searching other repositories when one VDI inventory call fails.
-        }
-      }
-
-      return null;
-    },
     async syncRouteFocus() {
-      const focus = getRouteFocus(this.$route.query);
-      if (!focus || (focus.kind && focus.kind !== 'storage')) {
-        this.lastAppliedFocusKey = '';
-        this.focusedVdiRef = '';
-        this.focusedVdiUuid = '';
-        this.focusedVbdRef = '';
-        this.focusedStorageClass = '';
-        return;
-      }
-
-      if (this.loading || !this.srs.length) return;
-
-      const key = getRouteFocusKey(focus);
-      if (this.lastAppliedFocusKey === key) return;
-
-      const target = await this.resolveFocusedStorageTarget(focus);
-      if (!target?.sr) return;
-
-      await this.openProperties(target.sr, {
-        vdis: target.vdis,
-        focusedVdiRef: target.focusedVdi?.ref || '',
-        focusedVdiUuid: target.focusedVdi?.uuid || focus.uuid || '',
-        focusedVbdRef: focus.cls === 'vbd' ? (focus.ref || '') : '',
-        focusedStorageClass: ['vdi', 'vbd'].includes(focus.cls) ? focus.cls : '',
+      const nextState = await syncStorageRouteFocusWorkflow({
+        routeQuery: this.$route.query,
+        loading: this.loading,
+        srs: this.srs,
+        lastAppliedFocusKey: this.lastAppliedFocusKey,
+        loadSrVdis: (ref) => api.getSRVDIs(ref),
+        openProperties: async (row, options = {}) => {
+          await this.openProperties(row, options);
+        },
       });
-      this.lastAppliedFocusKey = key;
+      Object.assign(this, nextState);
     },
   },
 };

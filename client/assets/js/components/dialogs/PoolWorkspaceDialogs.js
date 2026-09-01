@@ -27,13 +27,31 @@ const PoolWorkspaceDialogs = {
     showPoolIdentityWindow: { type: Boolean, default: false },
     showPoolContextWindow: { type: Boolean, default: false },
     showPoolHaWindow: { type: Boolean, default: false },
+    showPoolJoinWindow: { type: Boolean, default: false },
+    poolJoinDraft: {
+      type: Object,
+      default: () => ({
+        joiningHostAddress: '',
+        joiningHostUsername: '',
+        joiningHostPassword: '',
+        masterAddress: '',
+        masterUsername: '',
+        masterPassword: '',
+        force: false,
+      }),
+    },
+    poolJoinSaving: { type: Boolean, default: false },
+    poolJoinError: { type: String, default: '' },
   },
   emits: [
     'close-pool-identity',
     'close-pool-context',
     'close-pool-ha',
+    'close-pool-join',
     'submit-selected-pool-config',
     'submit-selected-pool-ha-state',
+    'update:pool-join-draft',
+    'submit-pool-join',
   ],
   template: `
     <div>
@@ -168,9 +186,64 @@ const PoolWorkspaceDialogs = {
           </pool-ha-form>
         </div>
       </floating-window>
+
+      <floating-window :show="showPoolJoinWindow"
+                       title="Join Host To Pool"
+                       :width="560"
+                       :height="560"
+                       @close="$emit('close-pool-join')">
+        <div class="detail-section">
+          <div class="detail-title">Target Pool Coordinator</div>
+          <p class="text-muted" style="margin-bottom:12px">Credentials for the coordinator of the pool the new host is joining.</p>
+          <div class="form-group">
+            <label>Coordinator Address</label>
+            <input class="form-control" type="text" :value="poolJoinDraft.masterAddress" @input="updateJoinDraft('masterAddress', $event.target.value)" placeholder="10.0.0.10" />
+          </div>
+          <div class="form-group">
+            <label>Coordinator Username</label>
+            <input class="form-control" type="text" :value="poolJoinDraft.masterUsername" @input="updateJoinDraft('masterUsername', $event.target.value)" placeholder="root" />
+          </div>
+          <div class="form-group">
+            <label>Coordinator Password</label>
+            <input class="form-control" type="password" :value="poolJoinDraft.masterPassword" @input="updateJoinDraft('masterPassword', $event.target.value)" />
+          </div>
+
+          <div class="detail-title" style="margin-top:16px">Joining Host</div>
+          <p class="text-muted" style="margin-bottom:12px">Credentials for the standalone host that will become a pool member.</p>
+          <div class="form-group">
+            <label>Host Address</label>
+            <input class="form-control" type="text" :value="poolJoinDraft.joiningHostAddress" @input="updateJoinDraft('joiningHostAddress', $event.target.value)" placeholder="10.0.0.20" />
+          </div>
+          <div class="form-group">
+            <label>Host Username</label>
+            <input class="form-control" type="text" :value="poolJoinDraft.joiningHostUsername" @input="updateJoinDraft('joiningHostUsername', $event.target.value)" placeholder="root" />
+          </div>
+          <div class="form-group">
+            <label>Host Password</label>
+            <input class="form-control" type="password" :value="poolJoinDraft.joiningHostPassword" @input="updateJoinDraft('joiningHostPassword', $event.target.value)" />
+          </div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px">
+              <input type="checkbox" :checked="poolJoinDraft.force" @change="updateJoinDraft('force', $event.target.checked)" />
+              Skip compatibility checks (join_force)
+            </label>
+          </div>
+
+          <div class="form-error" v-if="poolJoinError" style="margin-bottom:12px">{{ poolJoinError }}</div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" :disabled="Boolean(poolJoinSaving)" @click="$emit('submit-pool-join')">
+              <span class="mdi mdi-source-merge"></span>
+              {{ poolJoinSaving ? 'Joining...' : 'Join Pool' }}
+            </button>
+          </div>
+        </div>
+      </floating-window>
     </div>
   `,
   methods: {
     summarizeCount,
+    updateJoinDraft(field, value) {
+      this.$emit('update:pool-join-draft', { ...this.poolJoinDraft, [field]: value });
+    },
   },
 };

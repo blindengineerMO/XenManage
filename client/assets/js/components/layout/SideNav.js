@@ -18,6 +18,10 @@ const SideNav = {
           <span class="tree-label" v-if="!collapsed">Templates</span>
           <span class="tree-count" v-if="!collapsed && inventory.templates.length">{{ inventory.templates.length }}</span>
         </div>
+        <div class="tree-item" :class="{ active: $route.path === '/template-library' }" @click="$router.push('/template-library')">
+          <span class="mdi mdi-code-json"></span>
+          <span class="tree-label" v-if="!collapsed">Template Library</span>
+        </div>
         <div class="tree-item" :class="{ active: $route.path === '/vms' }" @click="$router.push('/vms')">
           <span class="mdi mdi-desktop-tower"></span>
           <span class="tree-label" v-if="!collapsed">Virtual Machines</span>

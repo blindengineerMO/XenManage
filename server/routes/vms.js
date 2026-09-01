@@ -7,6 +7,7 @@ const templateDeploymentRunService = require('../services/template-deployment-ru
 const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const { ensureMutationAllowed } = require('../middleware/governance');
+const { planCompose, executeCompose } = require('../services/deployment-engine');
 
 async function safeGetVmRecord(xenApi, ref) {
   try {
@@ -426,6 +427,39 @@ router.post('/templates/:ref/deploy', validate(schemas.templateDeploy), async (r
     res.status(201).json({ ...record, deploymentAudit, deploymentRun });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/compose/dry-run', validate(schemas.composeDeploy), async (req, res) => {
+  try {
+    const plan = await planCompose(req.xenApi, req.body);
+    res.json(plan);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.code || 'COMPOSE_PLAN_FAILED', message: err.message });
+  }
+});
+
+router.post('/compose/deploy', validate(schemas.composeDeploy), async (req, res) => {
+  try {
+    if (!ensureMutationAllowed(req, res, { actionKey: 'compose_deploy', entityType: 'compose', entityRef: req.body.name })) return;
+    const { run, failed } = await executeCompose(req.xenApi, req.body, { submittedBy: req.session?.xenUser || '' });
+    auditLogService.record({
+      category: 'templates',
+      action: 'compose_deployed',
+      actionLabel: 'Deployed compose spec',
+      entityType: 'compose',
+      entityRef: req.body.name,
+      entityName: req.body.name,
+      operator: req.session?.xenUser || 'system',
+      route: '/vms',
+      status: failed ? 'warning' : 'success',
+      before: null,
+      after: run,
+      detail: run.result,
+    });
+    res.status(failed ? 207 : 201).json(run);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.code || 'COMPOSE_DEPLOY_FAILED', message: err.message });
   }
 });
 

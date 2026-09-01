@@ -3,6 +3,7 @@ const appRoutes = [
   { path: '/', component: DashboardView },
   { path: '/pools', component: PoolsView },
   { path: '/templates', component: TemplatesView },
+  { path: '/template-library', component: TemplateLibraryView },
   { path: '/vms', component: VMsView },
   { path: '/hosts', component: HostsView },
   { path: '/storage', component: StorageView },

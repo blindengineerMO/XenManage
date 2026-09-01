@@ -93,11 +93,12 @@ function buildDeploymentSteps({ templateName, vmName, hostRef, networkRef, start
 }
 
 function normalizeTask(run = {}) {
+  const isCompose = String(run.run_kind || 'template').trim().toLowerCase() === 'compose';
   return {
     ref: run.id,
-    uuid: `template-deployment-${run.id}`,
-    name_label: run.vm_name || 'Template Deployment',
-    name_description: run.result || run.validation_notes || `Deployment run for ${run.template_name || run.template_ref || 'template'}.`,
+    uuid: `${isCompose ? 'compose-deployment' : 'template-deployment'}-${run.id}`,
+    name_label: run.vm_name || (isCompose ? 'Compose Deployment' : 'Template Deployment'),
+    name_description: run.result || run.validation_notes || `${isCompose ? 'Compose deployment' : 'Deployment'} run for ${run.template_name || run.template_ref || 'template'}.`,
     status: run.status || 'pending',
     progress: Number(run.progress || 0),
     created: run.submitted_at || '',
@@ -107,8 +108,9 @@ function normalizeTask(run = {}) {
       .filter((step) => String(step.status || '').toLowerCase() === 'failure' && step.detail)
       .map((step) => String(step.detail)),
     resident_on: run.host_ref || '',
-    task_kind: 'template_deployment',
-    source: 'template_deployment',
+    task_kind: isCompose ? 'compose_deployment' : 'template_deployment',
+    source: isCompose ? 'compose_deployment' : 'template_deployment',
+    run_kind: isCompose ? 'compose' : 'template',
     template_ref: run.template_ref || '',
     template_name: run.template_name || '',
     template_version: run.template_version || '',

@@ -279,7 +279,7 @@ const schemas = {
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
     type: Joi.string().valid('nfs', 'lvmoiscsi', 'ext', 'lvm').required(),
-    contentType: Joi.string().valid('user').default('user'),
+    contentType: Joi.string().valid('user', 'iso').default('user'),
     shared: Joi.boolean().default(false),
     deviceConfig: Joi.object()
       .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
@@ -320,7 +320,7 @@ const schemas = {
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
     type: Joi.string().valid('nfs', 'lvmoiscsi', 'ext', 'lvm').required(),
-    contentType: Joi.string().valid('user').default('user'),
+    contentType: Joi.string().valid('user', 'iso').default('user'),
     shared: Joi.boolean().default(false),
     deviceConfig: Joi.object()
       .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
@@ -349,6 +349,30 @@ const schemas = {
     sizeBytes: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
   }),
   storageMutation: Joi.object({
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
+  storageVdiClone: Joi.object({
+    nameLabel: Joi.string().trim().allow('').max(120).default(''),
+    snapshot: Joi.boolean().default(false),
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
+  storageVdiAttachCd: Joi.object({
+    vmRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
+  storageFilePathQuery: Joi.object({
+    path: Joi.string().allow('').max(1024).default(''),
+  }),
+  storageFileMkdir: Joi.object({
+    path: Joi.string().allow('').max(1024).default(''),
+    name: Joi.string().trim().required().min(1).max(255).pattern(/^[^/\\]+$/),
+  }),
+  storageFileMove: Joi.object({
+    fromPath: Joi.string().trim().required().min(1).max(1024),
+    toPath: Joi.string().trim().required().min(1).max(1024),
+  }),
+  storageFileDeleteQuery: Joi.object({
+    path: Joi.string().trim().required().min(1).max(1024),
     approvalId: Joi.string().allow('').max(120).default(''),
   }),
   networkCreate: Joi.object({
@@ -422,6 +446,19 @@ const schemas = {
     configuration: Joi.object()
       .pattern(Joi.string().trim().min(1).max(80), Joi.string().allow('').max(255))
       .default({}),
+  }),
+  poolJoin: Joi.object({
+    joiningHostAddress: Joi.string().trim().required().min(1).max(255),
+    joiningHostUsername: Joi.string().trim().required().min(1).max(120),
+    joiningHostPassword: Joi.string().required().min(1).max(255),
+    masterAddress: Joi.string().trim().required().min(1).max(255),
+    masterUsername: Joi.string().trim().required().min(1).max(120),
+    masterPassword: Joi.string().required().min(1).max(255),
+    force: Joi.boolean().default(false),
+  }),
+  poolEject: Joi.object({
+    hostRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    approvalId: Joi.string().allow('').optional(),
   }),
   hostConfigUpdate: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
@@ -531,6 +568,10 @@ const schemas = {
   hostPowerMutation: Joi.object({
     approvalId: Joi.string().allow('').max(120).default(''),
   }),
+  hostMultipathingUpdate: Joi.object({
+    enabled: Joi.boolean().required(),
+    approvalId: Joi.string().allow('').max(120).default(''),
+  }),
   templateDeploy: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
@@ -541,6 +582,44 @@ const schemas = {
     memoryStaticMax: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
     tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
     startAfter: Joi.boolean().default(false),
+  }),
+  composeDeploy: Joi.object({
+    version: Joi.string().valid('1').default('1'),
+    name: Joi.string().trim().required().min(1).max(120),
+    variables: Joi.object().pattern(Joi.string(), Joi.alternatives().try(Joi.string(), Joi.number(), Joi.boolean())).default({}),
+    networks: Joi.object().pattern(Joi.string(), Joi.object({ ref: Joi.string().trim().required().max(200) })).default({}),
+    storageRepositories: Joi.object().pattern(Joi.string(), Joi.object({ ref: Joi.string().trim().required().max(200) })).default({}),
+    targetKey: Joi.string().allow('', null).max(200).default(null),
+    startAfter: Joi.boolean().default(true),
+    vms: Joi.object().pattern(
+      Joi.string().min(1).max(64),
+      Joi.object({
+        template: Joi.string().trim().required().min(1).max(200),
+        nameLabel: Joi.string().trim().required().min(1).max(120),
+        nameDescription: Joi.string().allow('').max(500).default(''),
+        memoryStaticMax: Joi.alternatives().try(Joi.number().positive(), Joi.string().trim().min(1)).required(),
+        memoryDynamicMin: Joi.alternatives().try(Joi.number().positive(), Joi.string().trim().min(1)).optional(),
+        memoryDynamicMax: Joi.alternatives().try(Joi.number().positive(), Joi.string().trim().min(1)).optional(),
+        vcpusAtStartup: Joi.alternatives().try(Joi.number().integer().positive(), Joi.string().trim().min(1)).default(1),
+        vcpusMax: Joi.alternatives().try(Joi.number().integer().positive(), Joi.string().trim().min(1)).default(1),
+        affinity: Joi.string().allow('', null).max(200).default(null),
+        disks: Joi.array().items(Joi.object({
+          sr: Joi.string().trim().required().max(200),
+          sizeGb: Joi.alternatives().try(Joi.number().positive(), Joi.string().trim().min(1)).required(),
+          bootable: Joi.boolean().default(false),
+          mode: Joi.string().valid('RW', 'RO').default('RW'),
+        })).max(16).default([]),
+        networkInterfaces: Joi.array().items(Joi.object({
+          network: Joi.string().trim().required().max(200),
+          device: Joi.string().allow('').max(8).default(''),
+        })).max(16).default([]),
+        otherConfig: Joi.object().pattern(Joi.string(), Joi.string().allow('')).default({}),
+        xenstoreData: Joi.object().pattern(Joi.string(), Joi.string().allow('')).default({}),
+        tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+        dependsOn: Joi.array().items(Joi.string().min(1).max(64)).max(32).default([]),
+        startAfter: Joi.boolean().optional(),
+      })
+    ).min(1).max(32).required(),
   }),
   templateGovernanceUpdate: Joi.object({
     versionLabel: Joi.string().allow('').max(80).default(''),
@@ -857,6 +936,49 @@ const schemas = {
     search: Joi.string().allow('').default(''),
     sort: Joi.string().allow('').default(''),
     sortDir: Joi.string().valid('asc', 'desc').default('asc'),
+  }),
+  templateLibraryNumericId: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+  }),
+  templateLibraryFolderCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    parentId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
+  }),
+  templateLibraryFolderRename: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+  }),
+  templateLibraryFolderMove: Joi.object({
+    parentId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
+  }),
+  templateLibraryItemCreate: Joi.object({
+    folderId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
+    kind: Joi.string().valid('deployment-template', 'guest-script', 'snippet').default('snippet'),
+    name: Joi.string().trim().required().min(1).max(160),
+    language: Joi.string().valid('json', 'shell', 'yaml', 'plaintext', 'powershell').default('json'),
+    content: Joi.string().allow('').max(200000).default(''),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
+  }),
+  templateLibraryItemRename: Joi.object({
+    name: Joi.string().trim().required().min(1).max(160),
+  }),
+  templateLibraryItemMove: Joi.object({
+    folderId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
+  }),
+  templateLibraryItemSave: Joi.object({
+    content: Joi.string().allow('').max(200000).required(),
   }),
 };
 

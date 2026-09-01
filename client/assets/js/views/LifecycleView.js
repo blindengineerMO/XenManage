@@ -288,40 +288,7 @@ const LifecycleView = {
     </div>
   `,
   data() {
-    return {
-      loading: true,
-      hosts: [],
-      tasks: [],
-      messages: [],
-      lifecyclePlans: [],
-      relatedPools: [],
-      relatedVMs: [],
-      relatedStorage: [],
-      relatedNetworks: [],
-      selectedHostRef: null,
-      plannerHostRef: null,
-      showInspector: false,
-      showPlanner: false,
-      planSaving: false,
-      planError: null,
-      plannerActionBusy: '',
-      plannerActionError: null,
-      plannerSeed: null,
-      plannerLaunchMode: 'plan',
-      plannerSourceTask: null,
-      workspaceMessage: '',
-      selectedLifecycleRefs: [],
-      bulkActionBusy: '',
-      bulkError: null,
-      lastAppliedFocusKey: '',
-      columns: [
-        { key: 'name_label', label: 'Host' },
-        { key: 'lifecycleStatus', label: 'Status' },
-        { key: 'maintenanceWindow', label: 'Maintenance Window' },
-        { key: 'planLabel', label: 'Lifecycle Plan' },
-        { key: 'nextAction', label: 'Next Action' },
-      ],
-    };
+    return createLifecycleViewState();
   },
   computed: {
     lifecycleTasks() {
@@ -341,11 +308,11 @@ const LifecycleView = {
         lifecycleAlerts: this.lifecycleAlerts,
         lifecyclePlans: this.lifecyclePlans,
         taskSlaMeta: (task) => this.taskSlaMeta(task),
-        taskEvidenceChecklist: (task) => this.taskEvidenceChecklist(task),
-        taskCompletionCriteria: (task) => this.taskCompletionCriteria(task),
-        hostMatchesTask: (host, task) => this.hostMatchesTask(host, task),
-        hostMatchesMessage: (host, message) => this.hostMatchesMessage(host, message),
-        formatStageLabel: (value) => this.formatStageLabel(value),
+        taskEvidenceChecklist: taskEvidenceChecklistForLifecycle,
+        taskCompletionCriteria: taskCompletionCriteriaForLifecycle,
+        hostMatchesTask: hostMatchesLifecycleTask,
+        hostMatchesMessage: hostMatchesLifecycleMessage,
+        formatStageLabel: formatLifecycleStageLabel,
       });
     },
     lifecyclePlannerModel() {
@@ -473,160 +440,18 @@ const LifecycleView = {
     taskSlaBadgeClass(task) {
       return getTaskSlaBadgeClass(this.taskSlaMeta(task));
     },
-    formatStageLabel(value) {
-      const map = {
-        aligned: 'Aligned',
-        review: 'Review',
-        maintenance: 'Maintenance',
-        remediate: 'Remediate',
-      };
-      return map[value] || 'Review';
-    },
-    formatBaselineLabel(value) {
-      const map = {
-        compliant: 'Compliant',
-        drifted: 'Drifted',
-        unknown: 'Unknown',
-      };
-      return map[value] || 'Unknown';
-    },
-    formatActionLabel(value) {
-      const map = {
-        none: 'No Action',
-        scan: 'Run Scan',
-        patch: 'Apply Patch',
-        reboot: 'Schedule Reboot',
-        validate: 'Validate Outcome',
-      };
-      return map[value] || 'Run Scan';
-    },
-    plannerStatus(row) {
-      if (!row.lifecyclePlan) return 'info';
-      if (row.lifecyclePlan.targetStage === 'remediate') return 'warning';
-      if (row.lifecyclePlan.targetStage === 'maintenance') return 'pending';
-      if (row.lifecyclePlan.targetStage === 'aligned' && row.lifecyclePlan.baselineStatus === 'compliant') return 'success';
-      return 'info';
-    },
-    isLifecycleTask(task) {
-      const haystack = `${task?.name_label || ''} ${task?.name_description || ''}`.toLowerCase();
-      return /(patch|compliance|scan|baseline|maintenance|update|drift|reboot|remediat|firmware|lifecycle)/.test(haystack);
-    },
-    isLifecycleAutomationTask(task) {
-      if (!this.isRemediationTask(task)) return false;
-      return task.target_route === '/lifecycle' || String(task.action_type || '').toLowerCase() === 'lifecycle';
-    },
-    isRemediationTask(task) {
-      return String(task?.task_kind || '').toLowerCase() === 'remediation' || String(task?.source || '').toLowerCase() === 'remediation';
-    },
-    isLifecycleAlert(message) {
-      const haystack = `${message?.name || ''} ${message?.body || ''} ${message?.cls || ''}`.toLowerCase();
-      return /(maintenance|patch|compliance|drift|host|baseline|update|firmware)/.test(haystack);
-    },
-    hostMatchesTask(host, task) {
-      const haystack = `${task?.name_label || ''} ${task?.name_description || ''} ${task?.resident_on || ''} ${task?.related_object || ''} ${task?.workspace_summary || ''} ${task?.related_alert_summary || ''}`.toLowerCase();
-      return haystack.includes((host.ref || '').toLowerCase())
-        || haystack.includes((host.uuid || '').toLowerCase())
-        || haystack.includes((host.name_label || '').toLowerCase())
-        || haystack.includes((host.hostname || '').toLowerCase());
-    },
-    recordMatchesValue(record, value, fields = [], extraValues = []) {
-      const needle = String(value || '').trim().toLowerCase();
-      if (!record || !needle) return false;
-
-      return [
-        ...fields.map((field) => record?.[field]),
-        ...extraValues,
-      ]
-        .filter(Boolean)
-        .map((entry) => String(entry).trim().toLowerCase())
-        .includes(needle);
-    },
-    hostRecordMatchesValue(host, value) {
-      return this.recordMatchesValue(host, value, ['ref', 'uuid', 'name_label', 'hostname', 'address'], [
-        ...(Array.isArray(host?.PBDs) ? host.PBDs : []),
-        ...(Array.isArray(host?.PIFs) ? host.PIFs : []),
-        ...(Array.isArray(host?.resident_VMs) ? host.resident_VMs : []),
-      ]);
-    },
-    findVmRecord(value) {
-      return this.relatedVMs.find((vm) => this.recordMatchesValue(vm, value, ['ref', 'uuid', 'name_label'], [
-        ...(Array.isArray(vm?.VBDs) ? vm.VBDs : []),
-        ...(Array.isArray(vm?.VIFs) ? vm.VIFs : []),
-      ])) || null;
-    },
-    findStorageRecord(value) {
-      return this.relatedStorage.find((sr) => this.recordMatchesValue(sr, value, ['ref', 'uuid', 'name_label'], [
-        ...(Array.isArray(sr?.VDIs) ? sr.VDIs : []),
-        ...(Array.isArray(sr?.PBDs) ? sr.PBDs : []),
-      ])) || null;
-    },
-    findPoolRecord(value) {
-      return this.relatedPools.find((pool) => this.recordMatchesValue(pool, value, ['ref', 'uuid', 'name_label'])) || null;
-    },
-    findNetworkRecord(value) {
-      return this.relatedNetworks.find((network) =>
-        this.recordMatchesValue(network, value, ['ref', 'uuid', 'name_label', 'bridge'], [
-          ...(Array.isArray(network?.PIFs) ? network.PIFs : []),
-          ...(Array.isArray(network?.VIFs) ? network.VIFs : []),
-        ])
-      ) || null;
-    },
-    findPreferredHostForPool(pool) {
-      if (!pool) return null;
-
-      const master = this.hostLifecycleRows.find((host) => this.hostRecordMatchesValue(host, pool.master));
-      if (master) return master;
-
-      return this.hostLifecycleRows.find((host) => poolContainsHost(pool, host) && host.enabled)
-        || this.hostLifecycleRows.find((host) => poolContainsHost(pool, host))
-        || this.hostLifecycleRows.find((host) => resolveHostPool(host, this.relatedPools)?.ref === pool.ref)
-        || null;
-    },
-    findHostByVm(vm) {
-      if (!vm) return null;
-
-      const direct = this.hostLifecycleRows.find((host) =>
-        [vm.resident_on, vm.affinity].some((value) => this.hostRecordMatchesValue(host, value))
-      );
-      if (direct) return direct;
-
-      const pool = this.findPoolRecord(vm.pool);
-      return this.findPreferredHostForPool(pool);
-    },
-    findHostByStorage(sr) {
-      if (!sr) return null;
-
-      const hostPbdRefs = new Set(Array.isArray(sr.PBDs) ? sr.PBDs : []);
-      if (hostPbdRefs.size) {
-        const direct = this.hostLifecycleRows.find((host) =>
-          Array.isArray(host.PBDs) && host.PBDs.some((ref) => hostPbdRefs.has(ref))
-        );
-        if (direct) return direct;
-      }
-
-      const defaultSrPool = this.relatedPools.find((pool) => pool.default_SR === sr.ref);
-      return this.findPreferredHostForPool(defaultSrPool);
-    },
-    findHostByNetwork(network) {
-      if (!network) return null;
-
-      const pifRefs = new Set(Array.isArray(network.PIFs) ? network.PIFs : []);
-      if (pifRefs.size) {
-        const direct = this.hostLifecycleRows.find((host) =>
-          Array.isArray(host.PIFs) && host.PIFs.some((ref) => pifRefs.has(ref))
-        );
-        if (direct) return direct;
-      }
-
-      const migrationPool = this.relatedPools.find((pool) => pool.migration_network === network.ref);
-      return this.findPreferredHostForPool(migrationPool);
-    },
-    taskEvidenceChecklist(task) {
-      return Array.isArray(task?.evidence_checklist) ? task.evidence_checklist : [];
-    },
-    taskCompletionCriteria(task) {
-      return Array.isArray(task?.completion_criteria) ? task.completion_criteria : [];
-    },
+    formatStageLabel: formatLifecycleStageLabel,
+    formatBaselineLabel: formatLifecycleBaselineLabel,
+    formatActionLabel: formatLifecycleActionLabel,
+    plannerStatus: plannerStatusForLifecycleRow,
+    isLifecycleTask: isLifecycleTaskRecord,
+    isLifecycleAutomationTask: isLifecycleAutomationTaskRecord,
+    isRemediationTask: isRemediationLifecycleTask,
+    isLifecycleAlert: isLifecycleAlertRecord,
+    hostMatchesTask: hostMatchesLifecycleTask,
+    hostMatchesMessage: hostMatchesLifecycleMessage,
+    taskEvidenceChecklist: taskEvidenceChecklistForLifecycle,
+    taskCompletionCriteria: taskCompletionCriteriaForLifecycle,
     handleLifecycleSelectionChange(keys) {
       this.selectedLifecycleRefs = Array.isArray(keys) ? keys : [];
       this.bulkError = null;
@@ -636,98 +461,32 @@ const LifecycleView = {
       this.bulkError = null;
     },
     buildBulkLifecycleMaintenancePayload(host) {
-      const hostPool = resolveHostPool(host, this.relatedPools);
-      const hostNetworkRecords = buildSelectedHostNetworkRecords(host, this.relatedNetworks, hostPool);
-      const maintenanceNetworkOptions = buildHostMaintenanceNetworkOptions(hostPool, hostNetworkRecords, this.relatedNetworks);
-      const draft = buildHostMaintenanceActionDraft(hostPool, maintenanceNetworkOptions);
-      return {
-        ...draft,
-        evacuateRunningVms: host.lifecyclePlan?.evacuationRequired !== false,
-      };
+      return buildBulkLifecycleMaintenancePayload(host, this.relatedPools, this.relatedNetworks);
     },
     async resolveLifecyclePlanDeleteApproval(target) {
-      return resolveGovernanceApproval({
-        actionKey: 'lifecycle_plan_delete',
-        entityType: 'host',
-        entityRef: target.ref,
-        entityName: target.name_label || target.hostname || target.address || 'Host lifecycle plan',
-        route: '/lifecycle',
-      });
+      return resolveGovernanceApproval(buildLifecyclePlanDeleteApprovalDraft(target));
     },
     relatedAutomationTasks(host) {
-      return this.lifecycleAutomationTasks.filter((task) => this.hostMatchesTask(host, task)).slice(0, 4);
-    },
-    findTaskByFocus(focus) {
-      return this.tasks.find((task) =>
-        recordMatchesRouteFocus(task, focus, ['ref', 'uuid', 'name_label'])
-      ) || null;
-    },
-    findHostByTask(task) {
-      if (!task) return null;
-
-      const relatedObject = String(task.related_object || task.resident_on || '').trim();
-      const relatedObjectLower = relatedObject.toLowerCase();
-      const relatedClass = String(task.related_class || '').trim().toLowerCase();
-      const directMatch = this.hostLifecycleRows.find((host) =>
-        [host.ref, host.uuid, host.name_label, host.hostname, host.address]
-          .filter(Boolean)
-          .map((value) => String(value).trim().toLowerCase())
-          .includes(relatedObjectLower)
-      );
-
-      if (directMatch) return directMatch;
-
-      if (relatedObject) {
-        if (!relatedClass || ['vm', 'vbd', 'vif'].includes(relatedClass)) {
-          const vm = this.findVmRecord(relatedObject);
-          const vmHost = this.findHostByVm(vm);
-          if (vmHost) return vmHost;
-        }
-
-        if (!relatedClass || ['sr', 'vdi'].includes(relatedClass)) {
-          const sr = this.findStorageRecord(relatedObject);
-          const storageHost = this.findHostByStorage(sr);
-          if (storageHost) return storageHost;
-        }
-
-        if (!relatedClass || relatedClass === 'pool') {
-          const pool = this.findPoolRecord(relatedObject);
-          const poolHost = this.findPreferredHostForPool(pool);
-          if (poolHost) return poolHost;
-        }
-
-        if (!relatedClass || ['network', 'pif', 'vif'].includes(relatedClass)) {
-          const network = this.findNetworkRecord(relatedObject);
-          const networkHost = this.findHostByNetwork(network);
-          if (networkHost) return networkHost;
-        }
-      }
-
-      return this.hostLifecycleRows.find((host) => this.hostMatchesTask(host, task)) || null;
+      return this.lifecycleAutomationTasks.filter((task) => hostMatchesLifecycleTask(host, task)).slice(0, 4);
     },
     async syncRouteFocus() {
-      const focus = getRouteFocus(this.$route.query);
-      const seedAction = String(this.$route.query.seedAction || '').trim().toLowerCase();
-
-      if (!focus || (focus.kind && focus.kind !== 'task')) {
-        this.lastAppliedFocusKey = '';
-        return;
-      }
-
-      if (this.loading || !this.tasks.length || !this.hosts.length) return;
-
-      const key = `${getRouteFocusKey(focus)}|${seedAction}`;
-      if (this.lastAppliedFocusKey === key) return;
-
-      const task = this.findTaskByFocus(focus);
-      if (!task) return;
-
-      if (['lifecycle-plan', 'lifecycle-maintenance'].includes(seedAction) && task.lifecycle_plan_seed?.enabled) {
-        const host = this.findHostByTask(task);
-        if (!host) return;
-        this.openPlanner(host, task.lifecycle_plan_seed, task, seedAction === 'lifecycle-maintenance' ? 'maintenance' : 'plan');
-        this.lastAppliedFocusKey = key;
-      }
+      const nextState = await syncLifecycleRouteFocusWorkflow({
+        routeQuery: this.$route.query,
+        loading: this.loading,
+        tasks: this.tasks,
+        hosts: this.hosts,
+        lastAppliedFocusKey: this.lastAppliedFocusKey,
+        findTaskByFocus: (focus) => findLifecycleTaskByFocus(this.tasks, focus),
+        resolveHostByTask: (task) => findLifecycleHostByTask(task, {
+          hostLifecycleRows: this.hostLifecycleRows,
+          relatedPools: this.relatedPools,
+          relatedVMs: this.relatedVMs,
+          relatedStorage: this.relatedStorage,
+          relatedNetworks: this.relatedNetworks,
+        }),
+        openPlanner: (row, seed, sourceTask, launchMode) => this.openPlanner(row, seed, sourceTask, launchMode),
+      });
+      Object.assign(this, nextState);
     },
     openAutomationTask(task) {
       if (!task?.ref) return;
@@ -741,85 +500,33 @@ const LifecycleView = {
         source: 'lifecycle',
       }));
     },
-    hostMatchesMessage(host, message) {
-      const haystack = `${message?.name || ''} ${message?.body || ''} ${message?.obj_uuid || ''}`.toLowerCase();
-      return haystack.includes((host.uuid || '').toLowerCase())
-        || haystack.includes((host.name_label || '').toLowerCase())
-        || haystack.includes((host.hostname || '').toLowerCase());
-    },
     buildReadinessChecklist(row) {
-      const plan = row.lifecyclePlan;
-      return [
-        {
-          label: 'Planner coverage',
-          detail: plan ? `Lifecycle plan updated ${formatDateTime(plan.updatedAt)}.` : 'No saved lifecycle plan exists for this host yet.',
-          status: plan ? 'success' : 'warning',
-        },
-        {
-          label: 'Evacuation readiness',
-          detail: plan?.evacuationRequired
-            ? 'Workloads must be drained or migrated before maintenance begins.'
-            : 'No evacuation requirement has been marked for this host.',
-          status: plan?.evacuationRequired ? 'pending' : 'info',
-        },
-        {
-          label: 'Reboot coordination',
-          detail: plan?.rebootRequired
-            ? 'A reboot is part of this lifecycle plan and should be coordinated with the maintenance window.'
-            : 'No reboot is currently required in the saved plan.',
-          status: plan?.rebootRequired ? 'warning' : 'success',
-        },
-        {
-          label: 'Alert posture',
-          detail: row.lastAlertLabel,
-          status: row.relatedMessages.length ? getMessageSeverity(row.relatedMessages[0]) : 'success',
-        },
-      ];
+      return buildLifecycleReadinessChecklist(row);
     },
     openInspector(row) {
-      this.selectedHostRef = row.ref;
-      this.showInspector = true;
+      Object.assign(this, buildLifecycleInspectorOpenState(row));
     },
     closeInspector() {
-      this.showInspector = false;
-      this.selectedHostRef = null;
+      Object.assign(this, buildLifecycleInspectorClosedState());
     },
     openPlanner(row, seed = null, sourceTask = null, launchMode = 'plan') {
       if (!row) return;
-      this.plannerHostRef = row.ref;
-      this.plannerSeed = seed ? { ...seed } : null;
-      this.plannerLaunchMode = launchMode === 'maintenance' ? 'maintenance' : 'plan';
-      this.plannerSourceTask = sourceTask || null;
-      this.planError = null;
-      this.plannerActionError = null;
-      this.showPlanner = true;
+      Object.assign(this, buildLifecyclePlannerOpenState(row, seed, sourceTask, launchMode));
     },
     closePlanner() {
-      this.showPlanner = false;
-      this.plannerHostRef = null;
-      this.plannerSeed = null;
-      this.plannerLaunchMode = 'plan';
-      this.plannerSourceTask = null;
-      this.planError = null;
-      this.plannerActionBusy = '';
-      this.plannerActionError = null;
+      Object.assign(this, buildLifecyclePlannerClosedState());
     },
     async syncPlannerSourceTaskStatus(status, result) {
-      if (!this.plannerSourceTask?.ref || !this.isRemediationTask(this.plannerSourceTask)) return;
-
-      const currentStatus = String(this.plannerSourceTask.status || '').trim().toLowerCase();
-      if (['success', 'warning', 'failure', 'cancelled'].includes(currentStatus)) return;
-
-      const updatedTask = await api.updateRemediationTask(this.plannerSourceTask.ref, {
+      const nextState = await syncLifecyclePlannerSourceTaskWorkflow({
+        api,
+        plannerSourceTask: this.plannerSourceTask,
+        tasks: this.tasks,
         status,
-        assignee: this.plannerSourceTask.assignee || store.username || '',
-        dueDate: this.plannerSourceTask.due_date || this.plannerSourceTask.dueDate || '',
         result,
-        nameDescription: this.plannerSourceTask.name_description || this.plannerSourceTask.nameDescription || '',
+        username: store.username || '',
       });
-
-      this.tasks = this.tasks.map((task) => task.ref === updatedTask.ref ? updatedTask : task);
-      this.plannerSourceTask = updatedTask;
+      this.tasks = nextState.tasks;
+      this.plannerSourceTask = nextState.plannerSourceTask;
     },
     async savePlan(payload) {
       if (!this.plannerHost) return;
@@ -1002,25 +709,7 @@ const LifecycleView = {
     async loadLifecycle() {
       this.loading = true;
       try {
-        const [hostsResult, tasksResult, messagesResult, plansResult, poolsResult, vmsResult, storageResult, networksResult] = await Promise.all([
-          api.getHosts(),
-          api.getTasks(),
-          api.dashboardMessages(),
-          api.getLifecyclePlans().catch(() => ({ data: [] })),
-          api.getPools().catch(() => ({ data: [] })),
-          api.getVMs().catch(() => ({ data: [] })),
-          api.getSRs().catch(() => ({ data: [] })),
-          api.getNetworks().catch(() => ({ data: [] })),
-        ]);
-
-        this.hosts = hostsResult.data || [];
-        this.tasks = tasksResult.data || [];
-        this.messages = messagesResult || [];
-        this.lifecyclePlans = plansResult.data || [];
-        this.relatedPools = poolsResult.data || [];
-        this.relatedVMs = vmsResult.data || [];
-        this.relatedStorage = storageResult.data || [];
-        this.relatedNetworks = networksResult.data || [];
+        Object.assign(this, await loadLifecycleContext(api));
       } catch (error) {
         console.error(error);
         this.hosts = [];

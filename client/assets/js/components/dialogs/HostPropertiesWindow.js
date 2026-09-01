@@ -91,6 +91,7 @@ const HostPropertiesWindow = {
     'enter-maintenance',
     'exit-maintenance',
     'power-action',
+    'toggle-multipathing',
   ],
   template: `
     <floating-window :show="show" title="Host Properties" :width="860" :height="640" @close="$emit('close')">
@@ -239,6 +240,31 @@ const HostPropertiesWindow = {
                 </button>
               </div>
             </div>
+
+            <div class="dash-card">
+              <div class="dash-card-label">Storage Multipathing</div>
+              <div class="stack-list">
+                <div class="stack-item">
+                  <div>
+                    <strong>Path Redundancy</strong>
+                    <div class="text-muted mono" style="font-size:11px">
+                      Toggling this unplugs then replugs every storage path (PBD) on this host, mirroring the XenCenter Storage tab workflow.
+                    </div>
+                  </div>
+                  <span class="badge" :class="isMultipathingEnabled ? 'badge-success' : 'badge-warning'">
+                    {{ isMultipathingEnabled ? 'enabled' : 'disabled' }}
+                  </span>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+                <button class="btn btn-sm"
+                        :disabled="Boolean(hostActionBusy)"
+                        @click="$emit('toggle-multipathing', !isMultipathingEnabled)">
+                  <span class="mdi mdi-swap-horizontal"></span>
+                  {{ multipathingButtonLabel }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -325,6 +351,16 @@ const HostPropertiesWindow = {
       </div>
     </floating-window>
   `,
+  computed: {
+    isMultipathingEnabled() {
+      return this.selectedHost?.other_config?.multipathing === 'true';
+    },
+    multipathingButtonLabel() {
+      if (this.hostActionBusy === 'multipath-enable') return 'Enabling...';
+      if (this.hostActionBusy === 'multipath-disable') return 'Disabling...';
+      return this.isMultipathingEnabled ? 'Disable Multipathing' : 'Enable Multipathing';
+    },
+  },
   methods: {
     formatBytes,
     formatPercent,
