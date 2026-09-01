@@ -3,6 +3,13 @@ function handleDemoInfraRoutes(method, path, body, scope) {
     return { total: scope.pools.length, data: clone(scope.pools) };
   }
 
+  if (method === 'GET' && path.startsWith('/api/pools/') && path.split('/').length === 4) {
+    const poolRef = decodeURIComponent(path.split('/')[3] || '');
+    const pool = scope.pools.find((entry) => entry.ref === poolRef);
+    if (!pool) throw new Error('POOL_NOT_FOUND');
+    return clone(pool);
+  }
+
   if (method === 'GET' && path.startsWith('/api/pools/') && path.endsWith('/updates')) {
     const poolRef = decodeURIComponent(path.split('/')[3] || '');
     const poolHostRefs = demoDb.hosts.filter((host) => host.pool === poolRef).map((host) => host.ref);

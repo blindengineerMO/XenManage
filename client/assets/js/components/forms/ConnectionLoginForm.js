@@ -17,45 +17,49 @@ const ConnectionLoginForm = {
   ],
   template: `
     <form @submit.prevent="$emit('submit')">
-      <div class="form-group">
-        <label for="connection-name">Profile Name</label>
-        <input id="connection-name"
-               class="form-input"
-               :value="connectionName"
-               @input="$emit('update:connectionName', $event.target.value)"
-               placeholder="Production Pool"
-               autocomplete="organization">
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="connection-name">Profile Name</label>
+          <input id="connection-name"
+                 class="form-input"
+                 :value="connectionName"
+                 @input="$emit('update:connectionName', $event.target.value)"
+                 placeholder="Production Pool"
+                 autocomplete="organization">
+        </div>
+        <div class="form-group">
+          <label for="connection-host">Host Address</label>
+          <input id="connection-host"
+                 class="form-input"
+                 :value="host"
+                 @input="$emit('update:host', $event.target.value)"
+                 placeholder="xenserver.local"
+                 autocomplete="url"
+                 required>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="connection-host">Host Address</label>
-        <input id="connection-host"
-               class="form-input"
-               :value="host"
-               @input="$emit('update:host', $event.target.value)"
-               placeholder="xenserver.local"
-               autocomplete="url"
-               required>
-      </div>
-      <div class="form-group">
-        <label for="connection-username">Username</label>
-        <input id="connection-username"
-               class="form-input"
-               :value="username"
-               @input="$emit('update:username', $event.target.value)"
-               placeholder="root"
-               autocomplete="username"
-               required>
-      </div>
-      <div class="form-group">
-        <label for="connection-password">Password</label>
-        <input id="connection-password"
-               class="form-input"
-               type="password"
-               :value="password"
-               @input="$emit('update:password', $event.target.value)"
-               placeholder="Password"
-               autocomplete="current-password"
-               required>
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="connection-username">Username</label>
+          <input id="connection-username"
+                 class="form-input"
+                 :value="username"
+                 @input="$emit('update:username', $event.target.value)"
+                 placeholder="root"
+                 autocomplete="username"
+                 required>
+        </div>
+        <div class="form-group">
+          <label for="connection-password">Password</label>
+          <input id="connection-password"
+                 class="form-input"
+                 type="password"
+                 :value="password"
+                 @input="$emit('update:password', $event.target.value)"
+                 placeholder="Password"
+                 autocomplete="current-password"
+                 required>
+        </div>
       </div>
 
       <div class="form-actions">

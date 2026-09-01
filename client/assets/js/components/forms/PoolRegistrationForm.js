@@ -3,40 +3,46 @@ const PoolRegistrationForm = {
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
-      <div class="form-group">
-        <label for="pool-name">Profile Name</label>
-        <input id="pool-name" class="form-input" v-model="draft.name" placeholder="Production Pool" required>
-      </div>
-      <div class="form-group">
-        <label for="pool-host">Pool Address</label>
-        <input id="pool-host" class="form-input" v-model="draft.host" placeholder="pool.example.local" required>
-      </div>
-      <div class="form-group">
-        <label for="pool-username">Username</label>
-        <input id="pool-username" class="form-input" v-model="draft.username" placeholder="root" required>
-      </div>
-      <div class="form-group">
-        <label for="pool-vault-credential">Saved Vault Credential</label>
-        <select id="pool-vault-credential" class="form-input" v-model.number="draft.vaultCredentialId">
-          <option :value="null">Use manual password at connect time</option>
-          <option v-for="credential in filteredCredentialOptions" :key="credential.id" :value="credential.id">
-            {{ credential.name }} · {{ credential.username }} · {{ credential.scope }}
-          </option>
-        </select>
-        <div class="login-meta-note" v-if="selectedCredential">
-          This pool target is linked to the saved vault credential for <span class="mono">{{ selectedCredential.username }}</span>.
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="pool-name">Profile Name</label>
+          <input id="pool-name" class="form-input" v-model="draft.name" placeholder="Production Pool" required>
+        </div>
+        <div class="form-group">
+          <label for="pool-host">Pool Address</label>
+          <input id="pool-host" class="form-input" v-model="draft.host" placeholder="pool.example.local" required>
         </div>
       </div>
-      <div class="form-group">
-        <label for="pool-port">Port</label>
-        <input id="pool-port" class="form-input" v-model.number="draft.port" type="number" min="1" max="65535" required>
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="pool-username">Username</label>
+          <input id="pool-username" class="form-input" v-model="draft.username" placeholder="root" required>
+        </div>
+        <div class="form-group">
+          <label for="pool-vault-credential">Saved Vault Credential</label>
+          <select id="pool-vault-credential" class="form-input" v-model.number="draft.vaultCredentialId">
+            <option :value="null">Use manual password at connect time</option>
+            <option v-for="credential in filteredCredentialOptions" :key="credential.id" :value="credential.id">
+              {{ credential.name }} · {{ credential.username }} · {{ credential.scope }}
+            </option>
+          </select>
+          <div class="login-meta-note" v-if="selectedCredential">
+            This pool target is linked to the saved vault credential for <span class="mono">{{ selectedCredential.username }}</span>.
+          </div>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="pool-visibility">Visibility</label>
-        <select id="pool-visibility" class="form-input" v-model="draft.visibility">
-          <option value="private">Private to my control-plane account</option>
-          <option value="shared">Shared with other operators</option>
-        </select>
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="pool-port">Port</label>
+          <input id="pool-port" class="form-input" v-model.number="draft.port" type="number" min="1" max="65535" required>
+        </div>
+        <div class="form-group">
+          <label for="pool-visibility">Visibility</label>
+          <select id="pool-visibility" class="form-input" v-model="draft.visibility">
+            <option value="private">Private to my control-plane account</option>
+            <option value="shared">Shared with other operators</option>
+          </select>
+        </div>
       </div>
       <label class="form-toggle">
         <input type="checkbox" v-model="draft.isDefault">
