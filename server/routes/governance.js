@@ -3,6 +3,7 @@ const { validate, schemas } = require('../middleware/validate');
 const governanceService = require('../services/governance');
 const auditLogService = require('../services/audit-log');
 const { userModel } = require('../models/security-db');
+const identityService = require('../services/identity');
 
 const router = express.Router();
 
@@ -248,6 +249,61 @@ router.delete('/quotas/:ref', requireAdminSession, validate(schemas.opaqueRefPar
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+router.get('/permissions/:id', requireAdminSession, validate(schemas.userIdParam, 'params'), (req, res) => {
+  const user = userModel.getById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+  res.json({ user, grants: identityService.permissionGrantModel.listForUser(user.id), roleTemplate: identityService.ROLE_TEMPLATES[user.role] || [] });
+});
+
+router.put('/permissions/:id', requireAdminSession, validate(schemas.userIdParam, 'params'), validate(schemas.permissionGrantCreate), (req, res) => {
+  const user = userModel.getById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+  const grant = identityService.permissionGrantModel.upsert({
+    userId: user.id,
+    permission: req.body.permission,
+    scopeType: req.body.scopeType,
+    scopeRef: req.body.scopeRef,
+    effect: req.body.effect,
+    createdBy: req.session.userId,
+  });
+  auditLogService.record({
+    category: 'governance', action: 'permission_grant_saved', actionLabel: 'Saved permission grant for',
+    entityType: 'user', entityRef: String(user.id), entityName: user.username, operator: currentOperator(req),
+    route: '/governance', status: 'success', before: null, after: grant,
+    detail: `${grant.effect} ${grant.permission} at ${grant.scope_type}:${grant.scope_ref}.`,
+  });
+  res.json(grant);
+});
+
+router.delete('/permissions/grants/:id', requireAdminSession, validate(schemas.permissionGrantId, 'params'), (req, res) => {
+  if (!identityService.permissionGrantModel.remove(req.params.id)) return res.status(404).json({ error: 'PERMISSION_GRANT_NOT_FOUND' });
+  res.json({ success: true });
+});
+
+router.get('/api-tokens/:id', requireAdminSession, validate(schemas.userIdParam, 'params'), (req, res) => {
+  const user = userModel.getById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+  res.json({ data: identityService.apiTokenModel.listForUser(user.id) });
+});
+
+router.post('/api-tokens/:id', requireAdminSession, validate(schemas.userIdParam, 'params'), validate(schemas.apiTokenCreate), (req, res) => {
+  const user = userModel.getById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+  const token = identityService.createApiToken({ userId: user.id, ...req.body });
+  auditLogService.record({
+    category: 'governance', action: 'api_token_created', actionLabel: 'Created API token for',
+    entityType: 'user', entityRef: String(user.id), entityName: user.username, operator: currentOperator(req),
+    route: '/governance', status: 'success', before: null, after: { id: token.id, name: token.name, permissions: token.permissions },
+    detail: `Created a scoped API token named ${token.name}.`,
+  });
+  res.status(201).json(token);
+});
+
+router.delete('/api-tokens/:id', requireAdminSession, validate(schemas.workflowId, 'params'), (req, res) => {
+  if (!identityService.apiTokenModel.revoke(req.params.id)) return res.status(404).json({ error: 'API_TOKEN_NOT_FOUND' });
+  res.json({ success: true });
 });
 
 router.post('/approvals', validate(schemas.governanceApprovalRequest), (req, res) => {

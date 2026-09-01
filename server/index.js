@@ -31,8 +31,14 @@ const hostTargetRoutes = require('./routes/host-targets');
 const workspaceRoutes = require('./routes/workspaces');
 const templateLibraryRoutes = require('./routes/template-library');
 const vFabricRoutes = require('./routes/vfabrics');
+const managedTargetRoutes = require('./routes/managed-targets');
+const workflowRoutes = require('./routes/workflows');
+const publicApiRoutes = require('./routes/public-api');
+const projectRoutes = require('./routes/projects');
 const governanceService = require('./services/governance');
 const metricsCollector = require('./services/metrics-collector');
+const managedTargetService = require('./services/managed-targets');
+const workflowEngine = require('./services/workflow-engine');
 const systemConfigService = require('./services/system-config');
 const retentionService = require('./services/retention');
 
@@ -97,6 +103,10 @@ app.use('/api/host-targets', requireAuth, hostTargetRoutes);
 app.use('/api/workspaces', requireAuth, workspaceRoutes);
 app.use('/api/template-library', requireAuth, templateLibraryRoutes);
 app.use('/api/vfabrics', requireAuth, vFabricRoutes);
+app.use('/api/managed-targets', requireAuth, managedTargetRoutes);
+app.use('/api/workflows', requireAuth, workflowRoutes);
+app.use('/api/projects', requireAuth, projectRoutes);
+app.use('/api/v1', publicApiRoutes);
 
 // Vue SPA - serve index.html for all non-API routes
 app.get('/{*splat}', (req, res) => {
@@ -145,6 +155,8 @@ app.use((req, res) => {
 // Start server only when run directly
 if (require.main === module) {
   retentionService.startScheduler();
+  managedTargetService.start();
+  workflowEngine.start();
   metricsCollector.start();
   const server = app.listen(config.port, () => {
     console.log(`XenMange server running on port ${config.port} [${config.env}]`);
@@ -153,6 +165,8 @@ if (require.main === module) {
   process.on('SIGTERM', () => {
     console.log('SIGTERM received, shutting down...');
     retentionService.stopScheduler();
+    managedTargetService.stop();
+    workflowEngine.stop();
     metricsCollector.stop();
     server.close(() => process.exit(0));
   });

@@ -7,6 +7,9 @@ const templateDeploymentRunService = require('../services/template-deployment-ru
 const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const { enforceVFabricQuotas } = require('../services/vfabric-quota');
+const { enforceProjectQuota } = require('../services/projects');
+const { projectModel } = require('../models/connection');
+const { resolveActor } = require('../services/resource-ownership');
 const { ensureMutationAllowed } = require('../middleware/governance');
 const { planCompose, executeCompose } = require('../services/deployment-engine');
 const { buildBundledOsProfiles } = require('../services/os-profiles');
@@ -212,7 +215,24 @@ router.post('/', validate(schemas.vmCreate), async (req, res) => {
     const nameLabel = String(req.body?.nameLabel || '').trim();
     if (!nameLabel) return res.status(400).json({ error: 'nameLabel is required' });
     if (!ensureMutationAllowed(req, res, { actionKey: 'vm_create', entityType: 'vm', entityRef: 'new' })) return;
+    if (req.body.projectId) {
+      await enforceProjectQuota({
+        projectId: req.body.projectId,
+        actor: resolveActor(req),
+        xenApi: req.xenApi,
+        targetKey: req.xenTarget?.targetKey || '',
+        requestedVm: req.body,
+      });
+    }
     const vm = await req.xenApi.provisionVM({ ...req.body, nameLabel });
+    if (req.body.projectId) {
+      projectModel.assignResource({
+        projectId: req.body.projectId,
+        managedTargetId: require('../services/managed-targets').parseManagedTargetKey(req.xenTarget?.targetKey),
+        resourceType: 'vm',
+        resourceRef: vm.ref,
+      });
+    }
     auditLogService.record({ category: 'vms', action: 'vm_created', actionLabel: 'Created VM', entityType: 'vm', entityRef: vm.ref, entityName: vm.name_label || nameLabel, operator: req.session?.appUsername || req.session?.xenUser || 'system', route: '/vms', status: 'success', after: vm });
     res.status(201).json(vm);
   } catch (err) {
@@ -517,10 +537,30 @@ router.post('/compose/deploy', validate(schemas.composeDeploy), async (req, res)
     if (!ensureMutationAllowed(req, res, { actionKey: 'compose_deploy', entityType: 'compose', entityRef: req.body.name })) return;
     const { run, failed } = await executeCompose(req.xenApi, req.body, {
       submittedBy: req.session?.xenUser || '',
-      beforeDeploy: (plan) => enforceVFabricQuotas(req, {
-        startAfter: plan.startAfter,
-        memoryStaticMax: plan.memoryStaticMax,
-      }),
+      beforeDeploy: async (plan) => {
+        await enforceVFabricQuotas(req, {
+          startAfter: plan.startAfter,
+          memoryStaticMax: plan.memoryStaticMax,
+        });
+        if (req.body.projectId) {
+          await enforceProjectQuota({
+            projectId: req.body.projectId,
+            actor: resolveActor(req),
+            xenApi: req.xenApi,
+            targetKey: req.xenTarget?.targetKey || '',
+            requestedVm: plan,
+          });
+        }
+      },
+      afterDeploy: async (plan, vm) => {
+        if (!req.body.projectId) return;
+        projectModel.assignResource({
+          projectId: req.body.projectId,
+          managedTargetId: require('../services/managed-targets').parseManagedTargetKey(req.xenTarget?.targetKey),
+          resourceType: 'vm',
+          resourceRef: vm.ref,
+        });
+      },
     });
     auditLogService.record({
       category: 'templates',

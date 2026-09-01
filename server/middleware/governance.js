@@ -1,4 +1,5 @@
 const governanceService = require('../services/governance');
+const identityService = require('../services/identity');
 
 function getGovernanceSnapshot(session = {}) {
   const policy = governanceService.getPolicy();
@@ -19,7 +20,7 @@ function deny(res, error, message, extra = {}) {
 }
 
 function ensureMutationAllowed(req, res, options = {}) {
-  if (!req.session?.authenticated) {
+  if (!req.session?.authenticated && !req.principal) {
     req.governance = getGovernanceSnapshot(req.session);
     return true;
   }
@@ -33,6 +34,28 @@ function ensureMutationAllowed(req, res, options = {}) {
       'READ_ONLY_MODE',
       'The current governance role is read-only. Switch to operator or admin mode before making changes.',
       { requiredRole: 'operator' }
+    );
+    return false;
+  }
+
+  const permission = options.permission || identityService.actionPermission(options.actionKey || 'resource.update');
+  const entityRef = options.entityRef || req.body?.ref || req.params?.ref || '';
+  const hasPermission = identityService.hasPermission({
+    session: req.session,
+    principal: req.principal,
+  }, permission, {
+    global: '*',
+    target: req.xenTarget?.connectionId || '',
+    pool: req.xenTarget?.connectionId || '',
+    resource: entityRef,
+    [options.entityType || 'resource']: entityRef,
+  });
+  if (!hasPermission) {
+    deny(
+      res,
+      'PERMISSION_DENIED',
+      `The current principal does not have ${permission} permission for this resource scope.`,
+      { permission, entityType: options.entityType || 'resource', entityRef }
     );
     return false;
   }
@@ -53,7 +76,7 @@ function ensureMutationAllowed(req, res, options = {}) {
       id: approvalId,
       actionKey: options.actionKey || '',
       entityType: options.entityType || 'resource',
-      entityRef: options.entityRef || req.body?.ref || req.params?.ref || '',
+      entityRef,
       usedBy: req.session?.xenUser || 'system',
     });
 

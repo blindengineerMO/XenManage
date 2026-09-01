@@ -120,6 +120,12 @@ const schemas = {
   connectionId: Joi.object({
     id: Joi.number().integer().min(1).required(),
   }),
+  managedTargetId: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+  }),
+  workflowId: Joi.object({
+    id: Joi.string().guid({ version: ['uuidv4'] }).required(),
+  }),
   inventoryWorkspaceIdParam: Joi.object({
     id: Joi.string().trim().required().min(1).max(160),
   }),
@@ -161,6 +167,77 @@ const schemas = {
     visibility: Joi.string().valid('private', 'shared').default('private'),
     isDefault: Joi.boolean().default(false),
   }),
+  managedTargetCreate: Joi.object({
+    connectionId: Joi.number().integer().min(1).required(),
+    enabled: Joi.boolean().default(true),
+  }),
+  managedTargetUpdate: Joi.object({
+    enabled: Joi.boolean().required(),
+  }),
+  workflowCreate: Joi.object({
+    type: Joi.string().valid('managed-target.check').required(),
+    targetId: Joi.number().integer().min(1).required(),
+    input: Joi.object().default({}),
+    idempotencyKey: Joi.string().trim().allow('').max(180).default(''),
+    maxAttempts: Joi.number().integer().min(1).max(10).default(3),
+    scheduledFor: Joi.string().isoDate().allow('').default(''),
+    lockKey: Joi.string().trim().allow('').max(180).default(''),
+    runNow: Joi.boolean().default(true),
+  }),
+  workflowApproval: Joi.object({
+    approvalId: Joi.string().trim().allow('').max(120).default(''),
+  }),
+  permissionGrantCreate: Joi.object({
+    permission: Joi.string().trim().required().pattern(/^[a-z*][a-z0-9.*-]*$/),
+    scopeType: Joi.string().valid('global', 'organization', 'project', 'target', 'pool', 'resource', 'tag').default('global'),
+    scopeRef: Joi.string().trim().required().max(255).default('*'),
+    effect: Joi.string().valid('allow', 'deny').default('allow'),
+  }),
+  permissionGrantId: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+  }),
+  apiTokenCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    permissions: Joi.array().items(Joi.string().trim().pattern(/^[a-z*][a-z0-9.*-]*$/)).max(100).default([]),
+    expiresAt: Joi.string().isoDate().allow('').default(''),
+  }),
+  organizationCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    description: Joi.string().allow('').max(500).default(''),
+  }),
+  projectId: Joi.object({ id: Joi.number().integer().min(1).required() }),
+  projectMemberParams: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+    userId: Joi.number().integer().min(1).required(),
+  }),
+  projectCreate: Joi.object({
+    organizationId: Joi.number().integer().min(1).required(),
+    name: Joi.string().trim().required().min(1).max(120),
+    description: Joi.string().allow('').max(500).default(''),
+    costCenter: Joi.string().allow('').max(120).default(''),
+    defaultRecoveryTier: Joi.string().allow('').max(120).default(''),
+    ownerUserId: Joi.number().integer().min(1).allow(null).default(null),
+    targetIds: Joi.array().items(Joi.number().integer().min(1)).max(100).default([]),
+  }),
+  projectUpdate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    description: Joi.string().allow('').max(500).default(''),
+    costCenter: Joi.string().allow('').max(120).default(''),
+    defaultRecoveryTier: Joi.string().allow('').max(120).default(''),
+    ownerUserId: Joi.number().integer().min(1).allow(null).default(null),
+    enabled: Joi.boolean().default(true),
+    targetIds: Joi.array().items(Joi.number().integer().min(1)).max(100).default([]),
+  }),
+  projectQuotaUpdate: Joi.object({
+    enabled: Joi.boolean().default(true),
+    maxVmCount: Joi.number().integer().min(0).default(0),
+    maxVcpus: Joi.number().integer().min(0).default(0),
+    maxMemoryGiB: Joi.number().min(0).default(0),
+    maxStorageGiB: Joi.number().min(0).default(0),
+    maxGpuCount: Joi.number().integer().min(0).default(0),
+    maxNetworkCount: Joi.number().integer().min(0).default(0),
+  }),
+  projectMemberUpdate: Joi.object({ role: Joi.string().valid('owner', 'member', 'viewer').default('member') }),
   credentialCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     scope: Joi.string().valid('private', 'shared').default('private'),
@@ -520,6 +597,7 @@ const schemas = {
       mac: Joi.string().allow('').max(64).default(''),
     })).max(16).default([]),
     tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    projectId: Joi.number().integer().min(1).allow(null).default(null),
     startAfter: Joi.boolean().default(false),
   }).custom((value, helpers) => {
     if (value.creationMode === 'operating-system' && !value.diskPlan.some((disk) => disk.bootable)) return helpers.error('any.custom', { message: 'An operating-system installation requires a bootable root disk.' });
@@ -644,6 +722,7 @@ const schemas = {
     networks: Joi.object().pattern(Joi.string(), Joi.object({ ref: Joi.string().trim().required().max(200) })).default({}),
     storageRepositories: Joi.object().pattern(Joi.string(), Joi.object({ ref: Joi.string().trim().required().max(200) })).default({}),
     targetKey: Joi.string().allow('', null).max(200).default(null),
+    projectId: Joi.number().integer().min(1).allow(null).default(null),
     startAfter: Joi.boolean().default(true),
     vms: Joi.object().pattern(
       Joi.string().min(1).max(64),

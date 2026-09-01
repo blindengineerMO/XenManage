@@ -250,7 +250,7 @@ async function planCompose(xenApi, spec) {
   return { order, plans, variables };
 }
 
-async function executeCompose(xenApi, spec, { submittedBy = '', beforeDeploy } = {}) {
+async function executeCompose(xenApi, spec, { submittedBy = '', beforeDeploy, afterDeploy } = {}) {
   const { plans } = await planCompose(xenApi, spec);
 
   let hosts = [];
@@ -329,6 +329,10 @@ async function executeCompose(xenApi, spec, { submittedBy = '', beforeDeploy } =
         networkInterfaces: plan.networkInterfaces,
         startAfter: plan.startAfter,
       });
+
+      if (typeof afterDeploy === 'function') {
+        await afterDeploy(plan, createdVm);
+      }
 
       step.status = 'success';
       step.detail = `Provisioned from "${plan.template}" as ${plan.nameLabel} (${createdVm.ref}).`;
