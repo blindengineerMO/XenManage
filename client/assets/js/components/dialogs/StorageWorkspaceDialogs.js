@@ -56,20 +56,35 @@ const StorageWorkspaceDialogs = {
       type: Boolean,
       default: false,
     },
+    showAttachCdWindow: {
+      type: Boolean,
+      default: false,
+    },
+    attachCdVdi: {
+      type: Object,
+      default: null,
+    },
+    attachCdVmRef: {
+      type: String,
+      default: '',
+    },
   },
   emits: [
     'close-sr-identity',
     'close-sr-actions',
     'close-sr-create-vdi',
     'close-sr-resize-vdi',
+    'close-attach-cd',
     'submit-sr-config',
     'apply-detail-storage-action',
     'update:local-cache-host-ref',
+    'update:attach-cd-vm-ref',
     'toggle-local-cache',
     'forget-sr',
     'destroy-sr',
     'submit-detached-vdi',
     'submit-resize-vdi',
+    'submit-attach-cd',
   ],
   template: `
     <div>
@@ -226,6 +241,34 @@ const StorageWorkspaceDialogs = {
             :submit-label="'Resize VDI'"
             @submit="$emit('submit-resize-vdi', $event)">
           </storage-vdi-resize-form>
+        </div>
+      </floating-window>
+
+      <floating-window :show="showAttachCdWindow"
+                       title="Attach ISO As CD"
+                       :width="520"
+                       :height="320"
+                       @close="$emit('close-attach-cd')">
+        <div class="detail-section" v-if="attachCdVdi">
+          <div class="detail-title">Attach {{ attachCdVdi.name_label || attachCdVdi.ref }}</div>
+          <p class="text-muted" style="margin-bottom:12px">Attach this ISO as a read-only CD device to a virtual machine.</p>
+          <div class="form-group">
+            <label>Target VM</label>
+            <select class="form-control"
+                    :value="attachCdVmRef"
+                    @change="$emit('update:attach-cd-vm-ref', $event.target.value)">
+              <option value="">Select a VM...</option>
+              <option v-for="vm in relatedVms" :key="vm.ref" :value="vm.ref">{{ vm.name_label || vm.ref }}</option>
+            </select>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-primary"
+                    :disabled="!attachCdVmRef || detailActionBusy === 'attach-cd'"
+                    @click="$emit('submit-attach-cd')">
+              <span class="mdi mdi-disc"></span>
+              {{ detailActionBusy === 'attach-cd' ? 'Attaching...' : 'Attach' }}
+            </button>
+          </div>
         </div>
       </floating-window>
     </div>

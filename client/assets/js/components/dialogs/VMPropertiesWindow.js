@@ -1,23 +1,23 @@
 const VMPropertiesWindow = {
   components: {
     FloatingWindow,
-    VMOverviewTab,
-    VMResourcesTab,
-    VMCompatibilityTab,
-    VMConsoleTab,
-    VMMigrationTab,
-    VMPortabilityTab,
-    VMDuplicateTab,
-    VMProtectionTab,
-    VMConfigTab,
-    VMAddDevicesTab,
+    'vm-overview-tab': VMOverviewTab,
+    'vm-resources-tab': VMResourcesTab,
+    'vm-compatibility-tab': VMCompatibilityTab,
+    'vm-console-tab': VMConsoleTab,
+    'vm-migration-tab': VMMigrationTab,
+    'vm-portability-tab': VMPortabilityTab,
+    'vm-duplicate-tab': VMDuplicateTab,
+    'vm-protection-tab': VMProtectionTab,
+    'vm-config-tab': VMConfigTab,
+    'vm-add-devices-tab': VMAddDevicesTab,
   },
   props: {
-    showProps: {
+    show: {
       type: Boolean,
       default: false,
     },
-    selectedVM: {
+    selectedVm: {
       type: Object,
       default: null,
     },
@@ -74,22 +74,22 @@ const VMPropertiesWindow = {
     'submit-nic-device',
   ],
   template: `
-    <floating-window :show="showProps"
+    <floating-window :show="show"
                      title="VM Details"
                      :width="980"
                      :height="700"
                      @close="$emit('close')">
-      <div v-if="selectedVM" class="vm-detail-shell">
+      <div v-if="selectedVm" class="vm-detail-shell">
         <div class="vm-detail-hero">
           <div>
             <div class="dash-card-label">Virtual Machine</div>
-            <h3>{{ selectedVM.name_label || 'Unnamed VM' }}</h3>
-            <p>{{ selectedVM.name_description || 'Inspect placement, attached resources, runtime state, and configuration from a single operator pane.' }}</p>
+            <h3>{{ selectedVm.name_label || 'Unnamed VM' }}</h3>
+            <p>{{ selectedVm.name_description || 'Inspect placement, attached resources, runtime state, and configuration from a single operator pane.' }}</p>
 
             <div class="vm-stat-chips">
-              <span class="badge badge-info">{{ selectedVM.power_state || 'Unknown' }}</span>
+              <span class="badge badge-info">{{ selectedVm.power_state || 'Unknown' }}</span>
               <span class="badge badge-info">{{ selectedVmComputeProfile.vcpuSummary }}</span>
-              <span class="badge badge-info">{{ formatBytes(selectedVM.memory_static_max) }}</span>
+              <span class="badge badge-info">{{ formatBytes(selectedVm.memory_static_max) }}</span>
               <span class="badge" :class="selectedVmHost ? 'badge-running' : 'badge-halted'">
                 {{ selectedVmHost ? (selectedVmHost.name_label || selectedVmHost.address || 'Placed') : 'No host placement' }}
               </span>
@@ -98,44 +98,44 @@ const VMPropertiesWindow = {
 
           <div class="vm-detail-actions">
             <button class="btn btn-primary btn-sm"
-                    v-if="selectedVM.power_state === 'Halted'"
+                    v-if="selectedVm.power_state === 'Halted'"
                     :disabled="Boolean(actionBusy)"
-                    @click="$emit('vm-action', { action: 'start', ref: selectedVM.ref })">
+                    @click="$emit('vm-action', { action: 'start', ref: selectedVm.ref })">
               <span class="mdi mdi-play"></span>
               {{ actionBusy === 'start' ? 'Starting...' : 'Start' }}
             </button>
             <button class="btn btn-sm"
-                    v-if="selectedVM.power_state === 'Running'"
+                    v-if="selectedVm.power_state === 'Running'"
                     :disabled="Boolean(actionBusy)"
-                    @click="$emit('vm-action', { action: 'shutdown', ref: selectedVM.ref })">
+                    @click="$emit('vm-action', { action: 'shutdown', ref: selectedVm.ref })">
               <span class="mdi mdi-stop"></span>
               {{ actionBusy === 'shutdown' ? 'Stopping...' : 'Shutdown' }}
             </button>
             <button class="btn btn-danger btn-sm"
-                    v-if="selectedVM.power_state === 'Running'"
+                    v-if="selectedVm.power_state === 'Running'"
                     :disabled="Boolean(actionBusy)"
-                    @click="$emit('vm-action', { action: 'shutdown', ref: selectedVM.ref, options: { force: true } })">
+                    @click="$emit('vm-action', { action: 'shutdown', ref: selectedVm.ref, options: { force: true } })">
               <span class="mdi mdi-power"></span>
               {{ actionBusy === 'shutdown-force' ? 'Forcing...' : 'Force Off' }}
             </button>
             <button class="btn btn-sm"
-                    v-if="selectedVM.power_state === 'Running'"
+                    v-if="selectedVm.power_state === 'Running'"
                     :disabled="Boolean(actionBusy)"
-                    @click="$emit('vm-action', { action: 'reboot', ref: selectedVM.ref })">
+                    @click="$emit('vm-action', { action: 'reboot', ref: selectedVm.ref })">
               <span class="mdi mdi-restart"></span>
               {{ actionBusy === 'reboot' ? 'Rebooting...' : 'Reboot' }}
             </button>
             <button class="btn btn-sm"
-                    v-if="selectedVM.power_state === 'Running'"
+                    v-if="selectedVm.power_state === 'Running'"
                     :disabled="Boolean(actionBusy)"
-                    @click="$emit('vm-action', { action: 'suspend', ref: selectedVM.ref })">
+                    @click="$emit('vm-action', { action: 'suspend', ref: selectedVm.ref })">
               <span class="mdi mdi-pause"></span>
               {{ actionBusy === 'suspend' ? 'Suspending...' : 'Suspend' }}
             </button>
             <button class="btn btn-primary btn-sm"
-                    v-if="selectedVM.power_state === 'Suspended'"
+                    v-if="selectedVm.power_state === 'Suspended'"
                     :disabled="Boolean(actionBusy)"
-                    @click="$emit('vm-action', { action: 'resume', ref: selectedVM.ref })">
+                    @click="$emit('vm-action', { action: 'resume', ref: selectedVm.ref })">
               <span class="mdi mdi-play-circle-outline"></span>
               {{ actionBusy === 'resume' ? 'Resuming...' : 'Resume' }}
             </button>

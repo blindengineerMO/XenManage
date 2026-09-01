@@ -206,4 +206,38 @@ router.post(
   }
 );
 
+router.post(
+  '/:ref/multipathing',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.hostMultipathingUpdate),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'host_multipathing_update', entityType: 'host', entityRef: req.params.ref, destructive: true })) return;
+      const previousRecord = await safeGetHostRecord(req.xenApi, req.params.ref);
+      const record = await req.xenApi.setHostMultipathing(req.params.ref, req.body);
+
+      auditLogService.record({
+        category: 'hosts',
+        action: req.body.enabled ? 'host_multipathing_enabled' : 'host_multipathing_disabled',
+        actionLabel: req.body.enabled ? 'Enabled storage multipathing for' : 'Disabled storage multipathing for',
+        entityType: 'host',
+        entityRef: req.params.ref,
+        entityName: record.name_label || previousRecord?.name_label || req.params.ref,
+        operator: req.session?.appUsername || req.session?.xenUser || 'system',
+        route: '/hosts',
+        status: 'success',
+        before: previousRecord,
+        after: record,
+        detail: req.body.enabled
+          ? `${record.name_label || req.params.ref} had its storage paths unplugged, multipathing enabled, and paths replugged.`
+          : `${record.name_label || req.params.ref} had its storage paths unplugged, multipathing disabled, and paths replugged.`,
+      });
+
+      res.json(record);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  }
+);
+
 module.exports = router;

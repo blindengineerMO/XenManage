@@ -1,8 +1,13 @@
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');
 const auditLogService = require('../services/audit-log');
 const { ensureMutationAllowed } = require('../middleware/governance');
+const storageFileBrowser = require('../services/storage-file-browser');
+const config = require('../config');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.storage.maxUploadBytes } });
 
 async function safeGetSrRecord(xenApi, ref) {
   try {
@@ -423,6 +428,214 @@ router.delete('/:ref/vdis/:vdiRef',
         success: true,
         vdiRef: req.params.vdiRef,
       });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.post('/:ref/vdis/:vdiRef/clone',
+  validate(schemas.storageVdiResizeParams, 'params'),
+  validate(schemas.storageVdiClone),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: req.body.snapshot ? 'vdi_snapshot' : 'vdi_clone', entityType: 'vdi', entityRef: req.params.vdiRef })) return;
+      const previousRecord = await safeGetVdiRecord(req.xenApi, req.params.vdiRef);
+      const record = req.body.snapshot
+        ? await req.xenApi.snapshotStorageVdi(req.params.vdiRef, { nameLabel: req.body.nameLabel })
+        : await req.xenApi.cloneStorageVdi(req.params.vdiRef, { nameLabel: req.body.nameLabel, srRef: req.params.ref });
+      auditLogService.record({
+        category: 'storage',
+        action: req.body.snapshot ? 'vdi_snapshotted' : 'vdi_cloned',
+        actionLabel: req.body.snapshot ? 'Snapshotted VDI' : 'Cloned VDI',
+        entityType: 'vdi',
+        entityRef: req.params.vdiRef,
+        entityName: previousRecord?.name_label || req.params.vdiRef,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: previousRecord,
+        after: record,
+        detail: `Created ${record.name_label || record.ref} from ${previousRecord?.name_label || req.params.vdiRef}.`,
+      });
+      res.status(201).json(record);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.post('/:ref/vdis/:vdiRef/attach-cd',
+  validate(schemas.storageVdiResizeParams, 'params'),
+  validate(schemas.storageVdiAttachCd),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'vdi_attach_cd', entityType: 'vdi', entityRef: req.params.vdiRef })) return;
+      const vdiRecord = await safeGetVdiRecord(req.xenApi, req.params.vdiRef);
+      const vmRecord = await req.xenApi.getRecord('VM', req.body.vmRef);
+      const result = await req.xenApi.attachVdiAsCd(req.body.vmRef, req.params.vdiRef);
+      auditLogService.record({
+        category: 'storage',
+        action: 'vdi_attached_as_cd',
+        actionLabel: 'Attached ISO as CD to',
+        entityType: 'vm',
+        entityRef: req.body.vmRef,
+        entityName: vmRecord?.name_label || req.body.vmRef,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: null,
+        after: result,
+        detail: `${vdiRecord?.name_label || req.params.vdiRef} was attached to ${vmRecord?.name_label || req.body.vmRef} as a CD.`,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.get('/:ref/files',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageFilePathQuery, 'query'),
+  async (req, res) => {
+    try {
+      const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
+      const items = await storageFileBrowser.listDirectory(srRecord.uuid, req.query.path);
+      res.json({ path: req.query.path || '', items });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.post('/:ref/files/mkdir',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageFileMkdir),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_file_mkdir', entityType: 'sr', entityRef: req.params.ref })) return;
+      const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
+      const result = await storageFileBrowser.makeDirectory(srRecord.uuid, req.body.path, req.body.name);
+      auditLogService.record({
+        category: 'storage',
+        action: 'sr_file_mkdir',
+        actionLabel: 'Created folder on',
+        entityType: 'sr',
+        entityRef: req.params.ref,
+        entityName: srRecord.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: null,
+        after: result,
+        detail: `Created folder "${req.body.name}" under ${req.body.path || '/'}.`,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.post('/:ref/files/upload',
+  validate(schemas.opaqueRefParam, 'params'),
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_file_upload', entityType: 'sr', entityRef: req.params.ref })) return;
+      if (!req.file) throw createRouteError('FILE_REQUIRED', 'No file was uploaded.');
+      const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
+      const destPath = String(req.body.path || '');
+      const result = await storageFileBrowser.writeUploadedFile(srRecord.uuid, destPath, req.file.originalname, req.file.buffer);
+      auditLogService.record({
+        category: 'storage',
+        action: 'sr_file_uploaded',
+        actionLabel: 'Uploaded file to',
+        entityType: 'sr',
+        entityRef: req.params.ref,
+        entityName: srRecord.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: null,
+        after: result,
+        detail: `Uploaded ${req.file.originalname} (${result.sizeBytes} bytes) to ${destPath || '/'}.`,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.get('/:ref/files/download',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageFileDeleteQuery, 'query'),
+  async (req, res) => {
+    try {
+      const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
+      const stream = storageFileBrowser.readableStreamFor(srRecord.uuid, req.query.path);
+      const filename = req.query.path.split('/').filter(Boolean).pop() || 'download';
+      res.set('Content-Disposition', `attachment; filename="${filename.replace(/["\\]/g, '')}"`);
+      stream.on('error', () => res.status(500).end());
+      stream.pipe(res);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.post('/:ref/files/move',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageFileMove),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_file_move', entityType: 'sr', entityRef: req.params.ref })) return;
+      const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
+      const result = await storageFileBrowser.movePath(srRecord.uuid, req.body.fromPath, req.body.toPath);
+      auditLogService.record({
+        category: 'storage',
+        action: 'sr_file_moved',
+        actionLabel: 'Moved file on',
+        entityType: 'sr',
+        entityRef: req.params.ref,
+        entityName: srRecord.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: { path: req.body.fromPath },
+        after: result,
+        detail: `Moved ${req.body.fromPath} to ${req.body.toPath}.`,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
+    }
+  });
+
+router.delete('/:ref/files',
+  validate(schemas.opaqueRefParam, 'params'),
+  validate(schemas.storageFileDeleteQuery, 'query'),
+  async (req, res) => {
+    try {
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_file_delete', entityType: 'sr', entityRef: req.params.ref, destructive: true })) return;
+      const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
+      if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
+      const result = await storageFileBrowser.deletePath(srRecord.uuid, req.query.path);
+      auditLogService.record({
+        category: 'storage',
+        action: 'sr_file_deleted',
+        actionLabel: 'Deleted file on',
+        entityType: 'sr',
+        entityRef: req.params.ref,
+        entityName: srRecord.name_label || req.params.ref,
+        operator: req.session?.xenUser || 'system',
+        route: '/storage',
+        status: 'success',
+        before: { path: req.query.path },
+        after: result,
+        detail: `Deleted ${req.query.path}.`,
+      });
+      res.json(result);
     } catch (err) {
       res.status(err.status || 500).json({ error: err.code || err.message, message: err.message });
     }

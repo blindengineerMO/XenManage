@@ -20,6 +20,10 @@ const PoolPropertiesWindow = {
     poolHostColumns: { type: Array, default: () => [] },
     poolActionMessage: { type: String, default: '' },
     poolActionError: { type: String, default: '' },
+    poolUpdates: { type: Object, default: () => ({ kind: '', updates: [] }) },
+    poolUpdatesLoading: { type: Boolean, default: false },
+    poolUpdatesError: { type: String, default: '' },
+    resolveHostLabel: { type: Function, default: (ref) => ref },
     loading: { type: Boolean, default: false },
   },
   emits: [
@@ -27,6 +31,8 @@ const PoolPropertiesWindow = {
     'open-pool-identity',
     'open-pool-context',
     'open-pool-ha',
+    'open-pool-join',
+    'eject-host',
   ],
   template: `
     <floating-window :show="show" title="Pool Properties" :width="820" :height="560" @close="$emit('close')">
@@ -65,6 +71,10 @@ const PoolPropertiesWindow = {
               <span class="mdi mdi-shield-check-outline"></span>
               High Availability ({{ selectedPoolHaEnabledLabel }})
             </button>
+            <button class="btn btn-sm" type="button" @click="$emit('open-pool-join')">
+              <span class="mdi mdi-source-merge"></span>
+              Join Host
+            </button>
           </div>
           <div class="text-muted mono" style="font-size:11px;margin-top:10px">
             {{ selectedPoolDefaultStorageLabel }} · {{ selectedPoolMigrationCompressionLabel }} compression · {{ selectedPoolHaToleranceLabel }}
@@ -96,7 +106,48 @@ const PoolPropertiesWindow = {
             <template #cell-tags="{ row }">
               <span class="mono">{{ truncateList(row.tags) }}</span>
             </template>
+            <template #cell-actions="{ row }">
+              <button class="btn btn-sm"
+                      type="button"
+                      v-if="row.role !== 'Master'"
+                      @click.stop="$emit('eject-host', row)">
+                <span class="mdi mdi-source-branch-remove"></span>
+                Eject
+              </button>
+            </template>
           </data-table>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-section-title">Pool Updates</div>
+          <p class="text-muted" style="margin-bottom:12px" v-if="poolUpdates.kind === 'pool_patch'">
+            This pool reports legacy hotfix (<span class="mono">pool_patch</span>) records rather than the newer update format.
+          </p>
+          <p class="text-muted" v-if="poolUpdatesLoading">Loading pool updates...</p>
+          <div class="form-error" v-else-if="poolUpdatesError">{{ poolUpdatesError }}</div>
+          <p class="text-muted" v-else-if="!poolUpdates.updates || poolUpdates.updates.length === 0">
+            No update or patch records were reported for this pool.
+          </p>
+          <div class="stack-list" v-else>
+            <div class="stack-item" v-for="update in poolUpdates.updates" :key="update.ref">
+              <div>
+                <strong>{{ update.nameLabel }}</strong>
+                <div class="text-muted mono" style="font-size:11px">
+                  {{ update.version ? 'v' + update.version : 'version unknown' }}
+                  <template v-if="update.nameDescription"> · {{ update.nameDescription }}</template>
+                </div>
+                <div class="text-muted mono" style="font-size:11px" v-if="update.pendingHostRefs.length">
+                  Not yet applied on: {{ update.pendingHostRefs.map(resolveHostLabel).join(', ') }}
+                </div>
+              </div>
+              <span class="badge" :class="update.fullyApplied ? 'badge-success' : 'badge-warning'">
+                {{ update.fullyApplied ? 'applied' : 'pending' }}
+              </span>
+            </div>
+          </div>
+          <p class="text-muted" style="margin-top:12px" v-if="poolUpdates.updates && poolUpdates.updates.length">
+            Uploading and applying new updates is not yet supported in-app; use XenCenter or the CLI to introduce and apply update packages.
+          </p>
         </div>
       </div>
     </floating-window>

@@ -232,38 +232,10 @@ const LifecycleWorkspaceDialogs = {
     taskSlaBadgeClass(task) {
       return getTaskSlaBadgeClass(this.taskSlaMeta(task));
     },
-    taskEvidenceChecklist(task) {
-      return Array.isArray(task?.evidence_checklist) ? task.evidence_checklist : [];
-    },
-    taskCompletionCriteria(task) {
-      return Array.isArray(task?.completion_criteria) ? task.completion_criteria : [];
-    },
-    formatStageLabel(value) {
-      const map = {
-        aligned: 'Aligned',
-        review: 'Review',
-        maintenance: 'Maintenance',
-        remediate: 'Remediate',
-      };
-      return map[value] || 'Review';
-    },
-    formatBaselineLabel(value) {
-      const map = {
-        compliant: 'Compliant',
-        drifted: 'Drifted',
-        unknown: 'Unknown',
-      };
-      return map[value] || 'Unknown';
-    },
-    formatActionLabel(value) {
-      const map = {
-        none: 'No Action',
-        scan: 'Run Scan',
-        patch: 'Apply Patch',
-        reboot: 'Schedule Reboot',
-        validate: 'Validate Outcome',
-      };
-      return map[value] || 'Run Scan';
-    },
+    taskEvidenceChecklist: taskEvidenceChecklistForLifecycle,
+    taskCompletionCriteria: taskCompletionCriteriaForLifecycle,
+    formatStageLabel: formatLifecycleStageLabel,
+    formatBaselineLabel: formatLifecycleBaselineLabel,
+    formatActionLabel: formatLifecycleActionLabel,
   },
 };

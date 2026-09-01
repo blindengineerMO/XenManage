@@ -105,11 +105,17 @@ const PoolsView = {
         :pool-host-columns="poolHostColumns"
         :pool-action-message="poolActionMessage || ''"
         :pool-action-error="poolActionError || ''"
+        :pool-updates="poolUpdates"
+        :pool-updates-loading="poolUpdatesLoading"
+        :pool-updates-error="poolUpdatesError"
+        :resolve-host-label="resolveHostLabel"
         :loading="loading"
         @close="closePoolProperties"
         @open-pool-identity="showPoolIdentityWindow = true"
         @open-pool-context="showPoolContextWindow = true"
-        @open-pool-ha="showPoolHaWindow = true">
+        @open-pool-ha="showPoolHaWindow = true"
+        @open-pool-join="openPoolJoinWindow"
+        @eject-host="ejectSelectedPoolHost">
       </pool-properties-window>
 
       <pool-workspace-dialogs
@@ -135,11 +141,18 @@ const PoolsView = {
         :show-pool-identity-window="showPoolIdentityWindow"
         :show-pool-context-window="showPoolContextWindow"
         :show-pool-ha-window="showPoolHaWindow"
+        :show-pool-join-window="showPoolJoinWindow"
+        :pool-join-draft="poolJoinDraft"
+        :pool-join-saving="poolJoinSaving"
+        :pool-join-error="poolJoinError"
         @close-pool-identity="showPoolIdentityWindow = false"
         @close-pool-context="showPoolContextWindow = false"
         @close-pool-ha="showPoolHaWindow = false"
+        @close-pool-join="showPoolJoinWindow = false"
         @submit-selected-pool-config="submitSelectedPoolConfig"
-        @submit-selected-pool-ha-state="submitSelectedPoolHaState">
+        @submit-selected-pool-ha-state="submitSelectedPoolHaState"
+        @update:pool-join-draft="poolJoinDraft = $event"
+        @submit-pool-join="submitPoolJoin">
       </pool-workspace-dialogs>
 
       <floating-window :show="showRegistration"
@@ -231,7 +244,23 @@ const PoolsView = {
         { key: 'address', label: 'Address' },
         { key: 'residentVmCount', label: 'VMs' },
         { key: 'tags', label: 'Tags' },
+        { key: 'actions', label: '' },
       ],
+      showPoolJoinWindow: false,
+      poolJoinDraft: {
+        joiningHostAddress: '',
+        joiningHostUsername: '',
+        joiningHostPassword: '',
+        masterAddress: '',
+        masterUsername: '',
+        masterPassword: '',
+        force: false,
+      },
+      poolJoinSaving: false,
+      poolJoinError: '',
+      poolUpdates: { kind: '', updates: [] },
+      poolUpdatesLoading: false,
+      poolUpdatesError: '',
     };
   },
   computed: {
@@ -408,6 +437,20 @@ const PoolsView = {
       this.resetPoolWorkspaceWindows();
       this.selectedPool = row;
       this.showProps = true;
+      this.loadPoolUpdates(row);
+    },
+    async loadPoolUpdates(row) {
+      if (!row?.ref) return;
+      this.poolUpdatesError = '';
+      this.poolUpdatesLoading = true;
+      try {
+        this.poolUpdates = await api.getPoolUpdates(row.ref);
+      } catch (error) {
+        this.poolUpdatesError = error.message || 'Unable to load pool updates.';
+        this.poolUpdates = { kind: '', updates: [] };
+      } finally {
+        this.poolUpdatesLoading = false;
+      }
     },
     async submitSelectedPoolConfig(payload) {
       if (!this.selectedPool) return;
@@ -447,8 +490,90 @@ const PoolsView = {
         this.poolHaSaving = false;
       }
     },
+    openPoolJoinWindow() {
+      this.poolJoinError = '';
+      this.poolJoinDraft = {
+        joiningHostAddress: '',
+        joiningHostUsername: '',
+        joiningHostPassword: '',
+        masterAddress: this.selectedPool?.address || '',
+        masterUsername: '',
+        masterPassword: '',
+        force: false,
+      };
+      this.showPoolJoinWindow = true;
+    },
+    async submitPoolJoin() {
+      this.poolJoinError = '';
+      this.poolJoinSaving = true;
+      try {
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'pool_join',
+          entityType: 'host',
+          entityRef: this.poolJoinDraft.joiningHostAddress,
+          entityName: this.poolJoinDraft.joiningHostAddress || 'Joining host',
+          route: '/pools',
+        });
+        await api.joinPool({ ...this.poolJoinDraft, approvalId: approvalId || undefined });
+        this.showPoolJoinWindow = false;
+        this.poolActionMessage = `${this.poolJoinDraft.joiningHostAddress} was asked to join the pool at ${this.poolJoinDraft.masterAddress}.`;
+        if (this.selectedPool) {
+          await this.openProperties(this.selectedPool);
+        }
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.poolJoinError = 'Governance approval is required before joining a host to this pool.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before joining a host to this pool.'
+          );
+          return;
+        }
+        this.poolJoinError = error.message || 'Unable to join the requested host to this pool.';
+      } finally {
+        this.poolJoinSaving = false;
+      }
+    },
+    async ejectSelectedPoolHost(host) {
+      if (!this.selectedPool?.ref || !host?.ref) return;
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm(`Eject ${host.name_label || host.ref} from this pool? It will revert to a standalone host.`);
+      if (!confirmed) return;
+
+      this.poolActionMessage = '';
+      this.poolActionError = null;
+      try {
+        const approvalId = await resolveGovernanceApproval({
+          actionKey: 'pool_host_eject',
+          entityType: 'host',
+          entityRef: host.ref,
+          entityName: host.name_label || host.ref,
+          route: '/pools',
+        });
+        await api.ejectPoolHost(this.selectedPool.ref, { hostRef: host.ref, approvalId: approvalId || undefined });
+        this.poolActionMessage = `${host.name_label || host.ref} was ejected from ${this.selectedPool.name_label || this.selectedPool.ref}.`;
+        await this.openProperties(this.selectedPool);
+      } catch (error) {
+        if (error.code === 'APPROVAL_REQUIRED') {
+          this.poolActionError = 'Governance approval is required before ejecting this host.';
+          await handoffToGovernanceApproval(
+            this.$router,
+            error.approvalDraft,
+            'Approval required before ejecting this host from the pool.'
+          );
+          return;
+        }
+        this.poolActionError = error.message || 'Unable to eject the selected host from this pool.';
+      }
+    },
     resolveStorageLabel(ref) {
       return resolvePoolStorageLabel(this.storage, ref);
+    },
+    resolveHostLabel(ref) {
+      const host = this.selectedPoolHosts.find((entry) => entry.ref === ref);
+      return host?.name_label || ref;
     },
     findPoolByFocus(focus) {
       return findPoolByFocus(this.pools, focus);

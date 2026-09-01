@@ -2,8 +2,8 @@ const VMsView = {
   components: {
     DataTable,
     StatusBadge,
-    VMPropertiesWindow,
-    VMImportWindow,
+    'vm-properties-window': VMPropertiesWindow,
+    'vm-import-window': VMImportWindow,
   },
   template: `
     <div class="animate-fade-in">
@@ -100,7 +100,7 @@ const VMsView = {
       </data-table>
 
       <vm-properties-window
-        :show-props="showProps"
+        :show="showProps"
         :selected-vm="selectedVM"
         :selected-vm-compute-profile="selectedVmComputeProfile"
         :selected-vm-host="selectedVmHost"
@@ -405,7 +405,21 @@ const VMsView = {
     },
     async openProperties(row, options = {}) {
       const workspaceState = buildVmPropertiesWorkspaceState(row, options);
-      Object.assign(this, workspaceState);
+      // Render the selected VM immediately; detail requests must not delay the window itself.
+      this.selectedVM = workspaceState.selectedVM;
+      this.showProps = workspaceState.showProps;
+      this.activeTab = workspaceState.activeTab;
+      this.actionError = workspaceState.actionError;
+      this.exportBusy = workspaceState.exportBusy;
+      this.migrationSeed = workspaceState.migrationSeed;
+      this.migrationSourceTask = workspaceState.migrationSourceTask;
+      await this.$nextTick();
+
+      if (!row?.ref) {
+        Object.assign(this, buildVmDetailErrorState('Unable to open VM detail without a VM reference.'));
+        return;
+      }
+
       await this.loadVmDetail(row.ref);
 
       if (workspaceState.migrationSeed?.mode === 'cross-pool' && workspaceState.migrationSeed.destinationTargetKey) {

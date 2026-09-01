@@ -3,6 +3,39 @@ function handleDemoInfraRoutes(method, path, body, scope) {
     return { total: scope.pools.length, data: clone(scope.pools) };
   }
 
+  if (method === 'GET' && path.startsWith('/api/pools/') && path.endsWith('/updates')) {
+    const poolRef = decodeURIComponent(path.split('/')[3] || '');
+    const poolHostRefs = demoDb.hosts.filter((host) => host.pool === poolRef).map((host) => host.ref);
+    const [firstHostRef, secondHostRef] = poolHostRefs;
+    const updates = [
+      {
+        ref: 'OpaqueRef:pool-update-demo-1',
+        nameLabel: 'XS84E001 - Security update',
+        nameDescription: 'Rollup security update for the demo pool hypervisor stack.',
+        version: '1.0',
+        size: 41943040,
+        afterApplyGuidance: [],
+        appliedHostRefs: [...poolHostRefs],
+        pendingHostRefs: [],
+        fullyApplied: true,
+        guidanceIncludesReboot: false,
+      },
+      {
+        ref: 'OpaqueRef:pool-update-demo-2',
+        nameLabel: 'XS84E002 - Platform update',
+        nameDescription: 'Platform maintenance update requiring a host restart to complete.',
+        version: '1.1',
+        size: 78643200,
+        afterApplyGuidance: ['restartHost'],
+        appliedHostRefs: firstHostRef ? [firstHostRef] : [],
+        pendingHostRefs: secondHostRef ? [secondHostRef] : [],
+        fullyApplied: !secondHostRef,
+        guidanceIncludesReboot: true,
+      },
+    ];
+    return { kind: 'pool_update', updates };
+  }
+
   if (method === 'PUT' && path.startsWith('/api/pools/') && path.endsWith('/config')) {
     const poolRef = decodeURIComponent(path.split('/')[3] || '');
     ensureDemoMutationAllowed({ actionKey: 'pool_config_update', entityType: 'pool', entityRef: poolRef });
@@ -61,6 +94,59 @@ function handleDemoInfraRoutes(method, path, body, scope) {
       requestedTolerance,
       heartbeatSrRefs,
     });
+  }
+
+  if (method === 'POST' && path === '/api/pools/join') {
+    ensureDemoMutationAllowed({ actionKey: 'pool_join', entityType: 'host', entityRef: body?.joiningHostAddress || '', destructive: true, approvalId: body?.approvalId || '' });
+    const targetPool = demoDb.pools.find((entry) => {
+      const masterHost = demoDb.hosts.find((host) => host.ref === entry.master);
+      return masterHost?.address === body?.masterAddress;
+    }) || demoDb.pools[0];
+    if (!targetPool) throw new Error('POOL_NOT_FOUND');
+
+    const hostRef = nextDemoOpaqueRef('host');
+    const joinedHost = {
+      ref: hostRef,
+      name_label: body?.joiningHostAddress || 'joined-host',
+      name_description: 'Host joined via demo pool.join simulation.',
+      hostname: body?.joiningHostAddress || 'joined-host',
+      address: body?.joiningHostAddress || '',
+      uuid: `${hostRef.replace('OpaqueRef:', '')}-uuid`,
+      pool: targetPool.ref,
+      enabled: true,
+      maintenance_mode: false,
+      tags: [],
+      edition: 'Enterprise',
+      license_server: {},
+      software_version: { product_version: '8.4.0', product_brand: 'XenServer', platform_name: 'demo' },
+      virtual_hardware_platform_versions: ['1', '2', '3', '4'],
+      guest_VCPUs_params: {},
+      sched_gran: 'cpu',
+      ssl_legacy: false,
+      bios_strings: {},
+      PIFs: [],
+      PBDs: [],
+      resident_VMs: [],
+      cpu_info: {},
+      logging: {},
+      other_config: {},
+    };
+
+    demoDb.hosts.push(joinedHost);
+    targetPool.slaves = [...(Array.isArray(targetPool.slaves) ? targetPool.slaves : []), hostRef];
+    return { joined: true, joiningHostAddress: body?.joiningHostAddress, masterAddress: body?.masterAddress };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/pools/') && path.endsWith('/eject')) {
+    const poolRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'pool_host_eject', entityType: 'host', entityRef: body?.hostRef || '', destructive: true, approvalId: body?.approvalId || '' });
+    const pool = demoDb.pools.find((entry) => entry.ref === poolRef);
+    if (!pool) throw new Error('POOL_NOT_FOUND');
+    if (pool.master === body?.hostRef) throw new Error('POOL_EJECT_MASTER_NOT_SUPPORTED');
+
+    pool.slaves = (Array.isArray(pool.slaves) ? pool.slaves : []).filter((ref) => ref !== body?.hostRef);
+    demoDb.hosts = demoDb.hosts.filter((host) => host.ref !== body?.hostRef);
+    return { ejected: true, hostRef: body?.hostRef };
   }
 
   if (method === 'GET' && path === '/api/hosts') {
@@ -197,6 +283,46 @@ function handleDemoInfraRoutes(method, path, body, scope) {
       before: previous,
       after: clone(host),
       detail: `${host.name_label || hostRef} was returned to the workload placement pool.`,
+    });
+
+    return clone(host);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/hosts/') && path.endsWith('/multipathing')) {
+    const hostRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'host_multipathing_update',
+      entityType: 'host',
+      entityRef: hostRef,
+      destructive: true,
+      approvalId: body?.approvalId || '',
+    });
+    const host = demoDb.hosts.find((entry) => entry.ref === hostRef);
+    if (!host) throw new Error('HOST_NOT_FOUND');
+
+    const previous = clone(host);
+    const enabled = Boolean(body?.enabled);
+    host.other_config = {
+      ...(host.other_config || {}),
+      multipathing: String(enabled),
+    };
+    if (enabled) {
+      host.other_config.multipathhandle = 'dmp';
+    } else {
+      delete host.other_config.multipathhandle;
+    }
+
+    recordDemoAudit({
+      category: 'hosts',
+      action: enabled ? 'host_multipathing_enabled' : 'host_multipathing_disabled',
+      actionLabel: enabled ? 'Enabled storage multipathing for' : 'Disabled storage multipathing for',
+      entityType: 'host',
+      entityRef: hostRef,
+      entityName: host.name_label || hostRef,
+      route: '/hosts',
+      before: previous,
+      after: clone(host),
+      detail: `${host.name_label || hostRef} had its storage paths unplugged, multipathing ${enabled ? 'enabled' : 'disabled'}, and paths replugged.`,
     });
 
     return clone(host);

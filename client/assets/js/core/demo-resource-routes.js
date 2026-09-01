@@ -1,4 +1,14 @@
-function handleDemoResourceRoutes(method, path, body, scope) {
+function demoIsoRelativePathSegments(relativePath) {
+  return String(relativePath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+}
+
+function demoIsoParentPath(relativePath) {
+  const segments = demoIsoRelativePathSegments(relativePath);
+  segments.pop();
+  return segments.join('/');
+}
+
+function handleDemoResourceRoutes(method, path, body, scope, parsedUrl) {
   if (method === 'GET' && path === '/api/storage') {
     return { total: scope.srs.length, data: clone(scope.srs) };
   }
@@ -398,6 +408,129 @@ function handleDemoResourceRoutes(method, path, body, scope) {
     const ref = decodeURIComponent(path.split('/')[3] || '');
     const vdis = demoDb.vdis[ref] || [];
     return { total: vdis.length, data: clone(vdis) };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.includes('/vdis/') && path.endsWith('/clone')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    const vdiRef = decodeURIComponent(path.split('/')[5] || '');
+    ensureDemoMutationAllowed({ actionKey: 'vdi_clone', entityType: 'vdi', entityRef: vdiRef });
+    const sr = demoDb.srs.find((entry) => entry.ref === srRef);
+    const vdi = (demoDb.vdis[srRef] || []).find((entry) => entry.ref === vdiRef);
+    if (!sr) throw new Error('SR_NOT_FOUND');
+    if (!vdi) throw new Error('VDI_NOT_FOUND');
+
+    const cloneRef = nextDemoOpaqueRef('vdi');
+    const record = {
+      ref: cloneRef,
+      uuid: `${cloneRef.replace('OpaqueRef:', '')}-uuid`,
+      SR: srRef,
+      name_label: body?.nameLabel || `${vdi.name_label || 'disk'} ${body?.snapshot ? 'snapshot' : 'clone'}`,
+      virtual_size: Number(vdi.virtual_size || 0),
+      type: vdi.type || 'user',
+      managed: true,
+      VBDs: [],
+      is_a_snapshot: Boolean(body?.snapshot),
+      snapshot_of: body?.snapshot ? vdiRef : '',
+    };
+
+    demoDb.vdis[srRef] = [...(demoDb.vdis[srRef] || []), record];
+    sr.virtual_allocation = Number(sr.virtual_allocation || 0) + record.virtual_size;
+    return clone(record);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.includes('/vdis/') && path.endsWith('/attach-cd')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    const vdiRef = decodeURIComponent(path.split('/')[5] || '');
+    ensureDemoMutationAllowed({ actionKey: 'vdi_attach_cd', entityType: 'vdi', entityRef: vdiRef });
+    const vdi = (demoDb.vdis[srRef] || []).find((entry) => entry.ref === vdiRef);
+    const vm = demoDb.vms.find((entry) => entry.ref === body?.vmRef);
+    if (!vdi) throw new Error('VDI_NOT_FOUND');
+    if (!vm) throw new Error('VM_NOT_FOUND');
+
+    const vbdRef = nextDemoOpaqueRef('vbd');
+    const vbd = {
+      ref: vbdRef,
+      uuid: `${vbdRef.replace('OpaqueRef:', '')}-uuid`,
+      VM: vm.ref,
+      VDI: vdiRef,
+      type: 'CD',
+      mode: 'RO',
+      device: '3',
+      bootable: false,
+      currently_attached: vm.power_state === 'Running',
+    };
+
+    vdi.VBDs = [...(Array.isArray(vdi.VBDs) ? vdi.VBDs : []), vbdRef];
+    vm.VBDs = [...(Array.isArray(vm.VBDs) ? vm.VBDs : []), vbdRef];
+    return clone({ vbdRef, vdiRef, vmRef: vm.ref });
+  }
+
+  if (method === 'GET' && path.startsWith('/api/storage/') && path.endsWith('/files')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    const dirPath = demoIsoRelativePathSegments(parsedUrl?.searchParams.get('path') || '').join('/');
+    const entries = demoDb.isoFiles[srRef] || [];
+    const items = entries
+      .filter((entry) => demoIsoParentPath(entry.path) === dirPath)
+      .map((entry) => ({
+        name: demoIsoRelativePathSegments(entry.path).pop() || entry.path,
+        type: entry.type,
+        sizeBytes: entry.type === 'directory' ? 0 : entry.sizeBytes,
+        modifiedAt: entry.modifiedAt,
+      }))
+      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1));
+    return clone(items);
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/files/mkdir')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'sr_file_upload', entityType: 'sr', entityRef: srRef });
+    if (!demoDb.isoFiles[srRef]) demoDb.isoFiles[srRef] = [];
+    const newPath = [...demoIsoRelativePathSegments(body?.path || ''), String(body?.name || '').trim()].join('/');
+    demoDb.isoFiles[srRef].push({ path: newPath, type: 'directory', sizeBytes: 0, modifiedAt: new Date().toISOString() });
+    return { path: newPath };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/files/upload')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'sr_file_upload', entityType: 'sr', entityRef: srRef });
+    if (!demoDb.isoFiles[srRef]) demoDb.isoFiles[srRef] = [];
+    const newPath = [...demoIsoRelativePathSegments(body?.path || ''), String(body?.fileName || 'upload.iso').trim()].join('/');
+    demoDb.isoFiles[srRef].push({ path: newPath, type: 'file', sizeBytes: Number(body?.sizeBytes || 0), modifiedAt: new Date().toISOString() });
+    return { path: newPath, sizeBytes: Number(body?.sizeBytes || 0) };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/storage/') && path.endsWith('/files/move')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({ actionKey: 'sr_file_upload', entityType: 'sr', entityRef: srRef });
+    const entries = demoDb.isoFiles[srRef] || [];
+    const fromPath = demoIsoRelativePathSegments(body?.fromPath || '').join('/');
+    const toPath = demoIsoRelativePathSegments(body?.toPath || '').join('/');
+    const moved = entries.find((entry) => entry.path === fromPath);
+    if (!moved) throw new Error('PATH_NOT_FOUND');
+
+    entries.forEach((entry) => {
+      if (entry.path === fromPath) {
+        entry.path = toPath;
+      } else if (entry.path.startsWith(`${fromPath}/`)) {
+        entry.path = `${toPath}${entry.path.slice(fromPath.length)}`;
+      }
+    });
+    return { path: toPath };
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/storage/') && path.endsWith('/files')) {
+    const srRef = decodeURIComponent(path.split('/')[3] || '');
+    ensureDemoMutationAllowed({
+      actionKey: 'sr_file_delete',
+      entityType: 'sr',
+      entityRef: srRef,
+      destructive: true,
+      approvalId: (parsedUrl?.searchParams.get('approvalId')) || '',
+    });
+    const targetPath = demoIsoRelativePathSegments(parsedUrl?.searchParams.get('path') || '').join('/');
+    const entries = demoDb.isoFiles[srRef] || [];
+    demoDb.isoFiles[srRef] = entries.filter((entry) => entry.path !== targetPath && !entry.path.startsWith(`${targetPath}/`));
+    return { success: true };
   }
 
   if (method === 'POST' && path === '/api/networks') {

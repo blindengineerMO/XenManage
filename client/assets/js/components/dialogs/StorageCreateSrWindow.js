@@ -113,14 +113,12 @@ const StorageCreateSrWindow = {
     </floating-window>
   `,
   methods: {
-    buildProbeResultKey(result, index) {
-      return result?.sr?.uuid || result?.sr?.name_label || `probe-${index}`;
-    },
+    buildProbeResultKey: buildStorageProbeResultKey,
     canIntroduceProbedSr(result) {
-      return Boolean(this.createSrProbeRequest?.hostRef && result?.complete && result?.sr?.uuid);
+      return canIntroduceStorageProbeResult(this.createSrProbeRequest, result);
     },
-    describeSrProbeSummary,
-    formatProbeMap,
-    formatProbeSrStat,
+    describeSrProbeSummary: describeStorageProbeSummary,
+    formatProbeMap: formatStorageProbeMap,
+    formatProbeSrStat: formatStorageProbeStat,
   },
 };

@@ -237,6 +237,75 @@ class XenAPI {
     };
   }
 
+  async joinPoolAsHost({
+    joiningHostAddress,
+    joiningHostUsername,
+    joiningHostPassword,
+    masterAddress,
+    masterUsername,
+    masterPassword,
+    force = false,
+  }) {
+    const joiningApi = new XenAPI(joiningHostAddress);
+    try {
+      await joiningApi.login(joiningHostUsername, joiningHostPassword);
+      await joiningApi.call('pool', force ? 'join_force' : 'join', [masterAddress, masterUsername, masterPassword]);
+    } catch (error) {
+      throw createXenApiError(error.code || 'POOL_JOIN_FAILED', error.message || 'Unable to join the target pool.', 502);
+    } finally {
+      try {
+        await joiningApi.logout();
+      } catch (error) {
+        // The joining host's toolstack restarts as part of a successful join, so logout is best-effort.
+      }
+    }
+    return { joined: true, joiningHostAddress, masterAddress };
+  }
+
+  async ejectPoolHost(hostRef) {
+    await this.call('pool', 'eject', [hostRef]);
+    return { ejected: true, hostRef };
+  }
+
+  async getPoolUpdates() {
+    let kind = 'pool_update';
+    let classRecords;
+    try {
+      classRecords = await this.getClassRecords('pool_update');
+    } catch (error) {
+      try {
+        kind = 'pool_patch';
+        classRecords = await this.getClassRecords('pool_patch');
+      } catch (fallbackError) {
+        return { kind: 'unsupported', updates: [] };
+      }
+    }
+
+    const { records: hostRecords } = await this.getHosts();
+    const allHostRefs = Object.keys(hostRecords);
+
+    const updates = Object.entries(classRecords.records).map(([ref, record]) => {
+      const appliedHostRefs = kind === 'pool_update'
+        ? (Array.isArray(record.hosts) ? record.hosts : [])
+        : (Array.isArray(record.host_patches) ? record.host_patches : []).map((hp) => hp.host).filter(Boolean);
+      const pendingHostRefs = allHostRefs.filter((hostRef) => !appliedHostRefs.includes(hostRef));
+      return {
+        ref,
+        nameLabel: record.name_label || ref,
+        nameDescription: record.name_description || '',
+        version: record.version || '',
+        size: record.installation_size ?? record.size ?? null,
+        afterApplyGuidance: record.after_apply_guidance || [],
+        appliedHostRefs,
+        pendingHostRefs,
+        fullyApplied: pendingHostRefs.length === 0,
+        guidanceIncludesReboot: (record.after_apply_guidance || []).includes('restartHost'),
+      };
+    });
+
+    return { kind, updates };
+  }
+
   async getHosts() {
     return this.getClassRecords('host');
   }
@@ -329,6 +398,49 @@ class XenAPI {
       maintenance_mode: false,
       ...record,
     };
+  }
+
+  async setHostMultipathing(ref, { enabled }) {
+    const hostRecord = await this.getRecord('host', ref);
+    const pbdRefs = Array.isArray(hostRecord.PBDs) ? hostRecord.PBDs : [];
+    const pbdRecords = await Promise.all(pbdRefs.map(async (pbdRef) => {
+      try {
+        return { pbdRef, record: await this.getRecord('PBD', pbdRef) };
+      } catch (error) {
+        return null;
+      }
+    }));
+    const attachedPbdRefs = pbdRecords
+      .filter((entry) => entry && entry.record?.currently_attached)
+      .map((entry) => entry.pbdRef);
+
+    for (const pbdRef of attachedPbdRefs) {
+      await this.call('PBD', 'unplug', [pbdRef]);
+    }
+
+    try {
+      const currentOtherConfig = hostRecord.other_config && typeof hostRecord.other_config === 'object'
+        ? { ...hostRecord.other_config }
+        : {};
+      currentOtherConfig.multipathing = String(Boolean(enabled));
+      if (enabled) {
+        currentOtherConfig.multipathhandle = 'dmp';
+      } else {
+        delete currentOtherConfig.multipathhandle;
+      }
+      await this.setField('host', ref, 'other_config', currentOtherConfig);
+    } finally {
+      for (const pbdRef of attachedPbdRefs) {
+        try {
+          await this.call('PBD', 'plug', [pbdRef]);
+        } catch (error) {
+          // Best-effort replug; the PBD may report its own attachment error separately.
+        }
+      }
+    }
+
+    const record = await this.getRecord('host', ref);
+    return { ref, multipathing: Boolean(enabled), ...record };
   }
 
   async getVMs() {
@@ -681,6 +793,53 @@ class XenAPI {
       success: true,
       ref,
     };
+  }
+
+  async cloneStorageVdi(ref, { nameLabel, srRef = '' } = {}) {
+    const cloneRef = srRef
+      ? await this.call('VDI', 'copy', [ref, srRef])
+      : await this.call('VDI', 'clone', [ref]);
+    if (nameLabel) {
+      await this.setField('VDI', cloneRef, 'name_label', nameLabel);
+    }
+    const record = await this.getRecord('VDI', cloneRef);
+    return { ref: cloneRef, ...record };
+  }
+
+  async snapshotStorageVdi(ref, { nameLabel = '' } = {}) {
+    const snapshotRef = await this.call('VDI', 'snapshot', [ref]);
+    if (nameLabel) {
+      await this.setField('VDI', snapshotRef, 'name_label', nameLabel);
+    }
+    const record = await this.getRecord('VDI', snapshotRef);
+    return { ref: snapshotRef, ...record };
+  }
+
+  async attachVdiAsCd(vmRef, vdiRef) {
+    const vm = await this.getRecord('VM', vmRef);
+    const userdevice = String(Array.isArray(vm.VBDs) ? vm.VBDs.length : 0);
+
+    const vbdRef = await this.create('VBD', {
+      VM: vmRef,
+      VDI: vdiRef,
+      userdevice,
+      bootable: false,
+      mode: 'RO',
+      type: 'CD',
+      unpluggable: true,
+      empty: false,
+      other_config: {},
+      qos_algorithm_type: '',
+      qos_algorithm_params: {},
+    });
+
+    try {
+      await this.call('VBD', 'plug', [vbdRef]);
+    } catch (error) {
+      // Plugging may fail if the guest is halted; the CD stays attached for next boot.
+    }
+
+    return { success: true, vbdRef };
   }
 
   async getNetworks() {

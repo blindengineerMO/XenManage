@@ -194,6 +194,38 @@ function initializeSchema() {
       finished_at DATETIME,
       error_text TEXT NOT NULL DEFAULT ''
     );
+
+    CREATE TABLE IF NOT EXISTS template_library_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_id INTEGER REFERENCES template_library_folders(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      owner_user_id INTEGER,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS template_library_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folder_id INTEGER REFERENCES template_library_folders(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'snippet',
+      name TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'json',
+      content TEXT NOT NULL DEFAULT '',
+      version INTEGER NOT NULL DEFAULT 1,
+      owner_user_id INTEGER,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS template_library_item_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id INTEGER NOT NULL REFERENCES template_library_items(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      saved_by INTEGER,
+      saved_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   const connectionColumns = new Set(
@@ -235,6 +267,16 @@ function initializeSchema() {
       ELSE visibility
     END
   `);
+
+  const deploymentRunColumns = new Set(
+    db.prepare('PRAGMA table_info(deployment_runs)').all().map((column) => column.name)
+  );
+  if (!deploymentRunColumns.has('run_kind')) {
+    db.exec(`ALTER TABLE deployment_runs ADD COLUMN run_kind TEXT NOT NULL DEFAULT 'template'`);
+  }
+  if (!deploymentRunColumns.has('spec_json')) {
+    db.exec(`ALTER TABLE deployment_runs ADD COLUMN spec_json TEXT NOT NULL DEFAULT ''`);
+  }
 }
 
 // Connection CRUD
@@ -711,8 +753,10 @@ const deploymentRunModel = {
         storage_verified,
         policy_tagged,
         result,
-        target_route
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        target_route,
+        run_kind,
+        spec_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       String(record.deployment_audit_id || record.deploymentAuditId || '').trim(),
@@ -741,7 +785,9 @@ const deploymentRunModel = {
       record.storage_verified || record.storageVerified ? 1 : 0,
       record.policy_tagged || record.policyTagged ? 1 : 0,
       String(record.result || '').trim(),
-      String(record.target_route || record.targetRoute || '/vms').trim()
+      String(record.target_route || record.targetRoute || '/vms').trim(),
+      String(record.run_kind || record.runKind || 'template').trim().toLowerCase(),
+      String(record.spec_json || record.specJson || '').trim()
     );
     this.replaceSteps(id, steps);
     return this.getById(id);
@@ -783,7 +829,9 @@ const deploymentRunModel = {
           storage_verified = ?,
           policy_tagged = ?,
           result = ?,
-          target_route = ?
+          target_route = ?,
+          run_kind = ?,
+          spec_json = ?
       WHERE id = ?
     `).run(
       String(next.deployment_audit_id || next.deploymentAuditId || '').trim(),
@@ -813,6 +861,8 @@ const deploymentRunModel = {
       next.policy_tagged || next.policyTagged ? 1 : 0,
       String(next.result || '').trim(),
       String(next.target_route || next.targetRoute || '/vms').trim(),
+      String(next.run_kind || next.runKind || 'template').trim().toLowerCase(),
+      String(next.spec_json || next.specJson || '').trim(),
       id
     );
 
@@ -824,4 +874,146 @@ const deploymentRunModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, hostTargetModel, settingsModel, retentionPolicyModel, deploymentRunModel };
+function normalizeTemplateLibraryFolderRecord(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    parent_id: record.parent_id === null || record.parent_id === undefined ? null : Number(record.parent_id),
+    owner_user_id: normalizeOwnerUserId(record.owner_user_id),
+    visibility: normalizeVisibility(record.visibility, record.owner_user_id ? 'private' : 'shared'),
+  };
+}
+
+function normalizeTemplateLibraryItemRecord(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    folder_id: record.folder_id === null || record.folder_id === undefined ? null : Number(record.folder_id),
+    version: Number(record.version || 1),
+    owner_user_id: normalizeOwnerUserId(record.owner_user_id),
+    visibility: normalizeVisibility(record.visibility, record.owner_user_id ? 'private' : 'shared'),
+  };
+}
+
+const templateLibraryModel = {
+  // Folders
+  listFolders(actor = {}) {
+    const { clause, params } = buildVisibilityFilter(actor);
+    return getDb().prepare(`
+      SELECT * FROM template_library_folders WHERE ${clause} ORDER BY name
+    `).all(...params).map(normalizeTemplateLibraryFolderRecord);
+  },
+
+  getFolderById(id) {
+    return normalizeTemplateLibraryFolderRecord(
+      getDb().prepare('SELECT * FROM template_library_folders WHERE id = ?').get(id)
+    );
+  },
+
+  createFolder({ name, parentId = null, ownerUserId = null, visibility = 'private' }) {
+    const normalizedOwnerUserId = normalizeOwnerUserId(ownerUserId);
+    const normalizedVisibility = normalizedOwnerUserId
+      ? normalizeVisibility(visibility, 'private')
+      : 'shared';
+    const result = getDb().prepare(`
+      INSERT INTO template_library_folders (parent_id, name, owner_user_id, visibility)
+      VALUES (?, ?, ?, ?)
+    `).run(parentId || null, name, normalizedOwnerUserId, normalizedVisibility);
+    return this.getFolderById(result.lastInsertRowid);
+  },
+
+  renameFolder(id, name) {
+    getDb().prepare('UPDATE template_library_folders SET name = ? WHERE id = ?').run(name, id);
+    return this.getFolderById(id);
+  },
+
+  moveFolder(id, parentId = null) {
+    getDb().prepare('UPDATE template_library_folders SET parent_id = ? WHERE id = ?').run(parentId || null, id);
+    return this.getFolderById(id);
+  },
+
+  deleteFolder(id) {
+    getDb().prepare('DELETE FROM template_library_folders WHERE id = ?').run(id);
+  },
+
+  // Items
+  listItems(actor = {}) {
+    const { clause, params } = buildVisibilityFilter(actor);
+    return getDb().prepare(`
+      SELECT id, folder_id, kind, name, language, version, owner_user_id, visibility, created_at, updated_at
+      FROM template_library_items WHERE ${clause} ORDER BY name
+    `).all(...params).map(normalizeTemplateLibraryItemRecord);
+  },
+
+  getItemById(id) {
+    return normalizeTemplateLibraryItemRecord(
+      getDb().prepare('SELECT * FROM template_library_items WHERE id = ?').get(id)
+    );
+  },
+
+  createItem({ folderId = null, kind = 'snippet', name, language = 'json', content = '', ownerUserId = null, visibility = 'private' }) {
+    const normalizedOwnerUserId = normalizeOwnerUserId(ownerUserId);
+    const normalizedVisibility = normalizedOwnerUserId
+      ? normalizeVisibility(visibility, 'private')
+      : 'shared';
+    const db = getDb();
+    const result = db.prepare(`
+      INSERT INTO template_library_items (folder_id, kind, name, language, content, version, owner_user_id, visibility, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+    `).run(folderId || null, kind, name, language, content || '', normalizedOwnerUserId, normalizedVisibility);
+    const item = this.getItemById(result.lastInsertRowid);
+    db.prepare(`
+      INSERT INTO template_library_item_versions (item_id, version, content, saved_by)
+      VALUES (?, 1, ?, ?)
+    `).run(item.id, item.content, normalizedOwnerUserId);
+    return item;
+  },
+
+  renameItem(id, name) {
+    getDb().prepare('UPDATE template_library_items SET name = ? WHERE id = ?').run(name, id);
+    return this.getItemById(id);
+  },
+
+  moveItem(id, folderId = null) {
+    getDb().prepare('UPDATE template_library_items SET folder_id = ? WHERE id = ?').run(folderId || null, id);
+    return this.getItemById(id);
+  },
+
+  saveItemContent(id, content, savedByUserId = null) {
+    const db = getDb();
+    const existing = this.getItemById(id);
+    if (!existing) return null;
+    const nextVersion = Number(existing.version || 1) + 1;
+    db.prepare(`
+      UPDATE template_library_items
+      SET content = ?, version = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(content || '', nextVersion, id);
+    db.prepare(`
+      INSERT INTO template_library_item_versions (item_id, version, content, saved_by)
+      VALUES (?, ?, ?, ?)
+    `).run(id, nextVersion, content || '', normalizeOwnerUserId(savedByUserId));
+    return this.getItemById(id);
+  },
+
+  listItemVersions(itemId) {
+    return getDb().prepare(`
+      SELECT id, item_id, version, saved_by, saved_at
+      FROM template_library_item_versions
+      WHERE item_id = ?
+      ORDER BY version DESC
+    `).all(itemId);
+  },
+
+  getItemVersion(itemId, version) {
+    return getDb().prepare(`
+      SELECT * FROM template_library_item_versions WHERE item_id = ? AND version = ?
+    `).get(itemId, version);
+  },
+
+  deleteItem(id) {
+    getDb().prepare('DELETE FROM template_library_items WHERE id = ?').run(id);
+  },
+};
+
+module.exports = { getDb, connectionModel, hostTargetModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel };

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { compile } = require('@vue/compiler-dom');
+const esbuild = require('esbuild');
 
 const rootDir = path.join(__dirname, '..');
 const clientDir = path.join(rootDir, 'client');
@@ -64,6 +65,7 @@ function compileTemplates(source) {
 function buildAppBundle() {
   const sourceFiles = [
     'assets/js/core/foundation.js',
+    'assets/js/core/demo-data.js',
     'assets/js/core/demo-runtime.js',
     'assets/js/core/demo-shell-routes.js',
     'assets/js/core/demo-alerts.js',
@@ -77,13 +79,21 @@ function buildAppBundle() {
     'assets/js/core/demo-resource-routes.js',
     'assets/js/core/demo-target-routes.js',
     'assets/js/core/demo-template-routes.js',
+    'assets/js/core/demo-template-library-routes.js',
     'assets/js/core/demo-vm-mutation-routes.js',
     'assets/js/core/demo-vm-state-routes.js',
     'assets/js/core/demo-vm-transfer-routes.js',
     'assets/js/core/demo-summary.js',
+    'assets/js/core/demo-request.js',
+    'assets/js/core/api.js',
     'assets/js/core/state.js',
+    'assets/js/core/shared-ui-helpers.js',
+    'assets/js/core/capacity-analytics.js',
     'assets/js/core/host-view-helpers.js',
     'assets/js/core/host-view-models.js',
+    'assets/js/core/host-view-service.js',
+    'assets/js/core/host-view-workspace.js',
+    'assets/js/core/host-view-focus.js',
     'assets/js/core/vm-view-helpers.js',
     'assets/js/core/vm-view-service.js',
     'assets/js/core/vm-view-actions.js',
@@ -93,7 +103,14 @@ function buildAppBundle() {
     'assets/js/core/pool-view-models.js',
     'assets/js/core/capacity-view-models.js',
     'assets/js/core/storage-view-models.js',
+    'assets/js/core/storage-view-workspace.js',
+    'assets/js/core/storage-view-service.js',
+    'assets/js/core/storage-view-focus.js',
     'assets/js/core/lifecycle-view-models.js',
+    'assets/js/core/lifecycle-view-helpers.js',
+    'assets/js/core/lifecycle-view-workspace.js',
+    'assets/js/core/lifecycle-view-service.js',
+    'assets/js/core/lifecycle-view-focus.js',
     'assets/js/core/alert-view-models.js',
     'assets/js/core/activity-view-models.js',
     'assets/js/core/resilience-view-models.js',
@@ -105,7 +122,11 @@ function buildAppBundle() {
     'assets/js/components/common/StatusBadge.js',
     'assets/js/components/common/MetricTrendCard.js',
     'assets/js/components/controls/DataTable.js',
+    'assets/js/components/controls/ContextMenu.js',
+    'assets/js/components/controls/TemplateLibraryTreeNode.js',
     'assets/js/components/dialogs/FloatingWindow.js',
+    'assets/js/components/dialogs/PromptWindow.js',
+    'assets/js/components/dialogs/ConfirmWindow.js',
     'assets/js/components/layout/TopNav.js',
     'assets/js/components/layout/SideNav.js',
     'assets/js/components/layout/StatusBar.js',
@@ -188,6 +209,7 @@ function buildAppBundle() {
     'assets/js/components/dialogs/StoragePropertiesWindow.js',
     'assets/js/components/dialogs/StorageCreateSrWindow.js',
     'assets/js/components/dialogs/StorageWorkspaceDialogs.js',
+    'assets/js/components/dialogs/StorageBrowserWindow.js',
     'assets/js/components/dialogs/SettingsWorkspaceDialogs.js',
     'assets/js/components/dialogs/TemplateWorkspaceDialogs.js',
     'assets/js/components/dialogs/VMImportWindow.js',
@@ -196,6 +218,7 @@ function buildAppBundle() {
     'assets/js/views/LoginView.js',
     'assets/js/views/DashboardView.js',
     'assets/js/views/TemplatesView.js',
+    'assets/js/views/TemplateLibraryView.js',
     'assets/js/views/PoolsView.js',
     'assets/js/views/VMsView.js',
     'assets/js/views/HostsView.js',
@@ -232,6 +255,7 @@ function copyVendorAssets() {
   const vueDir = path.join(rootDir, 'node_modules', 'vue', 'dist');
   const vueRouterDir = path.join(rootDir, 'node_modules', 'vue-router', 'dist');
   const mdiDir = path.join(rootDir, 'node_modules', '@mdi', 'font');
+  const monacoEsmDir = path.join(rootDir, 'node_modules', 'monaco-editor', 'esm', 'vs');
 
   copyFile(
     path.join(vueDir, 'vue.runtime.global.prod.js'),
@@ -255,13 +279,34 @@ function copyVendorAssets() {
     path.join(mdiDir, 'fonts'),
     path.join(vendorDir, 'mdi', 'fonts')
   );
+
+  return buildMonacoBundle(monacoEsmDir, path.join(vendorDir, 'monaco'));
 }
 
-function main() {
+function buildMonacoBundle(monacoEsmDir, outDir) {
+  ensureDir(outDir);
+  return esbuild.build({
+    entryPoints: {
+      monaco: path.join(clientDir, 'assets', 'js', 'vendor', 'monaco-bootstrap.js'),
+      'editor.worker': path.join(monacoEsmDir, 'editor', 'editor.worker.js'),
+      'json.worker': path.join(monacoEsmDir, 'language', 'json', 'json.worker.js'),
+    },
+    bundle: true,
+    format: 'esm',
+    minify: true,
+    outdir: outDir,
+    loader: { '.ttf': 'file' },
+  });
+}
+
+async function main() {
   ensureDir(distDir);
-  copyVendorAssets();
+  await copyVendorAssets();
   buildAppBundle();
   console.log('Client bundle rebuilt in client/dist');
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
