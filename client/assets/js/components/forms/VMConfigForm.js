@@ -240,7 +240,7 @@ const VMConfigForm = {
         </div>
 
         <div class="form-group">
-          <label class="stack-item" for="vm-config-secure-boot" style="align-items:flex-start;gap:12px">
+          <label class="stack-item form-toggle" for="vm-config-secure-boot" style="align-items:flex-start;gap:12px">
             <input id="vm-config-secure-boot" type="checkbox" v-model="draft.secureBootEnabled">
             <div>
               <strong>Secure Boot</strong>
@@ -266,7 +266,7 @@ const VMConfigForm = {
         </div>
 
         <div class="form-group">
-          <label class="stack-item" for="vm-config-igd-passthrough" style="align-items:flex-start;gap:12px">
+          <label class="stack-item form-toggle" for="vm-config-igd-passthrough" style="align-items:flex-start;gap:12px">
             <input id="vm-config-igd-passthrough" type="checkbox" v-model="draft.igdPassthroughEnabled">
             <div>
               <strong>IGD Passthrough</strong>
@@ -278,7 +278,7 @@ const VMConfigForm = {
         </div>
 
         <div class="form-group">
-          <label class="stack-item" for="vm-config-has-vendor-device" style="align-items:flex-start;gap:12px">
+          <label class="stack-item form-toggle" for="vm-config-has-vendor-device" style="align-items:flex-start;gap:12px">
             <input id="vm-config-has-vendor-device" type="checkbox" v-model="draft.hasVendorDevice">
             <div>
               <strong>Vendor Device Emulation</strong>
@@ -340,7 +340,7 @@ const VMConfigForm = {
           <div class="stack-list">
             <label v-for="option in blockedOperationOptions"
                    :key="option.value"
-                   class="stack-item"
+                   class="stack-item form-toggle"
                    style="gap:10px;align-items:flex-start">
               <input type="checkbox" :value="option.value" v-model="draft.blockedOperations">
               <div>

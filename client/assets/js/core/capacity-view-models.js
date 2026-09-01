@@ -484,24 +484,32 @@ function getCapacityHistoryStatus(series = [], thresholds = {}) {
   return 'success';
 }
 
+function getCapacityScopedEntityKey(record = {}, ref = '') {
+  const targetKey = String(record?.scopeTargetKey || '').trim();
+  const entityRef = String(ref || record?.entityRef || record?.ref || '').trim();
+  return targetKey ? `${targetKey}::${entityRef}` : entityRef;
+}
+
 function buildCapacityBaselineMaps(baseline = {}) {
   return {
-    hostsByRef: Object.fromEntries((baseline?.hosts || []).map((entry) => [entry.entityRef, entry])),
-    vmsByRef: Object.fromEntries((baseline?.vms || []).map((entry) => [entry.entityRef, entry])),
-    storageByRef: Object.fromEntries((baseline?.storage || []).map((entry) => [entry.entityRef, entry])),
+    hostsByRef: Object.fromEntries((baseline?.hosts || []).map((entry) => [getCapacityScopedEntityKey(entry), entry])),
+    vmsByRef: Object.fromEntries((baseline?.vms || []).map((entry) => [getCapacityScopedEntityKey(entry), entry])),
+    storageByRef: Object.fromEntries((baseline?.storage || []).map((entry) => [getCapacityScopedEntityKey(entry), entry])),
   };
 }
 
 function buildCapacityHostRecords(hostRecords = [], metricsByRef = {}, baselineHostsByRef = {}) {
   return (Array.isArray(hostRecords) ? hostRecords : []).map((host) => {
-    const metrics = metricsByRef[host.ref] || {};
-    const baseline = baselineHostsByRef[host.ref] || {};
+    const entityKey = getCapacityScopedEntityKey(host);
+    const metrics = metricsByRef[entityKey] || {};
+    const baseline = baselineHostsByRef[entityKey] || {};
     const memoryTotal = Number(metrics.memory_total || 0);
     const memoryFree = Number(metrics.memory_free || 0);
     const memoryUsed = Math.max(0, memoryTotal - memoryFree);
 
     return {
       ...host,
+      scopeEntityKey: entityKey,
       live: Boolean(metrics.live),
       memoryTotal,
       memoryFree,
@@ -516,13 +524,15 @@ function buildCapacityHostRecords(hostRecords = [], metricsByRef = {}, baselineH
 
 function buildCapacityStorageRecords(srRecords = [], baselineStorageByRef = {}) {
   return (Array.isArray(srRecords) ? srRecords : []).map((sr) => {
-    const baseline = baselineStorageByRef[sr.ref] || {};
+    const entityKey = getCapacityScopedEntityKey(sr);
+    const baseline = baselineStorageByRef[entityKey] || {};
     const physical = Number(sr.physical_size || 0);
     const allocation = Number(sr.virtual_allocation || 0);
     const freeBytes = Math.max(0, physical - allocation);
 
     return {
       ...sr,
+      scopeEntityKey: entityKey,
       freeBytes,
       utilizationPercent: percentValue(allocation, physical),
       latestUtilizationPercent: Number(baseline.utilization_percent || 0),
@@ -533,9 +543,11 @@ function buildCapacityStorageRecords(srRecords = [], baselineStorageByRef = {}) 
 
 function buildCapacityVmRecords(vmRecords = [], baselineVmsByRef = {}) {
   return (Array.isArray(vmRecords) ? vmRecords : []).map((vm) => {
-    const baseline = baselineVmsByRef[vm.ref] || {};
+    const entityKey = getCapacityScopedEntityKey(vm);
+    const baseline = baselineVmsByRef[entityKey] || {};
     return {
       ...vm,
+      scopeEntityKey: entityKey,
       memoryActualBytesLatest: Number(baseline.memory_actual_bytes || 0),
       memoryUsagePercentLatest: Number(baseline.memory_usage_percent || 0),
       cpuUsagePercentLatest: Number(baseline.cpu_usage_percent || 0),

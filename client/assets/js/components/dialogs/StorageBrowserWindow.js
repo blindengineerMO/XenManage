@@ -69,7 +69,7 @@ const StorageBrowserWindow = {
         </div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-          <input class="form-control" style="max-width:220px" type="text" v-model="newFolderName" placeholder="New folder name" />
+          <input class="form-input" style="max-width:220px" type="text" v-model="newFolderName" placeholder="New folder name" />
           <button class="btn btn-sm" :disabled="!newFolderName.trim() || Boolean(actionBusy)" @click="submitMkdir">
             <span class="mdi mdi-folder-plus-outline"></span>
             Create Folder

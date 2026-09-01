@@ -49,12 +49,17 @@ const AlertsWorkspaceDialogs = {
   ],
   template: `
     <div>
-      <floating-window :show="showProps"
-                       title="Alert Detail"
+      <floating-window :show="showProps || showPolicyEditor || showRemediationComposer || showTemplateEditor"
+                       title="Alert Control Panel"
                        :width="780"
                        :height="660"
                        @close="$emit('close-properties')">
-        <div v-if="selectedMessage">
+        <div class="alert-control-tabs" role="tablist" aria-label="Alert controls">
+          <button type="button" class="alert-control-tab" :class="{ active: activeTab === 'state' }" @click="activeTab = 'state'"><span class="mdi mdi-bell-alert-outline"></span>State</button>
+          <button type="button" class="alert-control-tab" :class="{ active: activeTab === 'policy' }" @click="activeTab = 'policy'"><span class="mdi mdi-shield-sun-outline"></span>Policy</button>
+          <button type="button" class="alert-control-tab" :class="{ active: activeTab === 'remediation' }" @click="activeTab = 'remediation'"><span class="mdi mdi-clipboard-check-outline"></span>Remediation</button>
+        </div>
+        <div v-if="activeTab === 'state' && selectedMessage">
           <div class="dashboard-hero" style="margin-bottom:12px;padding:18px">
             <div>
               <div class="dash-card-label">Alert Record</div>
@@ -192,9 +197,26 @@ const AlertsWorkspaceDialogs = {
 
           <div class="form-error" v-if="saveError" style="text-align:left">{{ saveError }}</div>
         </div>
+        <div v-else-if="activeTab === 'state'" class="empty-state">Select an alert from the table to review and update its state.</div>
+
+        <div v-else-if="activeTab === 'policy'" class="alert-control-form">
+          <div class="detail-title">{{ editingPolicy?.id ? 'Edit Alert Policy' : 'Create Alert Policy' }}</div>
+          <p class="text-muted">Configure suppression and severity rules without leaving the alert workspace.</p>
+          <alert-policy-form :initial-value="editingPolicy" :saving="policySaving" :submit-label="editingPolicy?.id ? 'Save Alert Policy' : 'Create Alert Policy'" @submit="$emit('save-policy', $event)"></alert-policy-form>
+          <button class="btn" v-if="editingPolicy?.id" :disabled="policySaving" @click="$emit('remove-policy', editingPolicy)">Delete Policy</button>
+          <div class="form-error" v-if="policyError">{{ policyError }}</div>
+        </div>
+
+        <div v-else class="alert-control-form">
+          <div class="detail-title">{{ editingTemplate?.id ? 'Edit Remediation Template' : (showRemediationComposer ? 'Create Remediation Task' : 'Remediation Templates') }}</div>
+          <remediation-task-form v-if="showRemediationComposer && remediationDraft" :initial-value="remediationDraft" :saving="remediationSaving" submit-label="Create Remediation Task" @submit="$emit('submit-remediation-task', $event)"></remediation-task-form>
+          <remediation-template-form v-else :initial-value="editingTemplate" :saving="templateSaving" :submit-label="editingTemplate?.id ? 'Save Remediation Template' : 'Create Remediation Template'" @submit="$emit('save-template', $event)"></remediation-template-form>
+          <button class="btn" v-if="editingTemplate?.id && !showRemediationComposer" :disabled="templateSaving" @click="$emit('remove-template', editingTemplate)">Delete Template</button>
+          <div class="form-error" v-if="remediationError || templateError">{{ remediationError || templateError }}</div>
+        </div>
       </floating-window>
 
-      <floating-window :show="showPolicyEditor"
+      <floating-window :show="false"
                        title="Alert Policy"
                        :width="740"
                        :height="660"
@@ -215,7 +237,7 @@ const AlertsWorkspaceDialogs = {
         </div>
       </floating-window>
 
-      <floating-window :show="showRemediationComposer"
+      <floating-window :show="false"
                        title="Create Remediation Task"
                        :width="720"
                        :height="650"
@@ -234,7 +256,7 @@ const AlertsWorkspaceDialogs = {
         </remediation-task-form>
       </floating-window>
 
-      <floating-window :show="showTemplateEditor"
+      <floating-window :show="false"
                        title="Remediation Template"
                        :width="760"
                        :height="720"
@@ -268,5 +290,14 @@ const AlertsWorkspaceDialogs = {
       if (!route) return;
       this.$router.push(route);
     },
+  },
+  data() {
+    return { activeTab: 'state' };
+  },
+  watch: {
+    showProps(value) { if (value) this.activeTab = 'state'; },
+    showPolicyEditor(value) { if (value) this.activeTab = 'policy'; },
+    showRemediationComposer(value) { if (value) this.activeTab = 'remediation'; },
+    showTemplateEditor(value) { if (value) this.activeTab = 'remediation'; },
   },
 };

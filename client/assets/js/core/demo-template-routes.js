@@ -4,6 +4,38 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
     return { total: templates.length, data: clone(templates) };
   }
 
+  if (method === 'POST' && path === '/api/vms/templates') {
+    ensureDemoMutationAllowed({ actionKey: 'template_create', entityType: 'template', entityRef: 'new' });
+    const kind = body?.kind;
+    const nameLabel = String(body?.nameLabel || '').trim();
+    if (!nameLabel) throw new Error('TEMPLATE_NAME_REQUIRED');
+    if (!['operating-system', 'deployable'].includes(kind)) throw new Error('TEMPLATE_KIND_INVALID');
+
+    const operatingSystemRefs = ['OpaqueRef:os-profile-ubuntu-24', 'OpaqueRef:os-profile-windows-2025'];
+    const sourceVm = demoDb.vms.find((entry) => entry.ref === body?.sourceRef);
+    if (kind === 'operating-system' && !operatingSystemRefs.includes(body?.sourceRef)) throw new Error('OS_TEMPLATE_SOURCE_INVALID');
+    if (kind === 'deployable' && (!sourceVm || sourceVm.is_a_template || String(sourceVm.power_state || '').toLowerCase() !== 'halted')) throw new Error('GOLDEN_TEMPLATE_SOURCE_INVALID');
+
+    const ref = nextDemoOpaqueRef('template');
+    const template = {
+      ...(kind === 'deployable' ? clone(sourceVm) : {}),
+      ref,
+      uuid: `${ref.replace('OpaqueRef:', '')}-uuid`,
+      name_label: nameLabel,
+      name_description: String(body?.nameDescription || '').trim(),
+      power_state: 'Halted',
+      is_a_template: true,
+      is_a_snapshot: false,
+      templateKind: kind,
+      tags: Array.isArray(body?.tags) ? body.tags : [],
+      VBDs: kind === 'deployable' ? [...(sourceVm.VBDs || [])] : [],
+      VIFs: [],
+    };
+    demoDb.vms.push(template);
+    recordDemoAudit({ category: 'templates', action: 'template_created', actionLabel: 'Created template', entityType: 'template', entityRef: ref, entityName: nameLabel, route: '/templates', after: template, detail: kind === 'operating-system' ? 'Created an operating-system installation profile.' : 'Created a deployable golden template from a VM copy.' });
+    return clone(template);
+  }
+
   if (method === 'GET' && path === '/api/vms/appliances') {
     return {
       total: demoDb.vmAppliances.length,
@@ -548,12 +580,12 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
           vmRecord.VBDs.push(diskVbdRef);
         }
 
-        for (const nic of vmPlan.networkInterfaces) {
+        for (const [index, nic] of vmPlan.networkInterfaces.entries()) {
           const vifRef = nextDemoOpaqueRef('vif');
           const network = demoDb.networks.find((entry) => entry.ref === nic.networkRef);
           if (network) {
             network.VIFs = [...(network.VIFs || []), vifRef];
-            registerDemoVifState(vifRef, { device: nic.device || '0', MAC: '', currently_attached: vmPlan.startAfter });
+            registerDemoVifState(vifRef, { device: String(index), MAC: nic.mac || '', currently_attached: vmPlan.startAfter });
           }
           vmRecord.VIFs.push(vifRef);
         }
@@ -681,8 +713,7 @@ function buildDemoComposeTopoSort(vmsMap) {
 function buildDemoComposeResolveRef(collection, nameOrRef, label) {
   const value = String(nameOrRef || '').trim();
   if (!value) throw new Error(`A ${label} reference is required.`);
-  if (value.startsWith('OpaqueRef:')) return value;
-  const match = collection.find((entry) => entry.uuid === value || entry.name_label === value);
+  const match = collection.find((entry) => entry.ref === value || entry.uuid === value || entry.name_label === value);
   if (!match) throw new Error(`Could not resolve ${label} "${value}" on the target pool.`);
   return match.ref;
 }
@@ -693,18 +724,28 @@ function buildDemoComposePlan(spec) {
   const resolvedNetworks = buildDemoComposeInterpolate(spec.networks || {}, variables);
   const resolvedStorageRepositories = buildDemoComposeInterpolate(spec.storageRepositories || {}, variables);
   const order = buildDemoComposeTopoSort(resolvedVms);
-  const templates = demoDb.vms.filter((vm) => vm.is_a_template);
+  const templates = demoDb.vms.filter((vm) => vm.is_a_template && vm.templateKind !== 'operating-system');
+  const plannedNames = new Set();
 
   const plans = order.map((key) => {
     const vmSpec = resolvedVms[key];
-    const template = buildDemoComposeResolveRef(templates, vmSpec.template, `template "${vmSpec.template}"`);
+    const template = buildDemoComposeResolveRef(templates, vmSpec.template, `deployable template "${vmSpec.template}"`);
     const memoryStaticMax = Number(vmSpec.memoryStaticMax);
     const memoryDynamicMax = vmSpec.memoryDynamicMax ? Number(vmSpec.memoryDynamicMax) : memoryStaticMax;
     const memoryDynamicMin = vmSpec.memoryDynamicMin ? Number(vmSpec.memoryDynamicMin) : memoryDynamicMax;
     const vcpusAtStartup = Math.round(Number(vmSpec.vcpusAtStartup || 1));
     const vcpusMax = Math.round(Number(vmSpec.vcpusMax || vcpusAtStartup));
+    if (!vmSpec.nameLabel || plannedNames.has(vmSpec.nameLabel)) throw new Error(`VM name "${vmSpec.nameLabel}" is duplicated in this compose spec.`);
+    if (![memoryStaticMax, memoryDynamicMax, memoryDynamicMin, vcpusAtStartup, vcpusMax].every((value) => Number.isFinite(value) && value > 0)) {
+      throw new Error(`VM "${vmSpec.nameLabel}" has an invalid compute value.`);
+    }
+    if (vcpusAtStartup > vcpusMax) throw new Error(`VM "${vmSpec.nameLabel}" cannot start with more vCPUs than its maximum.`);
+    if (memoryDynamicMin > memoryDynamicMax || memoryDynamicMax > memoryStaticMax) {
+      throw new Error(`VM "${vmSpec.nameLabel}" must satisfy dynamic minimum <= dynamic maximum <= static maximum.`);
+    }
+    plannedNames.add(vmSpec.nameLabel);
 
-    const disks = (vmSpec.disks || []).map((disk) => {
+    const disks = (vmSpec.disks || []).map((disk, index) => {
       const alias = disk.sr;
       const entry = resolvedStorageRepositories[alias];
       const srRef = entry
@@ -714,8 +755,8 @@ function buildDemoComposePlan(spec) {
         srRef,
         srAlias: alias,
         sizeBytes: Math.round(Number(disk.sizeGb) * (1024 ** 3)),
-        bootable: Boolean(disk.bootable),
-        mode: disk.mode || 'RW',
+        nameLabel: disk.nameLabel || `${vmSpec.nameLabel}-data-${index + 1}`,
+        nameDescription: disk.nameDescription || '',
       };
     });
 
@@ -725,7 +766,7 @@ function buildDemoComposePlan(spec) {
       const networkRef = entry
         ? buildDemoComposeResolveRef(demoDb.networks, entry.ref, `network "${alias}"`)
         : buildDemoComposeResolveRef(demoDb.networks, alias, 'network');
-      return { networkRef, networkAlias: alias, device: nic.device || '' };
+      return { networkRef, networkAlias: alias, mac: nic.mac || '' };
     });
 
     return {

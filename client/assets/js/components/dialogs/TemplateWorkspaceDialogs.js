@@ -11,6 +11,7 @@ const TemplateWorkspaceDialogs = {
     showProps: { type: Boolean, default: false },
     selectedTemplate: { type: Object, default: null },
     governanceMap: { type: Object, default: () => ({}) },
+    operatingSystemTemplateRefs: { type: Array, default: () => [] },
     hostOptions: { type: Array, default: () => [] },
     storageOptions: { type: Array, default: () => [] },
     networkOptions: { type: Array, default: () => [] },
@@ -84,7 +85,7 @@ const TemplateWorkspaceDialogs = {
                 <span class="mdi mdi-arrow-up-bold-circle-outline"></span>
                 Compare & Promote
               </button>
-              <button class="btn btn-primary" @click="$emit('open-deploy', selectedTemplate)">
+              <button v-if="!isOperatingSystemProfile(selectedTemplate)" class="btn btn-primary" @click="$emit('open-deploy', selectedTemplate)">
                 <span class="mdi mdi-rocket-launch-outline"></span>
                 Deploy Template
               </button>
@@ -459,6 +460,9 @@ const TemplateWorkspaceDialogs = {
     </div>
   `,
   methods: {
+    isOperatingSystemProfile(template) {
+      return this.operatingSystemTemplateRefs.includes(template?.ref);
+    },
     formatBytes,
     formatDateTime,
     truncateList,

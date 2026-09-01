@@ -134,6 +134,27 @@ async function planCompose(xenApi, spec) {
 
   const networkRefCache = new Map();
   const srRefCache = new Map();
+  const hostRefCache = new Map();
+  const creationSources = await xenApi.getVmCreationSources();
+  const deployableTemplates = creationSources.deployableTemplates || [];
+  const plannedNames = new Set();
+
+  function resolveDeployableTemplate(value) {
+    const identifier = String(value || '').trim();
+    if (!identifier) {
+      throw createComposeError('COMPOSE_REF_REQUIRED', 'A deployment template reference is required.');
+    }
+    const match = deployableTemplates.find((template) => (
+      template.ref === identifier || template.uuid === identifier || template.name_label === identifier
+    ));
+    if (!match) {
+      throw createComposeError(
+        'COMPOSE_TEMPLATE_NOT_DEPLOYABLE',
+        `Template "${identifier}" is not a deployable golden template. Compose can only deploy golden templates with an installed boot disk; use New VM for operating-system profiles.`
+      );
+    }
+    return match;
+  }
 
   async function resolveNetworkAlias(alias) {
     if (networkRefCache.has(alias)) return networkRefCache.get(alias);
@@ -155,24 +176,43 @@ async function planCompose(xenApi, spec) {
     return ref;
   }
 
+  async function resolveHostAffinity(value) {
+    if (!value) return '';
+    if (hostRefCache.has(value)) return hostRefCache.get(value);
+    const ref = await resolveRefByNameOrUuid(xenApi, 'host', value, `host "${value}"`);
+    hostRefCache.set(value, ref);
+    return ref;
+  }
+
   const plans = [];
   for (const key of order) {
     const vmSpec = resolvedVms[key];
-    const templateRef = await resolveRefByNameOrUuid(xenApi, 'VM', vmSpec.template, `template "${vmSpec.template}"`);
+    const template = resolveDeployableTemplate(vmSpec.template);
+    const nameLabel = String(vmSpec.nameLabel || '').trim();
+    if (plannedNames.has(nameLabel)) {
+      throw createComposeError('COMPOSE_DUPLICATE_VM_NAME', `VM name "${nameLabel}" is declared more than once in this compose spec.`);
+    }
+    plannedNames.add(nameLabel);
     const memoryStaticMax = toNumber(vmSpec.memoryStaticMax, `vms.${key}.memoryStaticMax`);
     const memoryDynamicMax = vmSpec.memoryDynamicMax ? toNumber(vmSpec.memoryDynamicMax, `vms.${key}.memoryDynamicMax`) : memoryStaticMax;
     const memoryDynamicMin = vmSpec.memoryDynamicMin ? toNumber(vmSpec.memoryDynamicMin, `vms.${key}.memoryDynamicMin`) : memoryDynamicMax;
     const vcpusAtStartup = Math.round(toNumber(vmSpec.vcpusAtStartup || 1, `vms.${key}.vcpusAtStartup`));
     const vcpusMax = Math.round(toNumber(vmSpec.vcpusMax || vcpusAtStartup, `vms.${key}.vcpusMax`));
+    if (vcpusAtStartup > vcpusMax) {
+      throw createComposeError('COMPOSE_INVALID_VCPU_TOPOLOGY', `VM "${nameLabel}" cannot start with more vCPUs than its maximum.`);
+    }
+    if (memoryDynamicMin > memoryDynamicMax || memoryDynamicMax > memoryStaticMax) {
+      throw createComposeError('COMPOSE_INVALID_MEMORY_TOPOLOGY', `VM "${nameLabel}" must satisfy dynamic minimum <= dynamic maximum <= static maximum.`);
+    }
 
     const disks = [];
-    for (const disk of vmSpec.disks || []) {
+    for (const [index, disk] of (vmSpec.disks || []).entries()) {
       disks.push({
         srRef: await resolveStorageAlias(disk.sr),
         srAlias: disk.sr,
         sizeBytes: Math.round(toNumber(disk.sizeGb, `vms.${key}.disks[].sizeGb`) * BYTES_PER_GIB),
-        bootable: Boolean(disk.bootable),
-        mode: disk.mode || 'RW',
+        nameLabel: disk.nameLabel || `${nameLabel}-data-${index + 1}`,
+        nameDescription: disk.nameDescription || '',
       });
     }
 
@@ -181,22 +221,22 @@ async function planCompose(xenApi, spec) {
       networkInterfaces.push({
         networkRef: await resolveNetworkAlias(nic.network),
         networkAlias: nic.network,
-        device: nic.device || '',
+        mac: nic.mac || '',
       });
     }
 
     plans.push({
       key,
-      template: vmSpec.template,
-      templateRef,
-      nameLabel: vmSpec.nameLabel,
+      template: template.name_label || vmSpec.template,
+      templateRef: template.ref,
+      nameLabel,
       nameDescription: vmSpec.nameDescription || '',
       memoryStaticMax,
       memoryDynamicMax,
       memoryDynamicMin,
       vcpusAtStartup,
       vcpusMax,
-      affinity: vmSpec.affinity || '',
+      affinityRef: await resolveHostAffinity(vmSpec.affinity),
       disks,
       networkInterfaces,
       otherConfig: vmSpec.otherConfig || {},
@@ -241,16 +281,14 @@ async function executeCompose(xenApi, spec, { submittedBy = '' } = {}) {
     }
 
     try {
-      let affinityRef = '';
-      if (plan.affinity) {
+      if (plan.affinityRef) {
         if (!hostsLoaded) {
           const [hostsResult, vmsResult] = await Promise.all([xenApi.getHosts(), xenApi.getVMs()]);
           hosts = Object.entries(hostsResult.records || {}).map(([ref, record]) => ({ ref, ...record }));
           vms = Object.entries(vmsResult.records || {}).map(([ref, record]) => ({ ref, ...record }));
           hostsLoaded = true;
         }
-        affinityRef = await resolveRefByNameOrUuid(xenApi, 'host', plan.affinity, `host "${plan.affinity}"`);
-        const host = hosts.find((entry) => entry.ref === affinityRef);
+        const host = hosts.find((entry) => entry.ref === plan.affinityRef);
         const poolRef = host?.pool || '';
         if (poolRef) {
           const quota = governanceService.getQuota(poolRef);
@@ -271,8 +309,7 @@ async function executeCompose(xenApi, spec, { submittedBy = '' } = {}) {
         }
       }
 
-      const vmRef = await xenApi.cloneVM(plan.templateRef, plan.nameLabel);
-      await xenApi.updateVMConfig(vmRef, {
+      const createdVm = await xenApi.deployComposeVM(plan.templateRef, {
         nameLabel: plan.nameLabel,
         nameDescription: plan.nameDescription,
         vcpusAtStartup: plan.vcpusAtStartup,
@@ -280,33 +317,19 @@ async function executeCompose(xenApi, spec, { submittedBy = '' } = {}) {
         memoryStaticMax: plan.memoryStaticMax,
         memoryDynamicMax: plan.memoryDynamicMax,
         memoryDynamicMin: plan.memoryDynamicMin,
-        memoryStaticMin: plan.memoryDynamicMin,
         tags: plan.tags,
         otherConfig: plan.otherConfig,
         xenstoreData: plan.xenstoreData,
-        affinity: affinityRef,
+        affinity: plan.affinityRef,
+        disks: plan.disks,
+        networkInterfaces: plan.networkInterfaces,
+        startAfter: plan.startAfter,
       });
 
-      for (const disk of plan.disks) {
-        await xenApi.addVMDisk(vmRef, {
-          srRef: disk.srRef,
-          nameLabel: `${plan.nameLabel} disk`,
-          sizeBytes: disk.sizeBytes,
-        });
-      }
-
-      for (const nic of plan.networkInterfaces) {
-        await xenApi.addVMNic(vmRef, { networkRef: nic.networkRef, deviceLabel: nic.device });
-      }
-
-      if (plan.startAfter) {
-        await xenApi.startVM(vmRef, false, false);
-      }
-
       step.status = 'success';
-      step.detail = `Provisioned from "${plan.template}" as ${plan.nameLabel} (${vmRef}).`;
+      step.detail = `Provisioned from "${plan.template}" as ${plan.nameLabel} (${createdVm.ref}).`;
       step.finished_at = new Date().toISOString();
-      step.ref = vmRef;
+      step.ref = createdVm.ref;
     } catch (error) {
       failed = true;
       step.status = 'failure';

@@ -1,4 +1,5 @@
 const TopNav = {
+  components: { AddTargetWindow },
   props: ['sidebarOpen'],
   emits: ['toggle-sidebar'],
   template: `
@@ -16,6 +17,18 @@ const TopNav = {
         <span class="bc-current">{{ currentPage }}</span>
       </div>
       <div class="topnav-actions">
+        <button class="btn btn-sm" v-if="store.authenticated" @click="openVmCreate">
+          <span class="mdi mdi-desktop-tower-monitor"></span>
+          New VM
+        </button>
+        <button class="btn btn-sm btn-primary" v-if="store.authenticated" @click="showAddTargetWindow = true">
+          <span class="mdi mdi-server-plus"></span>
+          Add Target
+        </button>
+        <button class="btn btn-sm" v-if="store.authenticated" @click="router.push('/inventory')">
+          <span class="mdi mdi-magnify"></span>
+          Search
+        </button>
         <button class="btn btn-sm" v-if="store.authenticated" @click="router.push('/governance')">
           <span class="mdi mdi-shield-account-outline"></span>
           {{ roleLabel }}
@@ -83,6 +96,35 @@ const TopNav = {
               No live Xen targets are attached yet. Open Pools to connect a saved pool or register another host.
             </div>
 
+            <div class="topnav-scope-panel" v-if="attachedTargets.length">
+              <div class="topnav-scope-head">
+                <div>
+                  <strong>Read Scope</strong>
+                  <div class="text-muted mono" style="font-size:11px">Aggregate attached members. Writes stay on the active target.</div>
+                </div>
+                <button class="btn btn-sm" :class="{ 'btn-primary': !store.vFabricScope }" @click="clearScope">Active Target</button>
+              </div>
+              <button
+                v-for="fabric in vFabrics"
+                :key="fabric.id"
+                class="topnav-scope-option"
+                :class="{ active: Number(store.vFabricScope?.scope?.id) === Number(fabric.id) }"
+                :disabled="scopePendingId === fabric.id"
+                @click="selectVFabricScope(fabric)">
+                <span class="dot" :class="'scope-dot-' + (fabric.color_tag || 'green')"></span>
+                <span>
+                  <strong>{{ fabric.name }}</strong>
+                  <small>{{ fabric.members?.length || 0 }} saved member{{ (fabric.members?.length || 0) === 1 ? '' : 's' }}</small>
+                </span>
+                <span class="mdi mdi-layers-triple-outline"></span>
+              </button>
+              <div class="text-muted mono" style="font-size:11px" v-if="scopeLoading">Loading vFabric scopes...</div>
+              <div class="text-muted mono" style="font-size:11px" v-else-if="!vFabrics.length">No visible vFabrics yet.</div>
+              <div class="text-muted mono" style="font-size:11px" v-if="store.vFabricScope?.scope">
+                {{ store.vFabricScope.attachedTargets.length }} attached · {{ store.vFabricScope.unavailableMembers.length }} unavailable
+              </div>
+            </div>
+
             <div class="form-error" v-if="targetError" style="text-align:left;margin-top:10px">{{ targetError }}</div>
           </div>
         </div>
@@ -90,6 +132,7 @@ const TopNav = {
           <span class="mdi mdi-logout"></span>
         </button>
       </div>
+      <add-target-window :show="showAddTargetWindow" @close="showAddTargetWindow = false"></add-target-window>
     </nav>
   `,
   setup() {
@@ -99,6 +142,10 @@ const TopNav = {
     const targetPanelOpen = ref(false);
     const pendingTargetKey = ref('');
     const targetError = ref('');
+    const showAddTargetWindow = ref(false);
+    const vFabrics = ref([]);
+    const scopeLoading = ref(false);
+    const scopePendingId = ref(null);
 
     const currentPage = computed(() => {
       const names = {
@@ -106,6 +153,7 @@ const TopNav = {
         '/login': 'Connection',
         '/pools': 'Pools',
         '/templates': 'Templates',
+        '/vfabrics': 'vFabrics',
         '/vms': 'Virtual Machines',
         '/hosts': 'Hosts',
         '/storage': 'Storage',
@@ -165,6 +213,40 @@ const TopNav = {
     const toggleTargetPanel = () => {
       targetPanelOpen.value = !targetPanelOpen.value;
       targetError.value = '';
+      if (targetPanelOpen.value) loadVFabrics();
+    };
+
+    const loadVFabrics = async () => {
+      scopeLoading.value = true;
+      try {
+        const result = await api.getVFabrics();
+        vFabrics.value = Array.isArray(result) ? result : (result?.data || []);
+      } catch (error) {
+        targetError.value = error.message || 'Unable to load vFabric scopes';
+      } finally {
+        scopeLoading.value = false;
+      }
+    };
+
+    const clearScope = () => {
+      clearVFabricScope();
+      targetError.value = '';
+    };
+
+    const selectVFabricScope = async (fabric) => {
+      scopePendingId.value = fabric.id;
+      targetError.value = '';
+      try {
+        const result = await api.getVFabricScope(fabric.id);
+        if (!result?.attachedTargets?.length) {
+          throw new Error(`${fabric.name} has no attached live members in this session.`);
+        }
+        store.vFabricScope = result;
+      } catch (error) {
+        targetError.value = error.message || 'Unable to select the vFabric scope';
+      } finally {
+        scopePendingId.value = null;
+      }
     };
 
     const activateTarget = async (target) => {
@@ -200,6 +282,10 @@ const TopNav = {
       router.push('/pools');
     };
 
+    const openVmCreate = () => {
+      router.push({ path: '/vms', query: { create: '1' } });
+    };
+
     const handleLogout = async () => {
       try {
         await api.logout();
@@ -222,13 +308,19 @@ const TopNav = {
     return {
       activateTarget,
       attachedTargets,
+      clearScope,
       currentPage,
       detachTarget,
       handleLogout,
       openPools,
+      openVmCreate,
       pendingTargetKey,
       roleLabel,
       router,
+      showAddTargetWindow,
+      scopeLoading,
+      scopePendingId,
+      selectVFabricScope,
       store,
       targetDetailLabel,
       targetError,
@@ -239,6 +331,7 @@ const TopNav = {
       targetShell,
       targetSummaryLabel,
       toggleTargetPanel,
+      vFabrics,
     };
   },
 };

@@ -121,6 +121,7 @@ jest.mock('../../../../server/services/xenapi', () => {
 
 const app = require('../../../../server/index');
 const { getPerfDb, metricSampleModel, toHourlyBucket } = require('../../../../server/models/perf-db');
+const metricsHistoryService = require('../../../../server/services/metrics-history');
 
 describe('Metrics Routes', () => {
   let server;
@@ -290,6 +291,23 @@ describe('Metrics Routes', () => {
     expect(srRes.body.metrics.some((entry) => entry.metricName === 'utilization_percent')).toBe(true);
   });
 
+  it('keeps telemetry isolated when two targets expose the same Xen reference', () => {
+    const timestamp = Date.now();
+    const sharedRef = 'OpaqueRef:shared-host';
+    metricSampleModel.insertMany([
+      { targetKey: 'target-alpha', entityType: 'host', entityRef: sharedRef, metricName: 'memory_used_percent', ts: timestamp, value: 25 },
+      { targetKey: 'target-beta', entityType: 'host', entityRef: sharedRef, metricName: 'memory_used_percent', ts: timestamp, value: 75 },
+    ]);
+
+    const alpha = metricsHistoryService.listEntitySeries('host', sharedRef, '24h', 'target-alpha');
+    const beta = metricsHistoryService.listEntitySeries('host', sharedRef, '24h', 'target-beta');
+    const latestAlpha = alpha.metrics.find((metric) => metric.metricName === 'memory_used_percent').points.at(-1);
+    const latestBeta = beta.metrics.find((metric) => metric.metricName === 'memory_used_percent').points.at(-1);
+
+    expect(latestAlpha.value).toBe(25);
+    expect(latestBeta.value).toBe(75);
+  });
+
   it('supports manual collection runs with collector metadata', async () => {
     const auth = await login();
     const res = await request('POST', '/api/metrics/collect', {}, auth.cookie);
@@ -321,6 +339,7 @@ describe('Metrics Routes', () => {
 
   it('serves longer ranges from hourly rollups even after raw samples age out', async () => {
     const auth = await login();
+    const targetKey = getPerfDb().prepare('SELECT target_key FROM metric_samples WHERE target_key != ? LIMIT 1').get('')?.target_key || '';
     const now = Date.now();
     const oldTs = now - (29 * 24 * 60 * 60 * 1000);
     const newTs = now - (2 * 60 * 60 * 1000);
@@ -328,6 +347,7 @@ describe('Metrics Routes', () => {
 
     metricSampleModel.insertMany([
       {
+        targetKey,
         entityType: 'host',
         entityRef: 'OpaqueRef:host1',
         metricName: 'memory_total_bytes',
@@ -335,6 +355,7 @@ describe('Metrics Routes', () => {
         value: 68719476736,
       },
       {
+        targetKey,
         entityType: 'host',
         entityRef: 'OpaqueRef:host1',
         metricName: 'memory_used_bytes',
@@ -342,6 +363,7 @@ describe('Metrics Routes', () => {
         value: 51539607552,
       },
       {
+        targetKey,
         entityType: 'host',
         entityRef: 'OpaqueRef:host1',
         metricName: 'memory_total_bytes',
@@ -349,6 +371,7 @@ describe('Metrics Routes', () => {
         value: 68719476736,
       },
       {
+        targetKey,
         entityType: 'host',
         entityRef: 'OpaqueRef:host1',
         metricName: 'memory_used_bytes',
@@ -356,6 +379,7 @@ describe('Metrics Routes', () => {
         value: 42949672960,
       },
       {
+        targetKey,
         entityType: 'host',
         entityRef: 'OpaqueRef:host1',
         metricName: 'memory_free_bytes',

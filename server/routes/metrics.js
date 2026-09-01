@@ -9,7 +9,7 @@ async function ensureRecentSnapshot(req, force = false) {
     req.xenApi,
     {
       sessionId: req.session?.id || '',
-      targetKey: req.session?.currentTargetKey || '',
+      targetKey: req.xenTarget?.targetKey || req.session?.activeXenTargetKey || '',
       host: req.xenApi?.host || '',
     },
     {
@@ -22,7 +22,7 @@ async function ensureRecentSnapshot(req, force = false) {
 router.get('/cluster', validate(schemas.metricRangeQuery, 'query'), async (req, res) => {
   try {
     await ensureRecentSnapshot(req);
-    res.json(metricsHistoryService.listClusterSeries(req.query.range));
+    res.json(metricsHistoryService.listClusterSeries(req.query.range, req.xenTarget?.targetKey || ''));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -31,7 +31,7 @@ router.get('/cluster', validate(schemas.metricRangeQuery, 'query'), async (req, 
 router.get('/capacity-baseline', async (req, res) => {
   try {
     await ensureRecentSnapshot(req);
-    res.json(metricsHistoryService.listCapacityBaseline());
+    res.json(metricsHistoryService.listCapacityBaseline(req.xenTarget?.targetKey || ''));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -66,7 +66,7 @@ router.post('/collect', async (req, res) => {
 router.get('/hosts/:ref', validate(schemas.opaqueRefParam, 'params'), validate(schemas.metricRangeQuery, 'query'), async (req, res) => {
   try {
     await ensureRecentSnapshot(req);
-    res.json(metricsHistoryService.listEntitySeries('host', req.params.ref, req.query.range));
+    res.json(metricsHistoryService.listEntitySeries('host', req.params.ref, req.query.range, req.xenTarget?.targetKey || ''));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -75,7 +75,7 @@ router.get('/hosts/:ref', validate(schemas.opaqueRefParam, 'params'), validate(s
 router.get('/vms/:ref', validate(schemas.opaqueRefParam, 'params'), validate(schemas.metricRangeQuery, 'query'), async (req, res) => {
   try {
     await ensureRecentSnapshot(req);
-    res.json(metricsHistoryService.listEntitySeries('vm', req.params.ref, req.query.range));
+    res.json(metricsHistoryService.listEntitySeries('vm', req.params.ref, req.query.range, req.xenTarget?.targetKey || ''));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -84,7 +84,7 @@ router.get('/vms/:ref', validate(schemas.opaqueRefParam, 'params'), validate(sch
 router.get('/storage/:ref', validate(schemas.opaqueRefParam, 'params'), validate(schemas.metricRangeQuery, 'query'), async (req, res) => {
   try {
     await ensureRecentSnapshot(req);
-    res.json(metricsHistoryService.listEntitySeries('sr', req.params.ref, req.query.range));
+    res.json(metricsHistoryService.listEntitySeries('sr', req.params.ref, req.query.range, req.xenTarget?.targetKey || ''));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

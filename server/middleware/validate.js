@@ -98,6 +98,10 @@ const schemas = {
       Joi.number().integer().min(1),
       Joi.allow(null)
     ).default(null),
+    hostTargetId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     connectionName: Joi.string().allow('').max(120).default(''),
     port: Joi.number().integer().min(1).max(65535).default(443),
     vaultCredentialId: Joi.alternatives().try(
@@ -106,6 +110,9 @@ const schemas = {
     ).default(null),
   }).custom((value, helpers) => {
     if (!String(value.password || '').trim() && !value.vaultCredentialId) {
+      return helpers.error('any.invalid');
+    }
+    if (value.connectionId && value.hostTargetId) {
       return helpers.error('any.invalid');
     }
     return value;
@@ -483,6 +490,46 @@ const schemas = {
   vmNicDisconnect: Joi.object({
     force: Joi.boolean().default(true),
   }),
+  vmCreate: Joi.object({
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    creationMode: Joi.string().valid('operating-system', 'template').required(),
+    sourceRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    operatingSystemProfileId: Joi.string().allow('').max(80).default(''),
+    hostRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    vcpus: Joi.number().integer().min(1).max(64).default(2),
+    memoryGiB: Joi.number().min(1).max(1024).default(4),
+    coresPerSocket: Joi.number().integer().valid(1, 2, 4, 8, 16, 32).default(1),
+    installMedia: Joi.string().valid('iso', 'pxe', 'none').default('iso'),
+    bootMode: Joi.string().valid('bios', 'uefi', 'uefi-secure').default('bios'),
+    addVtpm: Joi.boolean().default(false),
+    vmGroupRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    vgpuTypeRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    gpuGroupRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    diskPlan: Joi.array().items(Joi.object({
+      sourceDevice: Joi.string().allow('').max(12).default(''),
+      srRef: Joi.string().required().pattern(/^OpaqueRef:/),
+      sizeGiB: Joi.number().integer().min(1).max(65536).required(),
+      nameLabel: Joi.string().allow('').max(120).default(''),
+      nameDescription: Joi.string().allow('').max(500).default(''),
+      bootable: Joi.boolean().default(false),
+    })).min(1).max(16).required(),
+    isoVdiRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
+    networkInterfaces: Joi.array().items(Joi.object({
+      networkRef: Joi.string().required().pattern(/^OpaqueRef:/),
+      mac: Joi.string().allow('').max(64).default(''),
+    })).max(16).default([]),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+    startAfter: Joi.boolean().default(false),
+  }).custom((value, helpers) => {
+    if (value.creationMode === 'operating-system' && !value.diskPlan.some((disk) => disk.bootable)) return helpers.error('any.custom', { message: 'An operating-system installation requires a bootable root disk.' });
+    if (value.addVtpm && value.bootMode !== 'uefi-secure') return helpers.error('any.custom', { message: 'A virtual TPM requires UEFI Secure Boot.' });
+    if (value.vcpus % value.coresPerSocket !== 0) return helpers.error('any.custom', { message: 'coresPerSocket must divide evenly into vcpus.' });
+    if (value.vgpuTypeRef && !value.gpuGroupRef) return helpers.error('any.custom', { message: 'gpuGroupRef is required when selecting a vGPU profile.' });
+    if (!value.vgpuTypeRef && value.gpuGroupRef) return helpers.error('any.custom', { message: 'vgpuTypeRef is required when selecting a GPU group.' });
+    if (value.installMedia !== 'iso' && value.isoVdiRef) return helpers.error('any.custom', { message: 'isoVdiRef can only be used with ISO installation media.' });
+    return value;
+  }),
   vmDuplicateCreate: Joi.object({
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
@@ -583,6 +630,13 @@ const schemas = {
     tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
     startAfter: Joi.boolean().default(false),
   }),
+  templateCreate: Joi.object({
+    kind: Joi.string().valid('operating-system', 'deployable').required(),
+    sourceRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    nameLabel: Joi.string().trim().required().min(1).max(120),
+    nameDescription: Joi.string().allow('').max(500).default(''),
+    tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
+  }),
   composeDeploy: Joi.object({
     version: Joi.string().valid('1').default('1'),
     name: Joi.string().trim().required().min(1).max(120),
@@ -606,12 +660,15 @@ const schemas = {
         disks: Joi.array().items(Joi.object({
           sr: Joi.string().trim().required().max(200),
           sizeGb: Joi.alternatives().try(Joi.number().positive(), Joi.string().trim().min(1)).required(),
-          bootable: Joi.boolean().default(false),
-          mode: Joi.string().valid('RW', 'RO').default('RW'),
+          nameLabel: Joi.string().trim().max(120).default(''),
+          nameDescription: Joi.string().allow('').max(500).default(''),
+          bootable: Joi.forbidden(),
+          mode: Joi.forbidden(),
         })).max(16).default([]),
         networkInterfaces: Joi.array().items(Joi.object({
           network: Joi.string().trim().required().max(200),
-          device: Joi.string().allow('').max(8).default(''),
+          mac: Joi.string().allow('').pattern(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i).default(''),
+          device: Joi.forbidden(),
         })).max(16).default([]),
         otherConfig: Joi.object().pattern(Joi.string(), Joi.string().allow('')).default({}),
         xenstoreData: Joi.object().pattern(Joi.string(), Joi.string().allow('')).default({}),
@@ -979,6 +1036,25 @@ const schemas = {
   }),
   templateLibraryItemSave: Joi.object({
     content: Joi.string().allow('').max(200000).required(),
+  }),
+  vFabricIdParam: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+  }),
+  vFabricCreate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    description: Joi.string().allow('').max(500).default(''),
+    colorTag: Joi.string().valid('green', 'cyan', 'amber', 'red').default('green'),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
+    connectionIds: Joi.array().items(Joi.number().integer().min(1)).unique().max(100).default([]),
+    hostTargetIds: Joi.array().items(Joi.number().integer().min(1)).unique().max(100).default([]),
+  }),
+  vFabricUpdate: Joi.object({
+    name: Joi.string().trim().required().min(1).max(120),
+    description: Joi.string().allow('').max(500).default(''),
+    colorTag: Joi.string().valid('green', 'cyan', 'amber', 'red').default('green'),
+    visibility: Joi.string().valid('private', 'shared').default('private'),
+    connectionIds: Joi.array().items(Joi.number().integer().min(1)).unique().max(100).default([]),
+    hostTargetIds: Joi.array().items(Joi.number().integer().min(1)).unique().max(100).default([]),
   }),
 };
 

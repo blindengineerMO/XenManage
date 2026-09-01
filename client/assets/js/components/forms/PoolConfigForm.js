@@ -55,13 +55,35 @@ const PoolConfigForm = {
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
-      <div class="form-group">
-        <label for="pool-config-name">Pool Name</label>
-        <input id="pool-config-name"
-               class="form-input"
-               v-model="draft.nameLabel"
-               placeholder="Production Pool"
-               required>
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="pool-config-name">Pool Name</label>
+          <input id="pool-config-name"
+                 class="form-input"
+                 v-model="draft.nameLabel"
+                 placeholder="Production Pool"
+                 required>
+        </div>
+
+        <div class="form-group">
+          <label for="pool-config-default-sr">Default Storage Repository</label>
+          <select id="pool-config-default-sr"
+                  class="form-select"
+                  v-model="draft.defaultSrRef">
+            <option value="" disabled>Select a pool-scoped SR</option>
+            <option v-for="option in normalizedStorageOptions"
+                    :key="option.value"
+                    :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+          <div class="login-meta-note" v-if="normalizedStorageOptions.length">
+            Pick the default SR for storage-first workflows in this pool.
+          </div>
+          <div class="login-meta-note" v-else>
+            No pool-scoped repositories are available, so the current default is preserved.
+          </div>
+        </div>
       </div>
 
       <div class="form-group">
@@ -73,38 +95,28 @@ const PoolConfigForm = {
                   placeholder="Describe the pool role, tenancy, or operator notes."></textarea>
       </div>
 
-      <div class="form-group">
-        <label for="pool-config-default-sr">Default Storage Repository</label>
-        <select id="pool-config-default-sr"
-                class="form-select"
-                v-model="draft.defaultSrRef">
-          <option value="" disabled>Select a pool-scoped SR</option>
-          <option v-for="option in normalizedStorageOptions"
-                  :key="option.value"
-                  :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <div class="login-meta-note" v-if="normalizedStorageOptions.length">
-          Pick the default SR that operators should use for storage-first workflows in this pool.
-        </div>
-        <div class="login-meta-note" v-else>
-          No storage repositories are currently scoped to this pool, so the existing default SR will be preserved.
-        </div>
-      </div>
-
       <div class="text-muted mono" style="font-size:11px;margin-bottom:12px">
         This editor updates the operator-facing pool label, description, default SR, migration policy, WLB posture, IGMP snooping policy, tags, and custom metadata. Use one <code>key=value</code> pair per line for pool-specific metadata.
       </div>
 
-      <div class="form-group">
-        <label for="pool-config-vswitch-controller">Legacy vSwitch Controller</label>
-        <input id="pool-config-vswitch-controller"
-               class="form-input"
-               v-model="draft.vswitchController"
-               placeholder="10.42.0.80">
-        <div class="login-meta-note">
-          Deprecated upstream since XenServer 7.2. Use this only when the connected pool still relies on the legacy pool-level Open vSwitch controller field instead of <code>SDN_controller</code> workflows.
+      <div class="vm-inline-form-grid">
+        <div class="form-group">
+          <label for="pool-config-vswitch-controller">Legacy vSwitch Controller</label>
+          <input id="pool-config-vswitch-controller"
+                 class="form-input"
+                 v-model="draft.vswitchController"
+                 placeholder="10.42.0.80">
+          <div class="login-meta-note">
+            Use only for legacy pool-level Open vSwitch controller setups.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="pool-config-tags">Pool Tags</label>
+          <input id="pool-config-tags"
+                 class="form-input"
+                 v-model="draft.tags"
+                 placeholder="prod, west, governed">
         </div>
       </div>
 
@@ -142,14 +154,6 @@ const PoolConfigForm = {
         <div class="login-meta-note">
           Keeps multicast membership tracking explicit at the pool level for workloads that rely on broadcast containment.
         </div>
-      </div>
-
-      <div class="form-group">
-        <label for="pool-config-tags">Pool Tags</label>
-        <input id="pool-config-tags"
-               class="form-input"
-               v-model="draft.tags"
-               placeholder="prod, west, governed">
       </div>
 
       <div class="form-group">

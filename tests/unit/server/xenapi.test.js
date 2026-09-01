@@ -1820,5 +1820,56 @@ describe('XenAPI', () => {
         name_label: 'ubuntu-prod-02',
       }));
     });
+
+    it('deployComposeVM provisions a golden clone without erasing template metadata', async () => {
+      jest.spyOn(xenApi, 'getVmCreationSources').mockResolvedValue({
+        operatingSystems: [],
+        deployableTemplates: [{ ref: 'OpaqueRef:golden', name_label: 'ubuntu-24-golden' }],
+      });
+      jest.spyOn(xenApi, 'cloneVM').mockResolvedValue('OpaqueRef:vm-compose');
+      const callSpy = jest.spyOn(xenApi, 'call').mockImplementation(async (className, methodName) => {
+        if (className === 'VM' && methodName === 'get_allowed_VIF_devices') return ['0', '1'];
+        return undefined;
+      });
+      const setFieldSpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
+      const destroySpy = jest.spyOn(xenApi, 'destroy').mockResolvedValue(undefined);
+      const diskSpy = jest.spyOn(xenApi, 'addVMDisk').mockResolvedValue({ success: true });
+      const nicSpy = jest.spyOn(xenApi, 'addVMNic').mockResolvedValue({ success: true });
+      const startSpy = jest.spyOn(xenApi, 'startVM').mockResolvedValue(undefined);
+      jest.spyOn(xenApi, 'getRecord')
+        .mockResolvedValueOnce({
+          VIFs: ['OpaqueRef:template-vif'],
+          other_config: { 'template-key': 'retained' },
+          xenstore_data: { 'template-data': 'retained' },
+        })
+        .mockResolvedValueOnce({ name_label: 'web-01', power_state: 'Running' });
+
+      const result = await xenApi.deployComposeVM('OpaqueRef:golden', {
+        nameLabel: 'web-01',
+        memoryStaticMax: 4294967296,
+        memoryDynamicMin: 2147483648,
+        memoryDynamicMax: 4294967296,
+        vcpusAtStartup: 2,
+        vcpusMax: 4,
+        affinity: 'OpaqueRef:host1',
+        disks: [{ srRef: 'OpaqueRef:sr1', sizeBytes: 42949672960, nameLabel: 'web-01-data' }],
+        networkInterfaces: [{ networkRef: 'OpaqueRef:net1', mac: '02:16:3e:10:00:01' }],
+        otherConfig: { 'compose-key': 'set' },
+        xenstoreData: { 'compose-data': 'set' },
+        startAfter: true,
+      });
+
+      expect(callSpy).toHaveBeenCalledWith('VM', 'remove_from_other_config', ['OpaqueRef:vm-compose', 'disks']);
+      expect(callSpy).toHaveBeenCalledWith('VM', 'provision', ['OpaqueRef:vm-compose']);
+      expect(setFieldSpy).toHaveBeenCalledWith('VM', 'OpaqueRef:vm-compose', 'other_config', {
+        'template-key': 'retained',
+        'compose-key': 'set',
+      });
+      expect(destroySpy).toHaveBeenCalledWith('VIF', 'OpaqueRef:template-vif');
+      expect(diskSpy).toHaveBeenCalledWith('OpaqueRef:vm-compose', expect.objectContaining({ bootable: false }));
+      expect(nicSpy).toHaveBeenCalledWith('OpaqueRef:vm-compose', expect.objectContaining({ deviceLabel: '0' }));
+      expect(startSpy).toHaveBeenCalledWith('OpaqueRef:vm-compose', false, false);
+      expect(result).toEqual(expect.objectContaining({ ref: 'OpaqueRef:vm-compose', name_label: 'web-01' }));
+    });
   });
 });

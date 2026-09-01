@@ -32,6 +32,17 @@ function normalizeHostTargetRecord(record) {
   };
 }
 
+function normalizeVFabricRecord(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    id: Number(record.id),
+    owner_user_id: normalizeOwnerUserId(record.owner_user_id),
+    visibility: normalizeVisibility(record.visibility, record.owner_user_id ? 'private' : 'shared'),
+    members: Array.isArray(record.members) ? record.members : [],
+  };
+}
+
 function normalizeDeploymentRunRecord(record) {
   if (!record) return null;
   return {
@@ -225,6 +236,28 @@ function initializeSchema() {
       content TEXT NOT NULL,
       saved_by INTEGER,
       saved_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS vfabrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      color_tag TEXT NOT NULL DEFAULT 'green',
+      owner_user_id INTEGER,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS vfabric_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vfabric_id INTEGER NOT NULL REFERENCES vfabrics(id) ON DELETE CASCADE,
+      connection_id INTEGER REFERENCES connections(id) ON DELETE CASCADE,
+      host_target_id INTEGER REFERENCES host_targets(id) ON DELETE CASCADE,
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      CHECK ((connection_id IS NOT NULL AND host_target_id IS NULL) OR (connection_id IS NULL AND host_target_id IS NOT NULL)),
+      UNIQUE(vfabric_id, connection_id),
+      UNIQUE(vfabric_id, host_target_id)
     );
   `);
 
@@ -580,6 +613,82 @@ const hostTargetModel = {
 
   delete(id) {
     getDb().prepare('DELETE FROM host_targets WHERE id = ?').run(id);
+  },
+};
+
+const vFabricModel = {
+  listVisible(actor = {}) {
+    const { clause, params } = buildVisibilityFilter(actor, 'vfabrics');
+    return getDb().prepare(`SELECT * FROM vfabrics WHERE ${clause} ORDER BY name`).all(...params)
+      .map((record) => this.getById(record.id))
+      .map(normalizeVFabricRecord);
+  },
+
+  getById(id) {
+    const record = getDb().prepare('SELECT * FROM vfabrics WHERE id = ?').get(id);
+    if (!record) return null;
+    const members = getDb().prepare(`
+      SELECT members.id, members.connection_id, members.host_target_id, members.added_at,
+        connections.name AS connection_name, connections.host AS connection_host, connections.visibility AS connection_visibility, connections.owner_user_id AS connection_owner_user_id,
+        host_targets.name AS host_target_name, host_targets.host AS host_target_host, host_targets.visibility AS host_target_visibility, host_targets.owner_user_id AS host_target_owner_user_id
+      FROM vfabric_members AS members
+      LEFT JOIN connections ON connections.id = members.connection_id
+      LEFT JOIN host_targets ON host_targets.id = members.host_target_id
+      WHERE members.vfabric_id = ?
+      ORDER BY members.id
+    `).all(id).map((member) => ({
+      ...member,
+      kind: member.connection_id ? 'pool' : 'host',
+      target_id: member.connection_id || member.host_target_id,
+      name: member.connection_id ? member.connection_name : member.host_target_name,
+      host: member.connection_id ? member.connection_host : member.host_target_host,
+      visibility: member.connection_id ? member.connection_visibility : member.host_target_visibility,
+      owner_user_id: normalizeOwnerUserId(member.connection_id ? member.connection_owner_user_id : member.host_target_owner_user_id),
+    }));
+    return normalizeVFabricRecord({ ...record, members });
+  },
+
+  create({ name, description = '', colorTag = 'green', ownerUserId = null, visibility = 'private', connectionIds = [], hostTargetIds = [] }) {
+    const database = getDb();
+    const normalizedOwner = normalizeOwnerUserId(ownerUserId);
+    const normalizedVisibility = normalizedOwner ? normalizeVisibility(visibility, 'private') : 'shared';
+    const result = database.prepare(`
+      INSERT INTO vfabrics (name, description, color_tag, owner_user_id, visibility)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(name, description, colorTag, normalizedOwner, normalizedVisibility);
+    this.replaceMembers(result.lastInsertRowid, { connectionIds, hostTargetIds });
+    return this.getById(result.lastInsertRowid);
+  },
+
+  update(id, { name, description = '', colorTag = 'green', ownerUserId, visibility, connectionIds = [], hostTargetIds = [] }) {
+    const existing = this.getById(id);
+    const nextOwner = ownerUserId === undefined ? existing?.owner_user_id : normalizeOwnerUserId(ownerUserId);
+    const nextVisibility = nextOwner ? normalizeVisibility(visibility, existing?.visibility || 'private') : 'shared';
+    getDb().prepare(`
+      UPDATE vfabrics
+      SET name = ?, description = ?, color_tag = ?, owner_user_id = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(name, description, colorTag, nextOwner, nextVisibility, id);
+    this.replaceMembers(id, { connectionIds, hostTargetIds });
+    return this.getById(id);
+  },
+
+  replaceMembers(id, { connectionIds = [], hostTargetIds = [] }) {
+    const database = getDb();
+    const uniqueConnections = [...new Set(connectionIds.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
+    const uniqueHosts = [...new Set(hostTargetIds.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
+    const replace = database.transaction(() => {
+      database.prepare('DELETE FROM vfabric_members WHERE vfabric_id = ?').run(id);
+      const addConnection = database.prepare('INSERT INTO vfabric_members (vfabric_id, connection_id) VALUES (?, ?)');
+      const addHost = database.prepare('INSERT INTO vfabric_members (vfabric_id, host_target_id) VALUES (?, ?)');
+      uniqueConnections.forEach((memberId) => addConnection.run(id, memberId));
+      uniqueHosts.forEach((memberId) => addHost.run(id, memberId));
+    });
+    replace();
+  },
+
+  delete(id) {
+    getDb().prepare('DELETE FROM vfabrics WHERE id = ?').run(id);
   },
 };
 
@@ -1016,4 +1125,4 @@ const templateLibraryModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, hostTargetModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel };
+module.exports = { getDb, connectionModel, hostTargetModel, vFabricModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel };

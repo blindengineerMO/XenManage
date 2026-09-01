@@ -41,7 +41,7 @@ const PromptWindow = {
         <div class="form-group" v-if="label">
           <label>{{ label }}</label>
           <input ref="input"
-                 class="form-control"
+                 class="form-input"
                  type="text"
                  :placeholder="placeholder"
                  v-model="value"

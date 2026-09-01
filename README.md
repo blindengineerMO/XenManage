@@ -43,6 +43,7 @@ Signing in to XenMange is a login to the **application**, not to a XenServer hos
 
 - **Pools workspace → Registered Pool Targets** — saved pool connections (host, username, optional vault credential).
 - **Hosts workspace → Registered Host Targets** — saved standalone-host connections, independent of any pool membership.
+- **vFabrics workspace** — XenMange-only logical groupings that can contain any combination of registered pools and standalone hosts without changing the underlying XenServer topology.
 
 A target can be bound to a credential stored in the encrypted vault (`vault.db`) instead of a plaintext password, and an authenticated control-plane session can attach, switch between, and detach **multiple live Xen targets at once** without ever logging out of XenMange itself. A legacy "Direct Xen Login" path exists for connecting straight to a host at sign-in time, but the intended flow — and the one the app defaults to — is control-plane login first, targets second.
 
@@ -54,13 +55,15 @@ A target can be bound to a credential stored in the encrypted vault (`vault.db`)
 4. **VMs** — power operations, snapshots/checkpoints, fast clone / full copy, same-pool and cross-pool/storage-remapped live migration, a compatibility matrix (`VM.get_possible_hosts` + `VM.assert_can_boot_here`) for mixed-hardware placement, console access, and XVA/metadata import-export — all from the VM details workspace.
 5. **Storage & Networking** — create and manage SRs (NFS, iSCSI, EXT, LVM, or probe/import an existing repository) and networks/VLANs/bonds directly from their workspaces, plus per-VDI resize/delete and per-VIF config/disconnect.
 6. **Templates** — governance metadata (version label, golden-image baseline, validation posture, catalog ownership) per template, plus a compare-and-promote workflow for staged/validated generations and a deployment-validation queue.
-7. **Lifecycle** — maintenance posture, lifecycle-oriented task tracking, heuristic compliance/drift signals, and remediation tasks backed by reusable templates.
-8. **Capacity** — live and persisted trend telemetry, host skew/imbalance detection, storage commitment, and rebalancing guidance (details in [Capacity & Workload Balancing](#capacity--workload-balancing)).
-9. **Resilience** — derived DR/HA readiness, recovery runbooks, and DR drill tracking (details in [Disaster Recovery & Resilience](#disaster-recovery--resilience)).
-10. **Alerts** — a policy-driven triage queue fed by XenServer messages, task failures, and persisted metric thresholds, with bulk acknowledge/state changes.
-11. **Activity** is the federated Log Center — audit history, auth events, alerts, remediation tasks, and XenServer task history in one searchable table, exportable as JSON, HTML, or PDF.
-12. **Governance** — role, quota, and approval administration, plus local user/group management (details below).
-13. **Settings** — runtime configuration (session timeout, trust-proxy behavior, telemetry collector controls), retention policy preview/run, and vault credential management.
+7. **Template Library** — a floating-window file explorer (folders + JSON/YAML/shell/PowerShell/plaintext items) for authoring reusable guest-script snippets and multi-VM compose deployment specs in an in-browser Monaco editor, with save/rename/move/delete and a dry-run-then-deploy flow for compose specs straight from the editor.
+8. **Lifecycle** — maintenance posture, lifecycle-oriented task tracking, heuristic compliance/drift signals, and remediation tasks backed by reusable templates.
+9. **Capacity** — live and persisted trend telemetry, host skew/imbalance detection, storage commitment, and rebalancing guidance (details in [Capacity & Workload Balancing](#capacity--workload-balancing)).
+10. **Resilience** — derived DR/HA readiness, recovery runbooks, and DR drill tracking (details in [Disaster Recovery & Resilience](#disaster-recovery--resilience)).
+11. **Alerts** — a policy-driven triage queue fed by XenServer messages, task failures, and persisted metric thresholds, with bulk acknowledge/state changes.
+12. **Activity** is the federated Log Center — audit history, auth events, alerts, remediation tasks, and XenServer task history in one searchable table, exportable as JSON, HTML, or PDF.
+13. **Governance** — role, quota, and approval administration, plus local user/group management (details below).
+14. **vFabrics** — saved, owner-aware operational scopes spanning registered pools and standalone hosts, with additive membership and no XenServer-side clustering changes.
+15. **Settings** — runtime configuration (session timeout, trust-proxy behavior, telemetry collector controls), retention policy preview/run, and vault credential management.
 
 ## Governance & Compliance
 
@@ -140,12 +143,12 @@ XenMange/
 │   ├── routes/                     # auth, dashboard, vms, hosts, storage, networks, pools, tasks,
 │   │                                #   resilience, lifecycle, alerts, audit, governance, users,
 │   │                                #   groups, credentials, host-targets, workspaces, system-config,
-│   │                                #   logs, metrics, api (saved connections)
+│   │                                #   logs, metrics, template-library, api (saved connections)
 │   ├── services/                   # governance, resilience(+runbooks), template-governance,
 │   │                                #   remediation-tasks(+templates), lifecycle-plans, alerts,
 │   │                                #   telemetry-alerts, metrics-collector, metrics-history,
 │   │                                #   credential-vault, retention, log-center, audit-log,
-│   │                                #   resource-ownership, system-config, xenapi
+│   │                                #   resource-ownership, system-config, template-library, xenapi
 │   └── views/                      # app.ejs (SSR shell), log-export.ejs, 404.ejs, 500.ejs
 ├── client/
 │   ├── index.html                  # Vue SPA entry
@@ -161,7 +164,7 @@ XenMange/
 │       │   │   ├── dialogs/         # FloatingWindow
 │       │   │   ├── forms/           # ~45 domain forms (VM/host/storage/network/governance/...)
 │       │   │   └── layout/          # AppShell, SideNav, StatusBar, TopNav
-│       │   └── views/               # One file per route-level workspace (16 workspaces)
+│       │   └── views/               # One file per route-level workspace (17 workspaces)
 │       └── images/
 ├── tests/
 │   ├── unit/server/                # Jest: routes, middleware, services
@@ -428,6 +431,63 @@ curl -b cookies.txt -X PUT "http://localhost:3000/api/vms/templates/deployments/
 curl -b cookies.txt -X POST "http://localhost:3000/api/vms/templates/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/deploy" \
   -H "Content-Type: application/json" \
   -d '{"nameLabel": "web-app-03", "hostRef": "OpaqueRef:host-1111-2222", "storageRef": "OpaqueRef:sr-3333-4444", "networkRef": "OpaqueRef:net-5555-6666", "vcpus": 4, "memoryStaticMax": 4294967296, "tags": ["web"], "startAfter": true}'
+```
+
+#### Compose Deployment
+
+Multi-VM deployment specs authored as JSON in the [Template Library](#template-library) workspace (or posted directly). A spec deploys one or more **deployable golden templates**, resolves shared network/SR aliases, and provisions entries in `dependsOn` order in a single call.
+
+Compose is deliberately a golden-image deployment path, not a replacement for the New VM installer. Its `template` must be a deployable template with an installed boot disk (an existing golden image or one created with **Create Golden Template**). Empty operating-system profiles are rejected here; use **New VM from Operating System** for ISO/PXE installation. Each declared `disks` entry is an additional RW data disk. The source template's boot disks and platform metadata are retained. `networkInterfaces` replaces inherited template VIFs, and XenServer assigns supported VIF device slots automatically.
+
+### Bundled Diskless OS Profiles
+
+**New VM from Operating System** includes a XenMange-managed catalogue of diskless installation profiles. Operators do not need to create a separate empty template for common guests: Windows Server 2003, 2008 R2, 2012 R2, 2016, 2019, 2022, and 2025; Windows 10 and 11; Ubuntu Server 22.04/24.04; Debian 12; Rocky Linux 9; RHEL 9; SLES 15; and generic Linux/install-media profiles are included.
+
+The catalogue resolves each choice against the connected pool's real empty XenServer templates. It prefers a pool-provided matching profile and otherwise uses the stock `Other install media` diskless template, then applies the profile's practical firmware, CPU, memory, and root-disk defaults in the wizard. This remains a supported `VM.copy`/`VM.provision` flow; XenMange never uses deprecated `VM.create` to manufacture templates. If a pool has neither a matching empty profile nor `Other install media`, the bundled options are intentionally unavailable until the host's standard XenServer templates are restored.
+
+##### `POST /api/vms/compose/dry-run`
+
+- **Auth:** Session + attached live target (`requireXenConnection`) — read-only, no governance mutation gate.
+- **Description:** Validates and resolves a compose spec (templates, networks, SRs, dependency order) without creating anything, returning the resolved plan.
+- **Body params:** see `composeDeploy` schema under `POST /api/vms/compose/deploy` below.
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/compose/dry-run" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"web-tier","vms":{"web-01":{"template":"ubuntu-24-golden","nameLabel":"web-01","memoryStaticMax":4294967296}}}'
+```
+
+##### `POST /api/vms/compose/deploy`
+
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `compose_deploy`).
+- **Description:** Executes a compose spec, creating (and optionally starting) each declared VM in dependency order. Returns `201` when every VM deployed cleanly, or `207` with per-VM failure detail if any VM in the spec failed.
+- **Body params:**
+  - `version` — string, must be `"1"`, default `"1"`
+  - `name` — string, required, 1-120 chars
+  - `variables` — object of string→(string\|number\|boolean), default `{}` — substitution values referenced elsewhere in the spec
+  - `networks` — object mapping a spec-local alias to `{ ref }` (network `OpaqueRef`), default `{}`
+  - `storageRepositories` — object mapping a spec-local alias to `{ ref }` (SR `OpaqueRef`), default `{}`
+  - `targetKey` — string, optional, max 200 — which attached live target to deploy against
+  - `startAfter` — boolean, default `true`
+  - `vms` — object, required, 1-32 entries, keyed by a spec-local VM alias (1-64 chars), each value:
+    - `template` — string, required, 1-200 chars — deployable golden template name, UUID, or `OpaqueRef`; operating-system profiles are rejected
+    - `nameLabel` — string, required, 1-120 chars
+    - `nameDescription` — string, ≤500 chars, default `''`
+    - `memoryStaticMax` — number or numeric string, required
+    - `memoryDynamicMin` / `memoryDynamicMax` — number or numeric string, optional; must satisfy `dynamicMin <= dynamicMax <= memoryStaticMax`
+    - `vcpusAtStartup` / `vcpusMax` — number or numeric string, default `1`; `vcpusAtStartup` cannot exceed `vcpusMax`
+    - `affinity` — host `OpaqueRef` or `null`, default `null`
+    - `disks` — additional data disks, array (max 16) of `{ sr, sizeGb, nameLabel?, nameDescription? }`; `sr` and `sizeGb` are required. Compose does not replace or redefine golden-template boot disks.
+    - `networkInterfaces` — replacement network configuration, array (max 16) of `{ network, mac? }`; `network` is required and device slots are allocated through `VM.get_allowed_VIF_devices`
+    - `otherConfig` / `xenstoreData` — object of string→string, default `{}`; supplied keys merge with the cloned template metadata rather than deleting it
+    - `tags` — array of strings (≤64 chars each), max 24, default `[]`
+    - `dependsOn` — array of other VM aliases in this spec (max 32) — this VM deploys only after they succeed
+    - `startAfter` — boolean, optional — overrides the spec-level `startAfter` for this VM
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vms/compose/deploy" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"web-tier","startAfter":true,"vms":{"web-01":{"template":"ubuntu-24-golden","nameLabel":"web-01","memoryStaticMax":4294967296,"vcpusAtStartup":2,"vcpusMax":2,"disks":[{"sr":"Tier-1 SSD SR","sizeGb":40,"nameLabel":"web-01-data"}],"networkInterfaces":[{"network":"VMLAN Production"}]}}}'
 ```
 
 #### VM Detail
@@ -818,6 +878,19 @@ curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-
 curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/maintenance/exit"
 ```
 
+#### `POST /api/hosts/:ref/multipathing`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `host_multipathing_update`).
+- **Path params:** `ref` (string, required) — host `OpaqueRef`
+- **Description:** Toggles storage multipathing on the host, mirroring XenCenter's own approach: unplugs every attached PBD, sets the `multipathing`/`multipathhandle` keys in `host.other_config`, then replugs the PBDs (best-effort, in a `finally` block) so storage repositories come back attached either way.
+- **Body params:** `enabled` (boolean, required) · `approvalId` (string, ≤120 chars, default `''`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/hosts/OpaqueRef:abcd1234-ef56-7890-abcd-1234567890ab/multipathing" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
 #### `POST /api/hosts/:ref/reboot`
 
 - **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `host_reboot`).
@@ -1006,6 +1079,99 @@ curl -b cookies.txt -X DELETE "http://localhost:3000/api/storage/OpaqueRef:sr-12
   -d '{"approvalId": "42"}'
 ```
 
+#### `POST /api/storage/:ref/vdis/:vdiRef/clone`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `vdi_snapshot` if `snapshot: true`, otherwise `vdi_clone`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef` · `vdiRef` (string, required) — VDI `OpaqueRef`
+- **Body params:** `nameLabel` (string, optional, max 120) · `snapshot` (boolean, default `false` — clone vs. XAPI snapshot) · `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/vdis/OpaqueRef:vdi-5678/clone" \
+  -H "Content-Type: application/json" \
+  -d '{"nameLabel": "data-disk-2-clone", "snapshot": false}'
+```
+
+#### `POST /api/storage/:ref/vdis/:vdiRef/attach-cd`
+
+- **Auth:** Session + attached live target, operator/admin role required (actionKey: `vdi_attach_cd`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef` · `vdiRef` (string, required) — VDI `OpaqueRef`, expected to be an ISO
+- **Body params:** `vmRef` (string, required) — VM `OpaqueRef` to attach the ISO to as a CD · `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/vdis/OpaqueRef:vdi-iso/attach-cd" \
+  -H "Content-Type: application/json" \
+  -d '{"vmRef": "OpaqueRef:vm-abcd"}'
+```
+
+#### `GET /api/storage/:ref/files`
+
+- **Auth:** Session + attached live target.
+- **Description:** Lists the contents of a directory on an ISO-library-style SR (backed by `storage-file-browser` service, keyed on the SR's UUID).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Query params:** `path` (string, optional, max 1024 chars, default `''` — the SR root)
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/storage/OpaqueRef:sr-1234/files?path=isos"
+```
+
+#### `POST /api/storage/:ref/files/mkdir`
+
+- **Auth:** Session + attached live target, governance-gated (actionKey: `sr_file_mkdir`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `path` (string, optional, max 1024 chars, default `''` — parent directory) · `name` (string, required, 1-255 chars, no `/` or `\`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/files/mkdir" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "isos", "name": "windows"}'
+```
+
+#### `POST /api/storage/:ref/files/upload`
+
+- **Auth:** Session + attached live target, governance-gated (actionKey: `sr_file_upload`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Description:** Multipart file upload (field name `file`) written to the given destination directory.
+- **Body params:** `file` (multipart file, required) · `path` (string, optional — destination directory)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/files/upload" \
+  -F "path=isos/windows" \
+  -F "file=@/path/to/win-server-2022.iso"
+```
+
+#### `GET /api/storage/:ref/files/download`
+
+- **Auth:** Session + attached live target.
+- **Description:** Streams the file at `path` as an attachment download.
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Query params:** `path` (string, required, 1-1024 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -O -J "http://localhost:3000/api/storage/OpaqueRef:sr-1234/files/download?path=isos/windows/win-server-2022.iso"
+```
+
+#### `POST /api/storage/:ref/files/move`
+
+- **Auth:** Session + attached live target, governance-gated (actionKey: `sr_file_move`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Body params:** `fromPath` (string, required, 1-1024 chars) · `toPath` (string, required, 1-1024 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/storage/OpaqueRef:sr-1234/files/move" \
+  -H "Content-Type: application/json" \
+  -d '{"fromPath": "isos/windows/win2022.iso", "toPath": "isos/archive/win2022.iso"}'
+```
+
+#### `DELETE /api/storage/:ref/files`
+
+- **Auth:** Session + attached live target, governance-gated; destructive — needs a governance approval in operator mode (actionKey: `sr_file_delete`).
+- **Path params:** `ref` (string, required) — SR `OpaqueRef`
+- **Query params:** `path` (string, required, 1-1024 chars) · `approvalId` (string, optional unless required by policy, max 120)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/storage/OpaqueRef:sr-1234/files?path=isos/windows/win2022.iso&approvalId=42"
+```
+
 ### Networking *(requires target)*
 
 #### `GET /api/networks`
@@ -1143,6 +1309,41 @@ curl -b cookies.txt -X PUT "http://localhost:3000/api/pools/OpaqueRef:pool-1234/
 curl -b cookies.txt -X POST "http://localhost:3000/api/pools/OpaqueRef:pool-1234/ha" \
   -H "Content-Type: application/json" \
   -d '{"enabled": true, "heartbeatSrRefs": ["OpaqueRef:sr-1234"], "haHostFailuresToTolerate": 1}'
+```
+
+#### `GET /api/pools/:ref/updates`
+
+- **Auth:** Session + attached live target — read-only, no governance mutation gate.
+- **Path params:** `ref` (string, required) — pool `OpaqueRef` (not otherwise used; the update listing is pool-wide via XAPI)
+- **Description:** Lists pending/applied software updates. Tries the modern `pool_update` XAPI class first and falls back to the legacy `pool_patch` class on older XenServer/XCP-ng hosts, returning `{ kind: 'pool_update' | 'pool_patch', updates: [...] }` where each entry carries `pendingHostRefs`, `fullyApplied`, and `guidanceIncludesReboot`. Uploading and applying new updates is not yet supported in-app — this endpoint is read-only visibility only.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/pools/OpaqueRef:pool-1234/updates"
+```
+
+#### `POST /api/pools/join`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `pool_join`).
+- **Description:** Joins a standalone host into an existing pool (`Pool.join`/`Pool.join_force`) using credentials for both the joining host and the target pool's coordinator.
+- **Body params:** `joiningHostAddress` (string, required, max 255) · `joiningHostUsername` (string, required, max 120) · `joiningHostPassword` (string, required, max 255) · `masterAddress` (string, required, max 255) · `masterUsername` (string, required, max 120) · `masterPassword` (string, required, max 255) · `force` (boolean, default `false` — skips compatibility checks via `Pool.join_force`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/pools/join" \
+  -H "Content-Type: application/json" \
+  -d '{"joiningHostAddress": "xen-host-02.example.com", "joiningHostUsername": "root", "joiningHostPassword": "xen-password", "masterAddress": "xen-host-01.example.com", "masterUsername": "root", "masterPassword": "xen-password", "force": false}'
+```
+
+#### `POST /api/pools/:ref/eject`
+
+- **Auth:** Session + attached live target, operator/admin role required; destructive — needs a governance approval in operator mode (actionKey: `pool_host_eject`).
+- **Path params:** `ref` (string, required) — pool `OpaqueRef`
+- **Description:** Ejects a member host from the pool, reverting it to standalone. The pool coordinator cannot be ejected (`409 POOL_EJECT_MASTER_NOT_SUPPORTED`) — promote a different host first.
+- **Body params:** `hostRef` (string, required, `OpaqueRef` pattern) · `approvalId` (string, optional, allow empty)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/pools/OpaqueRef:pool-1234/eject" \
+  -H "Content-Type: application/json" \
+  -d '{"hostRef": "OpaqueRef:host-5555-6666"}'
 ```
 
 ### Dashboard
@@ -1866,6 +2067,43 @@ curl -b cookies.txt -X PUT "http://localhost:3000/api/host-targets/9" \
 curl -b cookies.txt -X DELETE "http://localhost:3000/api/host-targets/9?approvalId=appr_123"
 ```
 
+### vFabrics
+
+Mounted at `/api/vfabrics` behind control-plane authentication only (`requireAuth`) — a vFabric is XenMange metadata, not a XenAPI cluster object. Its membership can include saved pool targets (`connections`) and standalone host targets (`host_targets`); deleting a vFabric only removes that metadata and never disconnects or deletes the underlying target registration. Records follow the standard owner/visibility model, mutating routes pass through governance, and every create/update/delete is audit logged.
+
+The TopNav **Read Scope** selector can expand a vFabric to the members currently attached to the control-plane session. It aggregates Dashboard and Capacity reads across those attached targets while keeping all mutations bound to the explicitly active live target; unattached or invisible members are never queried or exposed as live data. Capacity telemetry is partitioned by live target in `perf.db`, so matching Xen opaque references from separate pools cannot be mixed; aggregate Capacity scope is explicitly read-only and requires switching back to one live target before launching follow-through work.
+
+#### `GET /api/vfabrics`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Description:** Lists vFabrics visible to the caller, including only member targets the caller can see.
+
+#### `GET /api/vfabrics/:id/scope`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Description:** Resolves the visible vFabric members against the caller's attached live targets. Returns `attachedTargets` for safe read aggregation and `unavailableMembers` for saved members not attached to the session. This endpoint does not select or mutate a XenServer target.
+
+#### `POST /api/vfabrics`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only (`ensureMutationAllowed`).
+- **Body params:** `name` (string, 1-120 chars, required) · `description` (string, up to 500 chars, default '') · `colorTag` (`green`, `cyan`, `amber`, or `red`, default `green`) · `visibility` (`private` or `shared`, default `private`) · `connectionIds` (visible saved pool-target ids, unique integer array, default `[]`) · `hostTargetIds` (visible saved standalone-host ids, unique integer array, default `[]`).
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/vfabrics" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"West Region Production","description":"Regional production scope","colorTag":"cyan","visibility":"shared","connectionIds":[1],"hostTargetIds":[4]}'
+```
+
+#### `PUT /api/vfabrics/:id`
+
+- **Auth:** Authenticated control-plane session; the record owner or an admin; governance role must not be read-only.
+- **Body params:** Same as `POST /api/vfabrics`; member arrays replace the saved membership.
+
+#### `DELETE /api/vfabrics/:id`
+
+- **Auth:** Authenticated control-plane session; the record owner or an admin. This is destructive control-plane metadata only and follows the configured destructive-action approval policy.
+- **Description:** Deletes only the vFabric and its membership rows; registered pools and hosts remain available.
+
 ### Saved Workspaces
 
 #### `GET /api/workspaces/inventory`
@@ -1907,6 +2145,140 @@ curl -b cookies.txt -X PUT "http://localhost:3000/api/workspaces/inventory/ws_ab
 - **curl:**
 ```bash
 curl -b cookies.txt -X DELETE "http://localhost:3000/api/workspaces/inventory/ws_abc123?approvalId=appr_123"
+```
+
+### Template Library
+
+Mounted at `/api/template-library` behind control-plane auth only (`requireAuth`) — **no live XenServer target is required**, since folders/items live in XenMange's own database (`xenmange.db`), not on the hypervisor. This is the backing API for the Template Library workspace: a folder tree of reusable guest-script snippets and multi-VM [compose deployment specs](#compose-deployment), edited in-browser with Monaco. Every mutating route is governance-gated (`ensureMutationAllowed`) and ownership-checked — a `private`-visibility folder/item can only be managed by its owner or an admin, `shared` items can be managed by any operator.
+
+#### `GET /api/template-library/tree`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Description:** Returns the full folder/item tree visible to the caller (own private items + all shared items).
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/template-library/tree"
+```
+
+#### `POST /api/template-library/folders`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only (actionKey: `template_library_folder_create`).
+- **Body params:** `name` (string, required, 1-120 chars) · `parentId` (integer ≥1 or `null`, default `null`) · `visibility` (`private`\|`shared`, default `private`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/template-library/folders" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Deployment Templates", "visibility": "shared"}'
+```
+
+#### `PUT /api/template-library/folders/:id`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; caller must own the folder or be admin (actionKey: `template_library_folder_rename`).
+- **Path params:** `id` — folder id (integer, required)
+- **Body params:** `name` (string, required, 1-120 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/template-library/folders/3" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Guest Scripts"}'
+```
+
+#### `POST /api/template-library/folders/:id/move`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; caller must own the folder or be admin (actionKey: `template_library_folder_move`).
+- **Path params:** `id` — folder id (integer, required)
+- **Body params:** `parentId` (integer ≥1 or `null`, default `null` — moves the folder to root)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/template-library/folders/3/move" \
+  -H "Content-Type: application/json" \
+  -d '{"parentId": null}'
+```
+
+#### `DELETE /api/template-library/folders/:id`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; destructive — needs a governance approval in operator mode; caller must own the folder or be admin (actionKey: `template_library_folder_delete`).
+- **Path params:** `id` — folder id (integer, required)
+- **Description:** Deletes the folder and everything inside it (subfolders and items).
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/template-library/folders/3"
+```
+
+#### `POST /api/template-library/items`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only (actionKey: `template_library_item_create`).
+- **Body params:** `folderId` (integer ≥1 or `null`, default `null`) · `kind` (`deployment-template`\|`guest-script`\|`snippet`, default `snippet`) · `name` (string, required, 1-160 chars) · `language` (`json`\|`shell`\|`yaml`\|`plaintext`\|`powershell`, default `json`) · `content` (string, ≤200000 chars, default `''`) · `visibility` (`private`\|`shared`, default `private`)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/template-library/items" \
+  -H "Content-Type: application/json" \
+  -d '{"folderId": 3, "kind": "guest-script", "name": "baseline.yaml", "language": "yaml", "content": "#cloud-config\npackages:\n  - qemu-guest-agent\n", "visibility": "shared"}'
+```
+
+#### `GET /api/template-library/items/:id`
+
+- **Auth:** Authenticated control-plane session; caller must own the item or it must be `shared`, or caller is admin.
+- **Path params:** `id` — item id (integer, required)
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/template-library/items/2"
+```
+
+#### `GET /api/template-library/items/:id/versions`
+
+- **Auth:** Authenticated control-plane session; same ownership check as above.
+- **Path params:** `id` — item id (integer, required)
+- **Description:** Returns the saved-content version history for the item.
+- **curl:**
+```bash
+curl -b cookies.txt "http://localhost:3000/api/template-library/items/2/versions"
+```
+
+#### `PUT /api/template-library/items/:id/rename`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; caller must own the item or be admin (actionKey: `template_library_item_rename`).
+- **Path params:** `id` — item id (integer, required)
+- **Body params:** `name` (string, required, 1-160 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/template-library/items/2/rename" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "baseline-v2.yaml"}'
+```
+
+#### `POST /api/template-library/items/:id/move`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; caller must own the item or be admin (actionKey: `template_library_item_move`).
+- **Path params:** `id` — item id (integer, required)
+- **Body params:** `folderId` (integer ≥1 or `null`, default `null` — moves the item to root)
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/template-library/items/2/move" \
+  -H "Content-Type: application/json" \
+  -d '{"folderId": 4}'
+```
+
+#### `PUT /api/template-library/items/:id`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; caller must own the item or be admin (actionKey: `template_library_item_save`).
+- **Path params:** `id` — item id (integer, required)
+- **Description:** Saves the item's editor content, recording a new version in its history.
+- **Body params:** `content` (string, required, allow empty, ≤200000 chars)
+- **curl:**
+```bash
+curl -b cookies.txt -X PUT "http://localhost:3000/api/template-library/items/2" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "#cloud-config\npackage_update: true\n"}'
+```
+
+#### `DELETE /api/template-library/items/:id`
+
+- **Auth:** Authenticated control-plane session; governance role must not be read-only; destructive — needs a governance approval in operator mode; caller must own the item or be admin (actionKey: `template_library_item_delete`).
+- **Path params:** `id` — item id (integer, required)
+- **curl:**
+```bash
+curl -b cookies.txt -X DELETE "http://localhost:3000/api/template-library/items/2"
 ```
 
 ## Security
@@ -1965,13 +2337,16 @@ PERF_DB_PATH=./data/perf.db
 
 - **Multi-target sessions**: attach, switch, and detach multiple live pools/hosts from a single control-plane login.
 - **VM lifecycle**: power controls, snapshot/checkpoint protection, fast clone / full copy, same-pool and cross-pool migration with transfer-network/SR/VIF remapping, a host-compatibility matrix, console access, and XVA/metadata import-export.
-- **Host operations**: maintenance mode with evacuation-network selection and live workload draining, guarded reboot/shutdown.
+- **Host operations**: maintenance mode with evacuation-network selection and live workload draining, guarded reboot/shutdown, storage multipathing toggling.
 - **Storage & networking**: SR create/probe/import across NFS/iSCSI/EXT/LVM with rescan/repair/local-cache/forget/destroy, VDI create/resize/delete, network/VLAN/bond creation and per-VIF configuration.
+- **Pools**: pending-update visibility, join/eject pool membership, HA configuration.
 - **Governance**: role ceilings, per-pool quotas, scoped single-use approvals in front of every destructive route, local user/group administration.
 - **Resilience**: derived recovery-tier/restart-priority/backup-freshness posture, operator-authored recovery runbooks, and DR drill tracking.
 - **Capacity**: persisted host/VM/storage telemetry history, host skew/imbalance detection, saturation and headroom guidance.
 - **Alerts**: policy-driven triage fed by XenServer messages, task failures, and persisted metric thresholds, with bulk state changes.
 - **Templates**: governance metadata, version history, compare-and-promote workflow, and deployment validation.
+- **Template Library**: an in-browser Monaco-editor file explorer (folders + JSON/YAML/shell/PowerShell/plaintext items) for authoring reusable guest-script snippets and multi-VM compose deployment specs, with save/rename/move/delete, version history, and a dry-run-then-deploy flow straight from the editor.
+- **Compose deployment**: declarative multi-VM specs with dependency ordering (`dependsOn`), network/SR aliasing, and dry-run validation before actual deploy.
 - **Centralized Log Center**: federated, exportable (JSON/HTML/PDF) view across audit, auth, alerts, remediation, and Xen task history.
 - **UI**: floating draggable windows instead of browser alerts/modals, project-owned generated background art, no external CDN script dependency.
 

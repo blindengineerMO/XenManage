@@ -73,10 +73,8 @@ const PoolsView = {
                   :data="pools"
                   :loading="loading"
                   :searchable="true"
+                  @cell-edit="saveInlinePoolEdit"
                   @row-click="openProperties">
-        <template #cell-name_label="{ row }">
-          <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed Pool' }}</span>
-        </template>
         <template #cell-tags="{ row }">
           <span class="mono">{{ truncateList(row.tags) }}</span>
         </template>
@@ -232,7 +230,7 @@ const PoolsView = {
       useSavedCredential: false,
       lastAppliedFocusKey: '',
       columns: [
-        { key: 'name_label', label: 'Name' },
+        { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Pool' },
         { key: 'uuid', label: 'UUID' },
         { key: 'default_SR', label: 'Default SR' },
         { key: 'tags', label: 'Tags' },
@@ -467,6 +465,31 @@ const PoolsView = {
         this.poolActionError = error.message || 'Unable to save pool metadata';
       } finally {
         this.poolConfigSaving = false;
+      }
+    },
+    async saveInlinePoolEdit({ row, key, value }) {
+      if (key !== 'name_label' || !row?.ref) return;
+
+      this.poolActionMessage = '';
+      this.poolActionError = null;
+      try {
+        const payload = {
+          nameLabel: value,
+          nameDescription: row.name_description || '',
+          defaultSrRef: row.default_SR || '',
+          vswitchController: row.vswitch_controller || '',
+          igmpSnoopingEnabled: Boolean(row.IGMP_snooping_enabled),
+          migrationCompressionEnabled: Boolean(row.migration_compression),
+          wlbEnabled: Boolean(row.wlb_enabled),
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          otherConfig: row.other_config || {},
+        };
+        const record = await api.updatePoolConfig(row.ref, payload);
+        this.pools = this.pools.map((entry) => (entry.ref === row.ref ? { ...entry, ...record } : entry));
+        if (this.selectedPool?.ref === row.ref) this.selectedPool = { ...this.selectedPool, ...record };
+        this.poolActionMessage = `${record?.name_label || value} was renamed.`;
+      } catch (error) {
+        this.poolActionError = error.message || 'Unable to rename the pool inline.';
       }
     },
     async submitSelectedPoolHaState(payload) {

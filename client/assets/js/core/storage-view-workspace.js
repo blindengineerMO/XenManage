@@ -50,7 +50,7 @@ function createStorageViewState() {
     localCacheHostRef: '',
     lastAppliedFocusKey: '',
     columns: [
-      { key: 'name_label', label: 'Name' },
+      { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Repository' },
       { key: 'type', label: 'Type' },
       { key: 'physical_size', label: 'Physical Size' },
       { key: 'virtual_allocation', label: 'Virtual Allocation' },

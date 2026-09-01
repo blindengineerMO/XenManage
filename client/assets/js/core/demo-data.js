@@ -820,6 +820,20 @@ const demoDb = {
       notes: 'Pending registration as production pool member',
     },
   ],
+  vfabrics: [
+    {
+      id: 1,
+      name: 'Production Estate',
+      description: 'Production pool and its nearby standalone edge capacity.',
+      color_tag: 'green',
+      owner_user_id: 1,
+      visibility: 'shared',
+      connection_ids: [1],
+      host_target_ids: [1],
+      created_at: '2026-08-25T09:00:00.000Z',
+      updated_at: '2026-08-25T09:00:00.000Z',
+    },
+  ],
   inventoryWorkspaces: [
     {
       id: 'workspace-demo-1',
@@ -1259,8 +1273,8 @@ const demoDb = {
             nameLabel: '${hostnamePrefix}-app',
             memoryStaticMax: 4294967296,
             vcpusAtStartup: 2,
-            disks: [{ sr: 'Tier-1 SSD SR', sizeGb: '${diskSizeGb}', bootable: true, mode: 'RW' }],
-            networkInterfaces: [{ network: 'VMLAN Production', device: '0' }],
+            disks: [{ sr: 'Tier-1 SSD SR', sizeGb: '${diskSizeGb}', nameLabel: '${hostnamePrefix}-app-data' }],
+            networkInterfaces: [{ network: 'VMLAN Production' }],
             tags: ['tier:app'],
           },
         },

@@ -1,3 +1,65 @@
+function capacityScopeTargets() {
+  return getVFabricScopeTargets();
+}
+
+async function loadCapacityAcrossScope(load) {
+  const targets = capacityScopeTargets();
+  if (!targets.length) return [await load('')];
+  return Promise.all(targets.map((target) => load(target.targetKey)));
+}
+
+function scopeCapacityRecords(records = [], targetKey = '') {
+  return (Array.isArray(records) ? records : []).map((record) => ({
+    ...record,
+    scopeTargetKey: targetKey,
+  }));
+}
+
+function mergeCapacityBaselines(results = []) {
+  const merge = (key) => results.flatMap((result) => scopeCapacityRecords(result?.baseline?.[key], result?.targetKey));
+  return {
+    hosts: merge('hosts'),
+    vms: merge('vms'),
+    storage: merge('storage'),
+  };
+}
+
+function mergeCapacityClusterHistory(histories = []) {
+  const metrics = new Map();
+  const percentMetrics = new Set([
+    'cluster_memory_used_percent',
+    'cluster_storage_utilization_percent',
+    'cluster_cpu_usage_percent',
+  ]);
+
+  histories.forEach((history) => {
+    (history?.metrics || []).forEach((metric) => {
+      const buckets = metrics.get(metric.metricName) || new Map();
+      (metric.points || []).forEach((point) => {
+        const ts = Number(point?.ts || 0);
+        if (!ts) return;
+        const current = buckets.get(ts) || { sum: 0, count: 0 };
+        current.sum += Number(point?.value || 0);
+        current.count += 1;
+        buckets.set(ts, current);
+      });
+      metrics.set(metric.metricName, buckets);
+    });
+  });
+
+  return {
+    metrics: [...metrics.entries()].map(([metricName, buckets]) => ({
+      metricName,
+      points: [...buckets.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([ts, value]) => ({
+          ts,
+          value: percentMetrics.has(metricName) ? value.sum / value.count : value.sum,
+        })),
+    })),
+  };
+}
+
 const CapacityView = {
   components: {
     StatusBadge,
@@ -19,6 +81,7 @@ const CapacityView = {
               Capacity
             </h2>
             <p class="section-subtitle">Live host memory pressure, storage commitment, and operator guidance for rebalancing before contention becomes outage-driven work.</p>
+            <p class="section-subtitle text-cyan" v-if="store.vFabricScope?.scope">Read scope: {{ store.vFabricScope.scope.name }} · {{ store.vFabricScope.attachedTargets.length }} attached member{{ store.vFabricScope.attachedTargets.length === 1 ? '' : 's' }}</p>
           </div>
           <button class="btn btn-primary" @click="loadCapacity">
             <span class="mdi mdi-refresh"></span>
@@ -126,7 +189,7 @@ const CapacityView = {
             <div class="stack-list" v-if="topHosts.length">
               <button class="stack-item stack-item-button"
                       v-for="host in topHosts"
-                      :key="host.ref"
+                      :key="host.scopeEntityKey"
                       @click="openInspector('host', host)">
                 <div class="capacity-item-main">
                   <strong>{{ host.name_label || host.hostname || 'Host' }}</strong>
@@ -151,7 +214,7 @@ const CapacityView = {
             <div class="stack-list" v-if="topStorage.length">
               <button class="stack-item stack-item-button"
                       v-for="sr in topStorage"
-                      :key="sr.ref"
+                      :key="sr.scopeEntityKey"
                       @click="openInspector('storage', sr)">
                 <div class="capacity-item-main">
                   <strong>{{ sr.name_label || 'Storage Repository' }}</strong>
@@ -178,7 +241,7 @@ const CapacityView = {
             <div class="stack-list" v-if="topVms.length">
               <button class="stack-item stack-item-button"
                       v-for="vm in topVms"
-                      :key="vm.ref"
+                      :key="vm.scopeEntityKey"
                       @click="openInspector('vm', vm)">
                 <div class="capacity-item-main">
                   <strong>{{ vm.name_label || 'Virtual Machine' }}</strong>
@@ -203,7 +266,7 @@ const CapacityView = {
             <div class="stack-list" v-if="hostBalanceRows.length">
               <button class="stack-item stack-item-button"
                       v-for="row in hostBalanceRows.slice(0, 6)"
-                      :key="row.ref"
+                      :key="row.scopeEntityKey"
                       @click="openInspector('host', row)">
                 <div class="capacity-item-main">
                   <strong>{{ row.name_label || row.hostname || 'Host' }}</strong>
@@ -256,7 +319,7 @@ const CapacityView = {
             <div class="stack-list" v-if="capacityAutomationTasks.length">
               <button class="stack-item stack-item-button"
                       v-for="task in capacityAutomationTasks.slice(0, 6)"
-                      :key="task.ref"
+                      :key="taskKey(task)"
                       @click="openAutomationTask(task)">
                 <div>
                   <strong>{{ task.name_label || 'Remediation Task' }}</strong>
@@ -297,7 +360,7 @@ const CapacityView = {
                 <strong>{{ capacityForecast.title }}</strong>
                 <p>{{ capacityForecast.detail }} {{ capacityForecast.nextAction }}</p>
                 <div v-if="capacityForecast.attribution" class="text-muted" style="font-size:12px;margin-top:8px">{{ capacityForecast.attribution }}</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" v-if="capacityForecast.driver">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" v-if="capacityForecast.driver && !isVFabricScopeReadOnly">
                   <button class="btn btn-sm" @click="inspectForecastDriver">
                     <span class="mdi mdi-crosshairs-gps"></span>
                     Inspect Driver
@@ -350,6 +413,9 @@ const CapacityView = {
                     Create Follow-through
                   </button>
                 </div>
+                <div class="text-muted" v-else-if="capacityForecast.driver && isVFabricScopeReadOnly" style="font-size:12px;margin-top:12px">
+                  vFabric scope is read-only. Switch to a single live target before creating or launching follow-through work.
+                </div>
                 <div class="form-error" v-if="forecastActionError" style="text-align:left;margin-top:10px">{{ forecastActionError }}</div>
                 <div class="text-muted mono" style="font-size:11px;margin-top:8px">{{ capacityForecast.confidence }}</div>
               </div>
@@ -376,7 +442,7 @@ const CapacityView = {
             <div class="stack-list" v-if="noisyNeighborCandidates.length">
               <button class="stack-item stack-item-button"
                       v-for="candidate in noisyNeighborCandidates"
-                      :key="candidate.ref"
+                      :key="candidate.scopeEntityKey"
                       @click="openInspector('vm', candidate)">
                 <div class="capacity-item-main">
                   <strong>{{ candidate.name_label || 'Virtual Machine' }}</strong>
@@ -413,6 +479,7 @@ const CapacityView = {
   `,
   data() {
     return {
+      store,
       loading: true,
       hosts: [],
       srs: [],
@@ -509,6 +576,9 @@ const CapacityView = {
     recommendations() {
       return this.capacityWorkspaceModel.recommendations;
     },
+    isVFabricScopeReadOnly() {
+      return hasVFabricScope();
+    },
     inspectorTitle() {
       return this.capacityWorkspaceModel.inspectorTitle;
     },
@@ -521,6 +591,7 @@ const CapacityView = {
 
     await this.loadCapacity();
     await this.syncRouteFocus();
+    this.$watch(() => store.vFabricScope?.scope?.id || '', () => this.loadCapacity());
   },
   watch: {
     '$route.query': {
@@ -541,6 +612,9 @@ const CapacityView = {
     isCapacityAutomationTask: isCapacityViewAutomationTask,
     taskEvidenceChecklist: getCapacityTaskEvidenceChecklist,
     taskCompletionCriteria: getCapacityTaskCompletionCriteria,
+    taskKey(task) {
+      return `${task?.scopeTargetKey || ''}::${task?.ref || ''}`;
+    },
     taskSlaBadgeClass(task) {
       return getTaskSlaBadgeClass(this.taskSlaMeta(task));
     },
@@ -609,6 +683,7 @@ const CapacityView = {
       return buildCapacityForecastRemediationDraft(this.capacityForecast, this.forecastDriverRecord(), store.username || '');
     },
     openForecastRemediationComposer() {
+      if (this.isVFabricScopeReadOnly) return;
       this.remediationDraft = this.buildForecastRemediationDraft();
       this.remediationError = null;
       this.forecastActionError = null;
@@ -618,6 +693,7 @@ const CapacityView = {
       return buildCapacityTaskFocus(task, payload);
     },
     async runForecastAutomation(mode) {
+      if (this.isVFabricScopeReadOnly) return null;
       if (this.remediationSaving || this.forecastActionBusy) return null;
 
       const payload = this.buildForecastRemediationDraft();
@@ -667,6 +743,7 @@ const CapacityView = {
       await this.runForecastAutomation('vm-migration');
     },
     async submitForecastRemediation(payload) {
+      if (this.isVFabricScopeReadOnly) return;
       this.remediationSaving = true;
       this.remediationError = null;
       this.forecastActionError = null;
@@ -724,7 +801,8 @@ const CapacityView = {
     async loadClusterHistory() {
       this.historyLoading = true;
       try {
-        this.clusterHistory = await api.getClusterMetrics(this.historyRange);
+        const histories = await loadCapacityAcrossScope((targetKey) => api.getClusterMetrics(this.historyRange, targetKey));
+        this.clusterHistory = mergeCapacityClusterHistory(histories);
       } catch (error) {
         console.error(error);
         this.clusterHistory = { metrics: [] };
@@ -741,11 +819,11 @@ const CapacityView = {
       this.inspectorHistoryLoading = true;
       try {
         if (this.selectedEntityType === 'host') {
-          this.inspectorHistory = await api.getHostMetricHistory(this.selectedEntity.ref, this.historyRange);
+          this.inspectorHistory = await api.getHostMetricHistory(this.selectedEntity.ref, this.historyRange, this.selectedEntity.scopeTargetKey);
         } else if (this.selectedEntityType === 'storage') {
-          this.inspectorHistory = await api.getStorageMetricHistory(this.selectedEntity.ref, this.historyRange);
+          this.inspectorHistory = await api.getStorageMetricHistory(this.selectedEntity.ref, this.historyRange, this.selectedEntity.scopeTargetKey);
         } else if (this.selectedEntityType === 'vm') {
-          this.inspectorHistory = await api.getVmMetricHistory(this.selectedEntity.ref, this.historyRange);
+          this.inspectorHistory = await api.getVmMetricHistory(this.selectedEntity.ref, this.historyRange, this.selectedEntity.scopeTargetKey);
         } else {
           this.inspectorHistory = { metrics: [] };
         }
@@ -759,32 +837,39 @@ const CapacityView = {
     async loadCapacity() {
       this.loading = true;
       try {
-        const [hostsResult, srsResult, tasksResult, vmsResult, alertsResult, baselineResult] = await Promise.all([
-          api.getHosts(),
-          api.getSRs(),
-          api.getTasks(),
-          api.getVMs().catch(() => ({ data: [] })),
-          api.getAlerts().catch(() => []),
-          api.getCapacityBaseline().catch(() => ({ hosts: [], vms: [], storage: [] })),
-        ]);
+        const scopedResults = await loadCapacityAcrossScope(async (targetKey) => {
+          const [hostsResult, srsResult, tasksResult, vmsResult, alertsResult, baseline] = await Promise.all([
+            api.getHosts(targetKey),
+            api.getSRs(targetKey),
+            api.getTasks(targetKey),
+            api.getVMs('', targetKey).catch(() => ({ data: [] })),
+            api.getAlerts(targetKey).catch(() => []),
+            api.getCapacityBaseline(targetKey).catch(() => ({ hosts: [], vms: [], storage: [] })),
+          ]);
+          return { targetKey, hostsResult, srsResult, tasksResult, vmsResult, alertsResult, baseline };
+        });
 
-        const hostRecords = hostsResult.data || [];
-        const baselineMaps = buildCapacityBaselineMaps(baselineResult);
+        const hostRecords = scopedResults.flatMap((result) => scopeCapacityRecords(result.hostsResult?.data, result.targetKey));
+        const srRecords = scopedResults.flatMap((result) => scopeCapacityRecords(result.srsResult?.data, result.targetKey));
+        const vmRecords = scopedResults.flatMap((result) => scopeCapacityRecords(result.vmsResult?.data, result.targetKey));
+        const taskRecords = scopedResults.flatMap((result) => scopeCapacityRecords(result.tasksResult?.data, result.targetKey));
+        const alertRecords = scopedResults.flatMap((result) => scopeCapacityRecords(result.alertsResult, result.targetKey));
+        const baselineMaps = buildCapacityBaselineMaps(mergeCapacityBaselines(scopedResults));
         const metricEntries = await Promise.all(hostRecords.map(async (host) => {
           try {
-            const metrics = await api.getHostMetrics(host.ref);
-            return [host.ref, metrics];
+            const metrics = await api.getHostMetrics(host.ref, host.scopeTargetKey);
+            return [host.scopeTargetKey ? `${host.scopeTargetKey}::${host.ref}` : host.ref, metrics];
           } catch (error) {
-            return [host.ref, { live: false, memory_total: 0, memory_free: 0 }];
+            return [host.scopeTargetKey ? `${host.scopeTargetKey}::${host.ref}` : host.ref, { live: false, memory_total: 0, memory_free: 0 }];
           }
         }));
         const metricsByRef = Object.fromEntries(metricEntries);
 
         this.hosts = buildCapacityHostRecords(hostRecords, metricsByRef, baselineMaps.hostsByRef);
-        this.srs = buildCapacityStorageRecords(srsResult.data || [], baselineMaps.storageByRef);
-        this.vms = buildCapacityVmRecords(vmsResult.data || [], baselineMaps.vmsByRef);
-        this.messages = alertsResult || [];
-        this.tasks = tasksResult.data || [];
+        this.srs = buildCapacityStorageRecords(srRecords, baselineMaps.storageByRef);
+        this.vms = buildCapacityVmRecords(vmRecords, baselineMaps.vmsByRef);
+        this.messages = alertRecords;
+        this.tasks = taskRecords;
         await this.loadClusterHistory();
         await this.syncRouteFocus();
       } catch (error) {

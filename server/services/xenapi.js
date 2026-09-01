@@ -1,5 +1,6 @@
 const axios = require('axios');
 const config = require('../config');
+const { findBundledOsProfile } = require('./os-profiles');
 
 let rpcId = 0;
 
@@ -26,6 +27,18 @@ function normalizeNullableOpaqueRef(value = '') {
 function toNullableOpaqueRef(value = '') {
   const normalized = normalizeNullableOpaqueRef(value);
   return normalized || 'OpaqueRef:NULL';
+}
+
+function remapProvisioningSpec(otherConfig = {}, srUuid = '') {
+  const provisioningSpec = String(otherConfig?.disks || '');
+  if (!provisioningSpec || !srUuid) return otherConfig;
+
+  // XenServer stores each profile disk's destination SR UUID in this XML map.
+  const disks = provisioningSpec.replace(/(<disk\b[^>]*\bsr\s*=\s*")[^"]*(")/gi, `$1${srUuid}$2`);
+  if (disks === provisioningSpec) {
+    throw createXenApiError('VM_PROVISIONING_SPEC_INVALID', 'The selected OS profile does not contain a writable disk provisioning specification.');
+  }
+  return { ...otherConfig, disks };
 }
 
 function normalizeProbeSrStat(record = null) {
@@ -447,6 +460,98 @@ class XenAPI {
     return this.getClassRecords('VM');
   }
 
+  async getVmCreationSources() {
+    const [vms, vbds, vdis] = await Promise.all([
+      this.getVMs(),
+      this.getClassRecords('VBD'),
+      this.getClassRecords('VDI'),
+    ]);
+    const sources = Object.entries(vms.records || {})
+      .map(([ref, vm]) => {
+        if (!vm.is_a_template) return null;
+        const disks = (vm.VBDs || [])
+          .map((vbdRef) => ({ ref: vbdRef, ...(vbds.records[vbdRef] || {}) }))
+          .filter((vbd) => vbd.type === 'Disk' && vbd.VDI && vbd.VDI !== 'OpaqueRef:NULL')
+          .map((vbd) => {
+            const vdi = vdis.records[vbd.VDI] || {};
+            return {
+              sourceDevice: String(vbd.userdevice || ''),
+              bootable: Boolean(vbd.bootable),
+              nameLabel: vdi.name_label || 'Virtual disk',
+              nameDescription: vdi.name_description || '',
+              sizeGiB: Math.max(1, Math.ceil(Number(vdi.virtual_size || 0) / (1024 ** 3))),
+              srRef: vdi.SR || '',
+            };
+          });
+        return {
+          ref,
+          ...vm,
+          disks,
+          creationMode: disks.length ? 'template' : 'operating-system',
+        };
+      })
+      .filter(Boolean);
+    return {
+      operatingSystems: sources.filter((source) => source.creationMode === 'operating-system'),
+      deployableTemplates: sources.filter((source) => source.creationMode === 'template'),
+    };
+  }
+
+  async createVmTemplate({ kind, sourceRef, nameLabel, nameDescription = '', tags = [] } = {}) {
+    const creationSources = await this.getVmCreationSources();
+    let source;
+
+    if (kind === 'operating-system') {
+      source = creationSources.operatingSystems.find((entry) => entry.ref === sourceRef);
+      if (!source) {
+        throw createXenApiError('OS_TEMPLATE_SOURCE_INVALID', 'Choose an empty operating-system profile as the source.');
+      }
+    } else if (kind === 'deployable') {
+      const vms = await this.getVMs();
+      source = vms.records[sourceRef];
+      if (!source || source.is_a_template || source.is_a_snapshot || String(source.power_state || '').toLowerCase() !== 'halted') {
+        throw createXenApiError('GOLDEN_TEMPLATE_SOURCE_INVALID', 'Choose a halted virtual machine to create a golden template.');
+      }
+      for (const vbdRef of source.VBDs || []) {
+        const vbd = await this.getRecord('VBD', vbdRef);
+        if (vbd.type === 'CD' && !vbd.empty) await this.call('VBD', 'eject', [vbdRef]).catch(() => undefined);
+      }
+    } else {
+      throw createXenApiError('TEMPLATE_KIND_INVALID', 'Template kind must be operating-system or deployable.');
+    }
+
+    // Copying retains the source VM/profile as a recoverable original before conversion.
+    const templateRef = await this.copyVM(sourceRef, nameLabel);
+    try {
+      await this.setField('VM', templateRef, 'name_description', nameDescription);
+      await this.setField('VM', templateRef, 'tags', Array.isArray(tags) ? tags : []);
+      await this.setField('VM', templateRef, 'is_a_template', true);
+      return { ref: templateRef, ...(await this.getRecord('VM', templateRef)) };
+    } catch (error) {
+      await this.destroy('VM', templateRef).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async getVMGroups() {
+    return this.getClassRecords('VM_group');
+  }
+
+  async getVmGpuProfiles() {
+    const [types, groups] = await Promise.all([
+      this.getClassRecords('VGPU_type'),
+      this.getClassRecords('GPU_group'),
+    ]);
+    return {
+      refs: types.refs,
+      records: Object.fromEntries(Object.entries(types.records).map(([ref, profile]) => [ref, {
+        ...profile,
+        gpuGroups: (profile.enabled_on_GPU_groups || [])
+          .map((groupRef) => ({ ref: groupRef, ...(groups.records[groupRef] || {}) })),
+      }])),
+    };
+  }
+
   async getVMAppliances() {
     return this.getClassRecords('VM_appliance');
   }
@@ -815,14 +920,13 @@ class XenAPI {
     return { ref: snapshotRef, ...record };
   }
 
-  async attachVdiAsCd(vmRef, vdiRef) {
-    const vm = await this.getRecord('VM', vmRef);
-    const userdevice = String(Array.isArray(vm.VBDs) ? vm.VBDs.length : 0);
+  async attachVdiAsCd(vmRef, vdiRef, userdevice = '3') {
 
     const vbdRef = await this.create('VBD', {
       VM: vmRef,
       VDI: vdiRef,
-      userdevice,
+      // XenServer's install flow uses the CD/DVD device slot, not a root-disk slot.
+      userdevice: String(userdevice),
       bootable: false,
       mode: 'RO',
       type: 'CD',
@@ -1026,8 +1130,206 @@ class XenAPI {
     return this.call('VM', 'clone', [ref, nameLabel]);
   }
 
-  async copyVM(ref, nameLabel, srRef) {
-    return this.call('VM', 'copy', [ref, nameLabel, srRef]);
+  /**
+   * Deploy a Compose workload from a golden template.  Compose deliberately owns
+   * the requested data disks and VIFs while retaining the template's boot disks
+   * and platform metadata.
+   */
+  async deployComposeVM(templateRef, {
+    nameLabel,
+    nameDescription = '',
+    vcpusAtStartup = 1,
+    vcpusMax = 1,
+    memoryStaticMax,
+    memoryDynamicMin,
+    memoryDynamicMax,
+    affinity = '',
+    disks = [],
+    networkInterfaces = [],
+    otherConfig = {},
+    xenstoreData = {},
+    tags = [],
+    startAfter = false,
+  } = {}) {
+    const sources = await this.getVmCreationSources();
+    const source = sources.deployableTemplates.find((entry) => entry.ref === templateRef);
+    if (!source) {
+      throw createXenApiError(
+        'COMPOSE_TEMPLATE_NOT_DEPLOYABLE',
+        'Compose deployments require a deployable golden template with an installed boot disk. Operating-system profiles are only supported by New VM.'
+      );
+    }
+
+    const vmRef = await this.cloneVM(templateRef, nameLabel);
+    try {
+      // Remove the source provisioning XML before VM.provision so it cannot create
+      // unexpected disks. Golden-template boot disks remain attached to the clone.
+      await this.call('VM', 'remove_from_other_config', [vmRef, 'disks']).catch(() => undefined);
+      await this.call('VM', 'provision', [vmRef]);
+
+      const vm = await this.getRecord('VM', vmRef);
+      const staticMax = String(memoryStaticMax);
+      const dynamicMin = String(memoryDynamicMin);
+      const dynamicMax = String(memoryDynamicMax);
+      await this.setField('VM', vmRef, 'name_description', nameDescription);
+      await this.setField('VM', vmRef, 'affinity', toNullableOpaqueRef(affinity));
+      await this.setField('VM', vmRef, 'VCPUs_max', String(vcpusMax));
+      await this.setField('VM', vmRef, 'VCPUs_at_startup', String(vcpusAtStartup));
+      await this.call('VM', 'set_memory_limits', [vmRef, dynamicMin, dynamicMin, dynamicMax, staticMax]);
+      await this.setField('VM', vmRef, 'tags', Array.isArray(tags) ? tags : []);
+      await this.setField('VM', vmRef, 'other_config', normalizeStringMap({
+        ...(vm.other_config || {}),
+        ...(otherConfig || {}),
+      }));
+      await this.setField('VM', vmRef, 'xenstore_data', normalizeStringMap({
+        ...(vm.xenstore_data || {}),
+        ...(xenstoreData || {}),
+      }));
+
+      for (const [index, disk] of (Array.isArray(disks) ? disks : []).entries()) {
+        await this.addVMDisk(vmRef, {
+          srRef: disk.srRef,
+          nameLabel: disk.nameLabel || `${nameLabel}-data-${index + 1}`,
+          nameDescription: disk.nameDescription || '',
+          sizeBytes: disk.sizeBytes,
+          bootable: false,
+        });
+      }
+
+      // A Compose spec owns its connectivity. Do not leave template VIFs attached
+      // in addition to the networks explicitly declared by the workload.
+      for (const vifRef of vm.VIFs || []) {
+        await this.destroy('VIF', vifRef);
+      }
+      const allowedVifDevices = await this.call('VM', 'get_allowed_VIF_devices', [vmRef]);
+      for (const [index, nic] of (Array.isArray(networkInterfaces) ? networkInterfaces : []).entries()) {
+        await this.addVMNic(vmRef, {
+          networkRef: nic.networkRef,
+          deviceLabel: String(allowedVifDevices[index] || ''),
+          mac: nic.mac || '',
+        });
+      }
+
+      if (startAfter) await this.startVM(vmRef, false, false);
+      return { ref: vmRef, ...(await this.getRecord('VM', vmRef)) };
+    } catch (error) {
+      try {
+        await this.destroy('VM', vmRef);
+      } catch (cleanupError) {
+        // Keep the provisioning error; partial resources may already be cleaned up by XenAPI.
+      }
+      throw error;
+    }
+  }
+
+  async provisionVM({
+    creationMode, sourceRef, nameLabel, nameDescription = '', hostRef = '',
+    operatingSystemProfileId = '',
+    vcpus = 2, memoryGiB = 4, coresPerSocket = 1,
+    installMedia = 'iso', isoVdiRef = '', bootMode = 'bios', addVtpm = false,
+    vmGroupRef = '', vgpuTypeRef = '', gpuGroupRef = '',
+    diskPlan = [],
+    networkInterfaces = [], tags = [], startAfter = false,
+  } = {}) {
+    const sources = await this.getVmCreationSources();
+    const bundledProfile = creationMode === 'operating-system' && operatingSystemProfileId
+      ? findBundledOsProfile(operatingSystemProfileId, sources.operatingSystems)
+      : null;
+    if (operatingSystemProfileId && (!bundledProfile || bundledProfile.sourceRef !== sourceRef)) {
+      throw createXenApiError('VM_OPERATING_SYSTEM_PROFILE_INVALID', 'The selected bundled operating-system profile is not available on this XenServer target.');
+    }
+    const resolvedSourceRef = bundledProfile?.sourceRef || sourceRef;
+    const source = (creationMode === 'operating-system' ? sources.operatingSystems : sources.deployableTemplates)
+      .find((entry) => entry.ref === resolvedSourceRef);
+    if (!source) {
+      throw createXenApiError('VM_CREATION_SOURCE_INVALID', 'The selected source is not valid for this creation path.');
+    }
+    const firstDiskSr = Array.isArray(diskPlan) ? diskPlan.find((disk) => disk.srRef)?.srRef : '';
+    // Empty OS profiles use VM.copy; deployable templates use a fast clone of their existing disks.
+    const vmRef = creationMode === 'operating-system'
+      ? await this.copyVM(sourceRef, nameLabel, firstDiskSr)
+      : await this.cloneVM(sourceRef, nameLabel);
+    const memoryBytes = Math.max(1, Number(memoryGiB) || 4) * 1024 * 1024 * 1024;
+    const cpuCount = Math.max(1, Number(vcpus) || 2);
+    const cores = Math.max(1, Number(coresPerSocket) || 1);
+    const vm = await this.getRecord('VM', vmRef);
+    const currentBootParams = vm.HVM_boot_params || {};
+    const currentPlatform = vm.platform || {};
+    const firmware = bootMode === 'bios' ? 'bios' : 'uefi';
+    const secureBoot = bootMode === 'uefi-secure';
+    const bootOrder = installMedia === 'pxe' ? 'ncd' : 'dc';
+
+    try {
+      // Own the disk layout instead of inheriting the profile provisioning XML.
+      await this.call('VM', 'remove_from_other_config', [vmRef, 'disks']).catch(() => undefined);
+      await this.setField('VM', vmRef, 'name_description', nameDescription);
+      await this.setField('VM', vmRef, 'affinity', toNullableOpaqueRef(hostRef));
+      await this.setField('VM', vmRef, 'VCPUs_max', String(cpuCount));
+      await this.setField('VM', vmRef, 'VCPUs_at_startup', String(cpuCount));
+      await this.setField('VM', vmRef, 'VCPUs_params', { ...(vm.VCPUs_params || {}), 'cores-per-socket': String(cores) });
+      await this.call('VM', 'set_memory_limits', [vmRef, String(memoryBytes), String(memoryBytes), String(memoryBytes), String(memoryBytes)]);
+      await this.setField('VM', vmRef, 'HVM_boot_params', { ...currentBootParams, order: bootOrder, firmware });
+      await this.setField('VM', vmRef, 'platform', firmware === 'uefi'
+        ? { ...currentPlatform, 'device-model': 'qemu-upstream-uefi', secureboot: secureBoot ? 'true' : 'false' }
+        : { ...currentPlatform, secureboot: 'false' });
+      await this.setField('VM', vmRef, 'tags', Array.isArray(tags) ? tags : []);
+
+      if (vmGroupRef) await this.setField('VM', vmRef, 'groups', [vmGroupRef]);
+      if (addVtpm) await this.call('VTPM', 'create', [vmRef, true]);
+      if (vgpuTypeRef) {
+        const profile = await this.getRecord('VGPU_type', vgpuTypeRef);
+        if (!Array.isArray(profile.enabled_on_GPU_groups) || !profile.enabled_on_GPU_groups.includes(gpuGroupRef)) {
+          throw createXenApiError('VM_VGPU_GROUP_INCOMPATIBLE', 'The selected GPU group does not provide the selected vGPU profile.');
+        }
+        await this.call('VGPU', 'create', [vmRef, gpuGroupRef, '0', {}, vgpuTypeRef]);
+      }
+      if (installMedia === 'iso' && isoVdiRef) await this.attachVdiAsCd(vmRef, isoVdiRef);
+
+      await this.call('VM', 'provision', [vmRef]);
+
+      if (creationMode === 'operating-system') {
+        for (const [index, disk] of (Array.isArray(diskPlan) ? diskPlan : []).entries()) {
+          await this.addVMDisk(vmRef, {
+            srRef: disk.srRef,
+            nameLabel: disk.nameLabel || `${nameLabel}-${index === 0 ? 'root' : `disk-${index}`}`,
+            nameDescription: disk.nameDescription || '',
+            sizeBytes: Math.max(1, Number(disk.sizeGiB) || 32) * 1024 * 1024 * 1024,
+            bootable: Boolean(disk.bootable || index === 0),
+          });
+        }
+      } else {
+        for (const disk of (Array.isArray(diskPlan) ? diskPlan : []).filter((entry) => !entry.sourceDevice)) {
+          await this.addVMDisk(vmRef, {
+            srRef: disk.srRef,
+            nameLabel: disk.nameLabel || `${nameLabel}-data`,
+            nameDescription: disk.nameDescription || '',
+            sizeBytes: Math.max(1, Number(disk.sizeGiB) || 32) * 1024 * 1024 * 1024,
+            bootable: false,
+          });
+        }
+      }
+      const allowedVifDevices = await this.call('VM', 'get_allowed_VIF_devices', [vmRef]).catch(() => []);
+      for (const [index, nic] of (Array.isArray(networkInterfaces) ? networkInterfaces : []).filter((entry) => entry?.networkRef).entries()) {
+        await this.addVMNic(vmRef, {
+          networkRef: nic.networkRef,
+          deviceLabel: String(allowedVifDevices[index] || ''),
+          mac: nic.mac || '',
+        });
+      }
+      if (startAfter) await this.startVM(vmRef);
+      return { ref: vmRef, ...(await this.getRecord('VM', vmRef)) };
+    } catch (error) {
+      try {
+        await this.destroy('VM', vmRef);
+      } catch (cleanupError) {
+        // Keep the primary provisioning error; cleanup can fail after partial disk creation.
+      }
+      throw error;
+    }
+  }
+
+  async copyVM(ref, nameLabel, srRef = '') {
+    return this.call('VM', 'copy', [ref, nameLabel, srRef || '']);
   }
 
   async duplicateVM(ref, {
@@ -1649,13 +1951,13 @@ class XenAPI {
     };
   }
 
-  async addVMDisk(ref, { srRef, nameLabel, sizeBytes }) {
+  async addVMDisk(ref, { srRef, nameLabel, nameDescription = '', sizeBytes, bootable = false }) {
     const vm = await this.getRecord('VM', ref);
     const userdevice = String(Array.isArray(vm.VBDs) ? vm.VBDs.length : 0);
 
     const vdiRef = await this.create('VDI', {
       name_label: nameLabel,
-      name_description: '',
+      name_description: nameDescription,
       SR: srRef,
       virtual_size: String(sizeBytes),
       type: 'user',
@@ -1671,7 +1973,7 @@ class XenAPI {
       VM: ref,
       VDI: vdiRef,
       userdevice,
-      bootable: false,
+      bootable: Boolean(bootable),
       mode: 'RW',
       type: 'Disk',
       unpluggable: true,
@@ -1895,10 +2197,15 @@ function normalizeTargetKey(value) {
   return String(value || '').trim();
 }
 
-function buildConnectionTargetKey({ connectionId = null, host = '', username = '', port = 443 } = {}) {
+function buildConnectionTargetKey({ connectionId = null, hostTargetId = null, host = '', username = '', port = 443 } = {}) {
   const normalizedConnectionId = Number(connectionId || 0);
   if (normalizedConnectionId > 0) {
     return `connection:${normalizedConnectionId}`;
+  }
+
+  const normalizedHostTargetId = Number(hostTargetId || 0);
+  if (normalizedHostTargetId > 0) {
+    return `host-target:${normalizedHostTargetId}`;
   }
 
   const normalizedHost = String(host || '').trim().toLowerCase();

@@ -1,6 +1,6 @@
 const DataTable = {
   props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey'],
-  emits: ['row-click', 'selection-change'],
+  emits: ['row-click', 'selection-change', 'cell-edit'],
   template: `
     <div class="data-table-wrap" :style="tableStickyVars">
       <div class="data-table-toolbar" v-if="searchable">
@@ -49,9 +49,28 @@ const DataTable = {
                        @click.stop="toggleRowSelection(row, index)">
               </td>
               <td v-for="column in columns" :key="column.key" :class="cellClass(column)">
-                <slot :name="'cell-' + column.key" :row="row" :value="row[column.key]">
-                  {{ row[column.key] }}
-                </slot>
+                <input v-if="column.editable && isEditingCell(row, column, index)"
+                       ref="inlineEditor"
+                       class="data-table-inline-input"
+                       :value="editingValue"
+                       :aria-label="'Edit ' + column.label"
+                       @click.stop
+                       @input="editingValue = $event.target.value"
+                       @keydown.enter.prevent="commitCellEdit(row, column, index)"
+                       @keydown.esc.prevent="cancelCellEdit"
+                       @blur="commitCellEdit(row, column, index)">
+                <button v-else-if="column.editable"
+                        class="data-table-inline-value"
+                        type="button"
+                        :aria-label="'Edit ' + column.label + ': ' + String(row[column.key] || '')"
+                        @click.stop="beginCellEdit(row, column, index)">
+                  {{ row[column.key] || column.emptyLabel || '-' }}
+                </button>
+                <template v-else>
+                  <slot :name="'cell-' + column.key" :row="row" :value="row[column.key]">
+                    {{ row[column.key] }}
+                  </slot>
+                </template>
               </td>
             </tr>
           </tbody>
@@ -77,6 +96,9 @@ const DataTable = {
       sortDir: 'asc',
       page: 1,
       pageSize: 25,
+      editingKey: '',
+      editingColumnKey: '',
+      editingValue: '',
     };
   },
   computed: {
@@ -180,6 +202,31 @@ const DataTable = {
         this.sortKey = key;
         this.sortDir = 'asc';
       }
+    },
+    editingCellKey(row, column, index) {
+      return `${this.rowIdentifier(row, index)}:${column.key}`;
+    },
+    isEditingCell(row, column, index) {
+      return this.editingKey === this.editingCellKey(row, column, index);
+    },
+    beginCellEdit(row, column, index) {
+      this.editingKey = this.editingCellKey(row, column, index);
+      this.editingColumnKey = column.key;
+      this.editingValue = String(row?.[column.key] || '');
+      this.$nextTick(() => this.$refs.inlineEditor?.[0]?.focus());
+    },
+    cancelCellEdit() {
+      this.editingKey = '';
+      this.editingColumnKey = '';
+      this.editingValue = '';
+    },
+    commitCellEdit(row, column, index) {
+      if (!this.isEditingCell(row, column, index)) return;
+      const value = this.editingValue.trim();
+      const previousValue = String(row?.[column.key] || '');
+      this.cancelCellEdit();
+      if (!value || value === previousValue) return;
+      this.$emit('cell-edit', { row, key: column.key, value });
     },
   },
 };

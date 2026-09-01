@@ -9,7 +9,7 @@ const {
   rehydrateConnections,
   removeConnection,
 } = require('../services/xenapi');
-const { connectionModel } = require('../models/connection');
+const { connectionModel, hostTargetModel } = require('../models/connection');
 const { authEventModel, userModel } = require('../models/security-db');
 const { validate, schemas } = require('../middleware/validate');
 const auditLogService = require('../services/audit-log');
@@ -21,6 +21,11 @@ function normalizeConnectionId(value) {
   return normalized > 0 ? normalized : null;
 }
 
+function normalizeHostTargetId(value) {
+  const normalized = Number(value || 0);
+  return normalized > 0 ? normalized : null;
+}
+
 function normalizePort(value) {
   const normalized = Number(value || 443);
   return normalized > 0 ? normalized : 443;
@@ -28,18 +33,20 @@ function normalizePort(value) {
 
 function normalizeSessionTargetRecord(target = {}) {
   const connectionId = normalizeConnectionId(target.connectionId);
+  const hostTargetId = normalizeHostTargetId(target.hostTargetId);
   const host = String(target.host || '').trim();
   const username = String(target.username || '').trim();
   const port = normalizePort(target.port);
   const sessionRef = String(target.sessionRef || '').trim();
   const targetKey = String(target.targetKey || '').trim()
-    || buildConnectionTargetKey({ connectionId, host, username, port });
+    || buildConnectionTargetKey({ connectionId, hostTargetId, host, username, port });
 
   if (!host || !sessionRef) return null;
 
   return {
     targetKey,
     connectionId,
+    hostTargetId,
     connectionName: String(target.connectionName || '').trim(),
     host,
     username,
@@ -64,6 +71,7 @@ function listSessionTargets(session = {}) {
   if (!targets.length && session?.xenHost && session?.xenSessionRef) {
     const fallback = normalizeSessionTargetRecord({
       connectionId: session?.xenConnectionId || null,
+      hostTargetId: session?.xenHostTargetId || null,
       connectionName: session?.xenConnectionName || '',
       host: session.xenHost,
       username: session.xenTargetUsername || session.xenUser || '',
@@ -92,6 +100,7 @@ function persistSessionTargets(session, targets = [], activeTargetKey = '') {
   session.xenTargets = normalizedTargets;
   session.activeXenTargetKey = resolvedActiveTarget?.targetKey || '';
   session.xenConnectionId = resolvedActiveTarget?.connectionId || null;
+  session.xenHostTargetId = resolvedActiveTarget?.hostTargetId || null;
   session.xenConnectionName = resolvedActiveTarget?.connectionName || '';
   session.xenHost = resolvedActiveTarget?.host || '';
   session.xenTargetUsername = resolvedActiveTarget?.username || '';
@@ -155,6 +164,7 @@ function buildConnectedTargetPayload(session = {}) {
   return targets.map((target) => ({
     targetKey: target.targetKey,
     connectionId: target.connectionId,
+    hostTargetId: target.hostTargetId,
     connectionName: target.connectionName || '',
     host: target.host,
     username: target.username,
@@ -275,9 +285,27 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
       return res.status(403).json({ error: 'LOCAL_USER_REQUIRED' });
     }
 
-    const { host, username, password, vaultCredentialId, connectionId, connectionName, port } = req.body;
+    const { host, username, password, vaultCredentialId, connectionId, hostTargetId, connectionName, port } = req.body;
     const operatorName = req.session?.appUsername || username;
     let resolvedPassword = password;
+    const actor = {
+      userId: req.session?.userId || null,
+      role: governanceService.getSessionRole(req.session),
+    };
+    const normalizedConnectionId = normalizeConnectionId(connectionId);
+    const normalizedHostTargetId = normalizeHostTargetId(hostTargetId);
+    const savedConnection = normalizedConnectionId
+      ? connectionModel.getVisibleById(normalizedConnectionId, actor)
+      : null;
+    const savedHostTarget = normalizedHostTargetId
+      ? hostTargetModel.getVisibleById(normalizedHostTargetId, actor)
+      : null;
+    if (normalizedConnectionId && !savedConnection) {
+      return res.status(404).json({ error: 'CONNECTION_NOT_FOUND' });
+    }
+    if (normalizedHostTargetId && !savedHostTarget) {
+      return res.status(404).json({ error: 'HOST_TARGET_NOT_FOUND' });
+    }
 
     if (!String(resolvedPassword || '').trim() && vaultCredentialId) {
       if (!req.session?.userId) {
@@ -294,17 +322,10 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
     const xenApi = new XenAPI(host);
     await xenApi.login(username, resolvedPassword);
 
-    const actor = {
-      userId: req.session?.userId || null,
-      role: governanceService.getSessionRole(req.session),
-    };
-    const normalizedConnectionId = normalizeConnectionId(connectionId);
-    const savedConnection = normalizedConnectionId
-      ? connectionModel.getVisibleById(normalizedConnectionId, actor)
-      : null;
     const targetRecord = upsertSessionTarget(req.session, {
       connectionId: savedConnection?.id || normalizedConnectionId,
-      connectionName: savedConnection?.name || connectionName || '',
+      hostTargetId: savedHostTarget?.id || normalizedHostTargetId,
+      connectionName: savedConnection?.name || savedHostTarget?.name || connectionName || '',
       host,
       username,
       port,
@@ -317,7 +338,7 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
 
     if (savedConnection) {
       connectionModel.updateLastConnected(savedConnection.id);
-    } else {
+    } else if (!savedHostTarget) {
       connectionModel.touchByFingerprint(host, username, normalizePort(port), actor);
     }
 
@@ -342,6 +363,7 @@ router.post('/xen-login', validate(schemas.xenLogin), async (req, res) => {
       after: {
         targetKey: targetRecord.targetKey,
         connectionId: targetRecord.connectionId,
+        hostTargetId: targetRecord.hostTargetId,
         connectionName: targetRecord.connectionName,
         host,
         username: operatorName,

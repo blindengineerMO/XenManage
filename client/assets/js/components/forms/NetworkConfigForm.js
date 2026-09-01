@@ -104,14 +104,14 @@ const NetworkConfigForm = {
         <div class="form-group">
           <label>Purpose</label>
           <div class="stack-list">
-            <label class="stack-item" style="gap:10px;align-items:flex-start">
+            <label class="stack-item form-toggle" style="gap:10px;align-items:flex-start">
               <input type="checkbox" value="nbd" v-model="draft.purpose">
               <div>
                 <strong>NBD</strong>
                 <div class="text-muted mono" style="font-size:11px">Network Block Device service using TLS</div>
               </div>
             </label>
-            <label class="stack-item" style="gap:10px;align-items:flex-start">
+            <label class="stack-item form-toggle" style="gap:10px;align-items:flex-start">
               <input type="checkbox" value="insecure_nbd" v-model="draft.purpose">
               <div>
                 <strong>Insecure NBD</strong>

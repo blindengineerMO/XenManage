@@ -156,6 +156,7 @@ const metricsCollector = {
 
     const result = await metricsHistoryService.captureSnapshot(xenApi, {
       force: Boolean(options.force),
+      targetKey: meta.targetKey || '',
     });
 
     const normalized = normalizeResult(result, {
@@ -214,6 +215,7 @@ const metricsCollector = {
         try {
           const capture = await metricsHistoryService.captureSnapshot(target.api, {
             force: options.force !== false,
+            targetKey: target.targetKey || '',
           });
           results.push(normalizeResult(capture, target, options.source || 'scheduler'));
         } catch (error) {

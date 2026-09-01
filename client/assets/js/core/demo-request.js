@@ -10,6 +10,11 @@ function demoRequest(method, url, body) {
   const targetKey = parsedUrl.searchParams.get('targetKey') || store.currentTargetKey || 'demo-fabric';
   const scope = getDemoTargetScope(targetKey);
 
+  const settingsRouteResult = handleDemoSettingsRoutes(method, path, body);
+  if (settingsRouteResult !== undefined) {
+    return settingsRouteResult;
+  }
+
   const shellRouteResult = handleDemoShellRoutes(method, path, body, range);
   if (shellRouteResult !== undefined) {
     return shellRouteResult;
@@ -58,6 +63,11 @@ function demoRequest(method, url, body) {
   const resourceRouteResult = handleDemoResourceRoutes(method, path, body, scope, parsedUrl);
   if (resourceRouteResult !== undefined) {
     return resourceRouteResult;
+  }
+
+  const vFabricRouteResult = handleDemoVFabricRoutes(method, path, body);
+  if (vFabricRouteResult !== undefined) {
+    return vFabricRouteResult;
   }
 
   const targetRouteResult = handleDemoTargetRoutes(method, path, body);
