@@ -20,21 +20,22 @@ const GovernanceView = {
               Governance
             </h2>
             <p class="section-subtitle">Role-aware operations, local user administration, pool quotas, and approval-gated destructive actions for the evolving XenMange control plane.</p>
+            <p class="section-subtitle text-cyan" v-if="store.vFabricScope?.scope">Read scope: {{ store.vFabricScope.scope.name }} · {{ store.vFabricScope.attachedTargets.length }} attached member{{ store.vFabricScope.attachedTargets.length === 1 ? '' : 's' }} · quota posture is aggregated; control-plane changes are disabled</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn"
-                    v-if="canManageUsers"
+                    v-if="canManageUsers && !isVFabricScopeReadOnly"
                     @click="openUserComposer()">
               <span class="mdi mdi-account-plus-outline"></span>
               Add User
             </button>
             <button class="btn"
-                    v-if="canManageUsers"
+                    v-if="canManageUsers && !isVFabricScopeReadOnly"
                     @click="openGroupComposer()">
               <span class="mdi mdi-account-group-outline"></span>
               Add Group
             </button>
-            <button class="btn" @click="openApprovalComposer()">
+            <button v-if="!isVFabricScopeReadOnly" class="btn" @click="openApprovalComposer()">
               <span class="mdi mdi-clipboard-check-outline"></span>
               Request Approval
             </button>
@@ -77,11 +78,22 @@ const GovernanceView = {
         </div>
 
         <div class="dashboard-panels">
+          <div class="dash-card" v-if="vFabricQuotaEvaluation">
+            <div class="dash-card-label">vFabric Quota</div>
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div>
+                <strong>{{ vFabricQuotaEvaluation.vFabricName }}</strong>
+                <div class="text-muted mono" style="font-size:11px;margin-top:5px">{{ vFabricQuotaEvaluation.usage.vmCount }} VMs · {{ vFabricQuotaEvaluation.usage.runningVmCount }} running · {{ vFabricQuotaEvaluation.usage.totalMemoryGiB }} GiB</div>
+                <div class="text-muted" style="font-size:12px;margin-top:7px">{{ vFabricQuotaEvaluation.detail }}</div>
+              </div>
+              <status-badge :status="vFabricQuotaEvaluation.status"></status-badge>
+            </div>
+          </div>
           <div class="dash-card">
             <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
               <div class="dash-card-label">Local Users</div>
               <button class="btn btn-sm"
-                      v-if="canManageUsers"
+                      v-if="canManageUsers && !isVFabricScopeReadOnly"
                       @click="openUserComposer()">
                 <span class="mdi mdi-account-plus-outline"></span>
                 New User
@@ -91,7 +103,7 @@ const GovernanceView = {
               <button class="stack-item stack-item-button"
                       v-for="user in users"
                       :key="user.id"
-                      @click="openUserEditor(user)">
+                      @click="!isVFabricScopeReadOnly && openUserEditor(user)">
                 <div>
                   <strong>{{ user.display_name || user.username }}</strong>
                   <div class="text-muted mono" style="font-size:11px">
@@ -124,7 +136,7 @@ const GovernanceView = {
             <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
               <div class="dash-card-label">Local Groups</div>
               <button class="btn btn-sm"
-                      v-if="canManageUsers"
+                      v-if="canManageUsers && !isVFabricScopeReadOnly"
                       @click="openGroupComposer()">
                 <span class="mdi mdi-account-group-outline"></span>
                 New Group
@@ -134,7 +146,7 @@ const GovernanceView = {
               <button class="stack-item stack-item-button"
                       v-for="group in groups"
                       :key="group.id"
-                      @click="openGroupEditor(group)">
+                      @click="!isVFabricScopeReadOnly && openGroupEditor(group)">
                 <div>
                   <strong>{{ group.name }}</strong>
                   <div class="text-muted mono" style="font-size:11px">
@@ -155,7 +167,7 @@ const GovernanceView = {
 
           <div class="dash-card">
             <div class="dash-card-label">Session Role</div>
-            <div class="stack-list">
+            <div class="stack-list" v-if="!isVFabricScopeReadOnly">
               <button class="stack-item stack-item-button"
                       v-for="role in roles"
                       :key="role.value"
@@ -168,6 +180,9 @@ const GovernanceView = {
                   {{ store.governance.currentRole === role.value ? 'Active' : 'Switch' }}
                 </span>
               </button>
+            </div>
+            <div v-else class="empty-state" style="padding:20px 12px">
+              Session-role changes are unavailable while reviewing an aggregated vFabric scope.
             </div>
           </div>
 
@@ -189,7 +204,8 @@ const GovernanceView = {
           <div class="dash-card">
             <div class="dash-card-label">Governance Policy</div>
             <p class="text-muted">Manage default session scope and destructive-action approval requirements in the unified governance panel.</p>
-            <button class="btn" @click="openGovernancePanel('policy')"><span class="mdi mdi-shield-cog-outline"></span>Manage Policy</button>
+            <button v-if="!isVFabricScopeReadOnly" class="btn" @click="openGovernancePanel('policy')"><span class="mdi mdi-shield-cog-outline"></span>Manage Policy</button>
+            <p v-else class="text-muted">Policy, approvals, users, and groups remain control-plane-wide. Select one target to change them.</p>
           </div>
 
           <div class="dash-card">
@@ -212,12 +228,13 @@ const GovernanceView = {
             <div class="stack-list" v-if="quotaRows.length">
               <button class="stack-item stack-item-button"
                       v-for="row in quotaRows"
-                      :key="row.poolRef"
-                      @click="openQuotaEditor(row)">
+                      :key="row.scopeRowKey || row.poolRef"
+                      @click="!isVFabricScopeReadOnly && openQuotaEditor(row)">
                 <div>
                   <strong>{{ row.poolName }}</strong>
                   <div class="text-muted mono" style="font-size:11px">
                     {{ row.currentVmCount }} VMs · {{ row.currentRunningVmCount }} running · {{ row.currentTotalMemoryGiB }} GiB
+                    <span v-if="row.scopeTargetLabel"> · {{ row.scopeTargetLabel }}</span>
                   </div>
                   <div class="text-muted" style="font-size:12px;margin-top:6px">{{ row.detail }}</div>
                 </div>
@@ -239,13 +256,13 @@ const GovernanceView = {
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                   <button class="btn btn-sm"
-                          v-if="approval.status === 'pending'"
+                          v-if="approval.status === 'pending' && !isVFabricScopeReadOnly"
                           :disabled="store.governance.currentRole !== 'admin' || decidingApprovalId === approval.id"
                           @click="decideApproval(approval, 'approved')">
                     Approve
                   </button>
                   <button class="btn btn-sm"
-                          v-if="approval.status === 'pending'"
+                          v-if="approval.status === 'pending' && !isVFabricScopeReadOnly"
                           :disabled="store.governance.currentRole !== 'admin' || decidingApprovalId === approval.id"
                           @click="decideApproval(approval, 'rejected')">
                     Reject
@@ -262,11 +279,12 @@ const GovernanceView = {
           <div class="dash-card">
             <div class="dash-card-label">Quota Coverage</div>
             <div class="stack-list">
-              <div class="stack-item" v-for="row in quotaRows.slice(0, 6)" :key="row.poolRef">
+              <div class="stack-item" v-for="row in quotaRows.slice(0, 6)" :key="row.scopeRowKey || row.poolRef">
                 <div>
                   <strong>{{ row.poolName }}</strong>
                   <div class="text-muted mono" style="font-size:11px">
                     {{ row.quota?.enabled ? 'Quota enforced' : 'No quota enforced' }} · {{ row.quota?.owner || 'No owner' }}
+                    <span v-if="row.scopeTargetLabel"> · {{ row.scopeTargetLabel }}</span>
                   </div>
                 </div>
                 <span class="badge" :class="row.quota?.enabled ? 'badge-info' : 'badge-warning'">
@@ -397,6 +415,7 @@ const GovernanceView = {
       },
       approvals: [],
       quotaRows: [],
+      vFabricQuotaEvaluation: null,
       users: [],
       groups: [],
       approvalDraft: null,
@@ -442,6 +461,9 @@ const GovernanceView = {
     selectedUserIsCurrentSession() {
       return this.selectedUser ? this.isCurrentSessionUser(this.selectedUser) : false;
     },
+    isVFabricScopeReadOnly() {
+      return hasVFabricScope();
+    },
   },
   async mounted() {
     if (!store.authenticated) {
@@ -450,6 +472,10 @@ const GovernanceView = {
     }
     await this.loadGovernance();
     this.consumePendingApprovalDraft();
+    this.$watch(() => store.vFabricScope?.scope?.id || '', () => {
+      if (hasVFabricScope()) this.closeGovernancePanel();
+      this.loadGovernance();
+    });
   },
   methods: {
     formatDateTime,
@@ -463,8 +489,8 @@ const GovernanceView = {
     async loadGovernance() {
       this.loading = true;
       try {
-        const [result, usersResult, groupsResult] = await Promise.all([
-          api.getGovernance(),
+        const [governanceResults, usersResult, groupsResult, vFabricQuotaEvaluation] = await Promise.all([
+          this.loadGovernanceAcrossScope(),
           this.canManageUsers
             ? api.getUsers().catch((error) => {
               this.userError = error.message || 'Unable to load local users';
@@ -477,12 +503,17 @@ const GovernanceView = {
               return null;
             })
             : Promise.resolve(null),
+          hasVFabricScope()
+            ? api.getVFabricQuota(store.vFabricScope.scope.id).catch(() => null)
+            : Promise.resolve(null),
         ]);
 
-        this.summary = result.summary || this.summary;
+        const result = governanceResults[0] || {};
+        this.summary = mergeGovernanceScopeSummaries(governanceResults, this.summary);
         this.policy = result.policy || this.policy;
         this.approvals = result.approvals || [];
-        this.quotaRows = result.quotaRows || [];
+        this.quotaRows = mergeGovernanceScopeQuotaRows(governanceResults);
+        this.vFabricQuotaEvaluation = vFabricQuotaEvaluation;
         this.userSummary = result.userSummary || this.userSummary;
         this.users = usersResult?.data || (this.canManageUsers ? this.users : []);
         this.groups = groupsResult?.data || (this.canManageUsers ? this.groups : []);
@@ -498,6 +529,7 @@ const GovernanceView = {
       }
     },
     async switchRole(role) {
+      if (hasVFabricScope()) return;
       if (store.governance.currentRole === role) return;
       this.policyError = '';
       try {
@@ -515,6 +547,7 @@ const GovernanceView = {
       }
     },
     async savePolicy(payload) {
+      if (hasVFabricScope()) return;
       if (store.governance.currentRole !== 'admin') {
         this.policyError = 'Switch back to an admin session role before changing governance policy.';
         return;
@@ -536,6 +569,7 @@ const GovernanceView = {
       }
     },
     openGovernancePanel(tab = 'policy') {
+      if (hasVFabricScope()) return;
       this.governancePanelTab = tab;
       this.showGovernancePanel = true;
     },
@@ -558,6 +592,7 @@ const GovernanceView = {
       this.showPasswordReset = false;
     },
     openQuotaEditor(row) {
+      if (hasVFabricScope()) return;
       this.selectedQuotaRow = row;
       this.quotaError = '';
       this.showGovernancePanel = true;
@@ -569,6 +604,7 @@ const GovernanceView = {
       this.quotaError = '';
     },
     async saveQuota(payload) {
+      if (hasVFabricScope()) return;
       if (!this.selectedQuotaRow) return;
       if (store.governance.currentRole !== 'admin') {
         this.quotaError = 'Switch back to an admin session role before changing pool quota policy.';
@@ -587,6 +623,7 @@ const GovernanceView = {
       }
     },
     async deleteQuota(row) {
+      if (hasVFabricScope()) return;
       if (!row?.poolRef) return;
       if (store.governance.currentRole !== 'admin') {
         this.quotaError = 'Switch back to an admin session role before removing pool quota policy.';
@@ -624,6 +661,7 @@ const GovernanceView = {
       }
     },
     openApprovalComposer(draft = null, message = '') {
+      if (hasVFabricScope()) return;
       this.approvalError = message || '';
       this.approvalDraft = normalizeGovernanceApprovalDraft(draft || {});
       this.showApprovalComposer = true;
@@ -636,6 +674,7 @@ const GovernanceView = {
       this.approvalDraft = null;
     },
     openUserComposer() {
+      if (hasVFabricScope()) return;
       this.userError = '';
       this.showUserComposer = true;
       this.selectedUser = null;
@@ -647,6 +686,7 @@ const GovernanceView = {
       this.userError = '';
     },
     openUserEditor(user) {
+      if (hasVFabricScope()) return;
       this.selectedUser = user;
       this.userError = '';
       this.showUserEditor = true;
@@ -660,6 +700,7 @@ const GovernanceView = {
       this.userError = '';
     },
     openGroupComposer() {
+      if (hasVFabricScope()) return;
       this.groupError = '';
       this.showGroupComposer = true;
       this.selectedGroup = null;
@@ -671,6 +712,7 @@ const GovernanceView = {
       this.groupError = '';
     },
     openGroupEditor(group) {
+      if (hasVFabricScope()) return;
       this.selectedGroup = group;
       this.groupError = '';
       this.showGroupEditor = true;
@@ -695,6 +737,7 @@ const GovernanceView = {
       this.passwordError = '';
     },
     async saveNewUser(payload) {
+      if (hasVFabricScope()) return;
       this.userSaving = true;
       this.userError = '';
       try {
@@ -708,6 +751,7 @@ const GovernanceView = {
       }
     },
     async saveExistingUser(payload) {
+      if (hasVFabricScope()) return;
       if (!this.selectedUser) return;
       this.userSaving = true;
       this.userError = '';
@@ -731,6 +775,7 @@ const GovernanceView = {
       }
     },
     async saveNewGroup(payload) {
+      if (hasVFabricScope()) return;
       this.groupSaving = true;
       this.groupError = '';
       try {
@@ -744,6 +789,7 @@ const GovernanceView = {
       }
     },
     async saveExistingGroup(payload) {
+      if (hasVFabricScope()) return;
       if (!this.selectedGroup) return;
       this.groupSaving = true;
       this.groupError = '';
@@ -758,6 +804,7 @@ const GovernanceView = {
       }
     },
     async removeGroup(group) {
+      if (hasVFabricScope()) return;
       if (!group?.id) return;
       this.groupSaving = true;
       this.groupError = '';
@@ -772,6 +819,7 @@ const GovernanceView = {
       }
     },
     async submitPasswordReset(payload) {
+      if (hasVFabricScope()) return;
       if (!this.selectedUser) return;
       this.passwordSaving = true;
       this.passwordError = '';
@@ -786,12 +834,15 @@ const GovernanceView = {
       }
     },
     async saveApprovalRequest(payload) {
+      if (hasVFabricScope()) return;
       this.approvalSaving = true;
       this.approvalError = '';
       try {
         await api.requestGovernanceApproval(payload);
         await this.loadGovernance();
-        this.closeApprovalComposer();
+        // A completed approval request is a terminal composer action; return
+        // the operator to the workspace instead of leaving a blank panel on top.
+        this.closeGovernancePanel();
       } catch (error) {
         this.approvalError = error.message || 'Unable to submit approval request';
       } finally {
@@ -799,6 +850,7 @@ const GovernanceView = {
       }
     },
     async decideApproval(approval, decision) {
+      if (this.isVFabricScopeReadOnly) return;
       if (store.governance.currentRole !== 'admin') {
         this.approvalError = 'Switch back to an admin session role before deciding approvals.';
         return;
@@ -813,5 +865,36 @@ const GovernanceView = {
         this.decidingApprovalId = '';
       }
     },
+    async loadGovernanceAcrossScope() {
+      const targets = getVFabricScopeTargets();
+      if (!targets.length) return [await api.getGovernance()];
+      return Promise.all(targets.map(async (target) => ({
+        ...(await api.getGovernance(target.targetKey)),
+        scopeTargetKey: target.targetKey,
+        scopeTargetLabel: target.connectionName || target.host || target.targetKey,
+      })));
+    },
   },
 };
+
+function mergeGovernanceScopeSummaries(results = [], fallback = {}) {
+  const first = results[0]?.summary || fallback;
+  return results.reduce((summary, result) => ({
+    ...summary,
+    poolCount: Number(summary.poolCount || 0) + Number(result?.summary?.poolCount || 0),
+    enforcedQuotaCount: Number(summary.enforcedQuotaCount || 0) + Number(result?.summary?.enforcedQuotaCount || 0),
+  }), {
+    ...first,
+    poolCount: 0,
+    enforcedQuotaCount: 0,
+  });
+}
+
+function mergeGovernanceScopeQuotaRows(results = []) {
+  return results.flatMap((result) => (result?.quotaRows || []).map((row) => ({
+    ...row,
+    scopeTargetKey: result.scopeTargetKey || '',
+    scopeTargetLabel: result.scopeTargetLabel || '',
+    scopeRowKey: result.scopeTargetKey ? `${result.scopeTargetKey}::${row.poolRef}` : row.poolRef,
+  })));
+}

@@ -250,7 +250,7 @@ async function planCompose(xenApi, spec) {
   return { order, plans, variables };
 }
 
-async function executeCompose(xenApi, spec, { submittedBy = '' } = {}) {
+async function executeCompose(xenApi, spec, { submittedBy = '', beforeDeploy } = {}) {
   const { plans } = await planCompose(xenApi, spec);
 
   let hosts = [];
@@ -307,6 +307,10 @@ async function executeCompose(xenApi, spec, { submittedBy = '' } = {}) {
             quotaUsageByPool.set(poolRef, evaluation.usage);
           }
         }
+      }
+
+      if (typeof beforeDeploy === 'function') {
+        await beforeDeploy(plan);
       }
 
       const createdVm = await xenApi.deployComposeVM(plan.templateRef, {

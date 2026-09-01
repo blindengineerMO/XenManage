@@ -204,7 +204,7 @@ const VMPropertiesWindow = {
             v-else-if="activeTab === 'protection'"
             :model="vmTabModels.protection"
             @submit="$emit('submit-vm-snapshot', $event)"
-            @snapshot-action="$emit('snapshot-action', $event)">
+            @snapshot-action="(action, snapshot) => $emit('snapshot-action', { action, snapshot })">
           </vm-protection-tab>
 
           <vm-config-tab

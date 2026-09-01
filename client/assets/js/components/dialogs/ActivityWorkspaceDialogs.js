@@ -13,6 +13,7 @@ const ActivityWorkspaceDialogs = {
     remediationSaving: { type: Boolean, default: false },
     remediationError: { type: String, default: null },
     logSources: { type: Array, default: () => [] },
+    readOnly: { type: Boolean, default: false },
   },
   emits: [
     'close',
@@ -78,7 +79,7 @@ const ActivityWorkspaceDialogs = {
           </div>
         </div>
 
-        <div class="detail-section" v-if="isRemediationTask(selectedTask)">
+        <div class="detail-section" v-if="isRemediationTask(selectedTask) && !readOnly">
           <div class="detail-section-title">Remediation Context</div>
           <div class="property-grid">
             <span class="text-muted">Action Type</span><span>{{ formatActionTypeLabel(selectedTask.action_type) }}</span>
@@ -96,6 +97,10 @@ const ActivityWorkspaceDialogs = {
             <span class="text-muted">Related Class</span><span>{{ selectedTask.related_class || '-' }}</span>
             <span class="text-muted">Target Workspace</span><span>{{ selectedTask.target_route || '-' }}</span>
           </div>
+        </div>
+
+        <div class="detail-section" v-else-if="isRemediationTask(selectedTask) && readOnly">
+          <div class="text-muted">vFabric scope is read-only. Switch to a single live target to update this remediation task or launch follow-through work.</div>
         </div>
 
         <div class="detail-section" v-if="isRemediationTask(selectedTask) && selectedTask.workspace_summary">
@@ -130,7 +135,7 @@ const ActivityWorkspaceDialogs = {
           </div>
         </div>
 
-        <div class="detail-section" v-if="isRemediationTask(selectedTask)">
+        <div class="detail-section" v-if="isRemediationTask(selectedTask) && !readOnly">
           <div class="detail-section-title">Manage Remediation Task</div>
           <remediation-task-update-form
             :initial-value="selectedTask"
@@ -141,7 +146,7 @@ const ActivityWorkspaceDialogs = {
           <div class="form-error" v-if="remediationError" style="text-align:left;margin-top:12px">{{ remediationError }}</div>
         </div>
 
-        <div class="detail-section" v-if="isRemediationTask(selectedTask) && (canOpenTaskAlert(selectedTask) || selectedTask.target_route || canLaunchLifecycleMaintenance(selectedTask) || canDraftLifecyclePlan(selectedTask) || canLaunchResilienceDrill(selectedTask) || canDraftResilienceRunbook(selectedTask) || canDraftVmMigration(selectedTask))">
+        <div class="detail-section" v-if="!readOnly && isRemediationTask(selectedTask) && (canOpenTaskAlert(selectedTask) || selectedTask.target_route || canLaunchLifecycleMaintenance(selectedTask) || canDraftLifecyclePlan(selectedTask) || canLaunchResilienceDrill(selectedTask) || canDraftResilienceRunbook(selectedTask) || canDraftVmMigration(selectedTask))">
           <div class="detail-section-title">Follow-through</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary btn-sm"

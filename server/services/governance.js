@@ -2,6 +2,7 @@ const { settingsModel } = require('../models/connection');
 
 const POLICY_KEY = 'governance.policy';
 const QUOTAS_KEY = 'governance.quotas';
+const VFABRIC_QUOTAS_KEY = 'governance.vfabricQuotas';
 const APPROVALS_KEY = 'governance.approvals';
 const MAX_APPROVALS = 250;
 
@@ -74,6 +75,12 @@ function normalizeQuota(poolRef, payload = {}) {
   };
 }
 
+function normalizeVFabricQuota(vFabricId, payload = {}) {
+  const quota = normalizeQuota('', payload);
+  delete quota.poolRef;
+  return { ...quota, vFabricId: Number(vFabricId) };
+}
+
 const governanceService = {
   getPolicy() {
     const stored = readCollection(POLICY_KEY, {
@@ -139,6 +146,37 @@ const governanceService = {
   removeQuota(poolRef) {
     const records = readCollection(QUOTAS_KEY, []);
     writeCollection(QUOTAS_KEY, records.filter((record) => record.poolRef !== poolRef));
+    return { success: true };
+  },
+
+  listVFabricQuotas() {
+    const records = readCollection(VFABRIC_QUOTAS_KEY, []);
+    return sortByRecent(
+      Array.isArray(records)
+        ? records.filter((record) => Number(record?.vFabricId || 0) > 0)
+          .map((record) => normalizeVFabricQuota(record.vFabricId, record))
+        : [],
+      'updatedAt'
+    );
+  },
+
+  getVFabricQuota(vFabricId) {
+    return this.listVFabricQuotas().find((record) => Number(record.vFabricId) === Number(vFabricId)) || null;
+  },
+
+  upsertVFabricQuota(vFabricId, payload = {}) {
+    const records = readCollection(VFABRIC_QUOTAS_KEY, []);
+    const nextRecord = normalizeVFabricQuota(vFabricId, payload);
+    const index = records.findIndex((record) => Number(record?.vFabricId) === Number(vFabricId));
+    if (index === -1) records.push(nextRecord);
+    else records[index] = nextRecord;
+    writeCollection(VFABRIC_QUOTAS_KEY, records);
+    return nextRecord;
+  },
+
+  removeVFabricQuota(vFabricId) {
+    const records = readCollection(VFABRIC_QUOTAS_KEY, []);
+    writeCollection(VFABRIC_QUOTAS_KEY, records.filter((record) => Number(record?.vFabricId) !== Number(vFabricId)));
     return { success: true };
   },
 

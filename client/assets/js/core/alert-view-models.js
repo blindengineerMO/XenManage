@@ -52,6 +52,7 @@ function formatAlertTargetRouteLabel(route) {
 function decorateAlertMessages(messages = []) {
   return sortMessages(Array.isArray(messages) ? messages : []).map((message) => ({
     ...message,
+    scopeRowKey: message.scopeRowKey || (message.scopeTargetKey ? `${message.scopeTargetKey}::${message.ref}` : message.ref),
     effectiveSeverity: getMessageSeverity(message),
     summary: getMessageHeadline(message),
     stateLabel: message.stateLabel || (message.suppressed ? 'suppressed' : message.acknowledged ? 'acknowledged' : 'open'),
@@ -86,12 +87,12 @@ function filterAlertMessages(messages = [], activeFilter = 'all') {
 
 function findSelectedAlertMessage(messages = [], selectedRef = '') {
   if (!selectedRef) return null;
-  return (Array.isArray(messages) ? messages : []).find((message) => message.ref === selectedRef) || null;
+  return (Array.isArray(messages) ? messages : []).find((message) => (message.scopeRowKey || message.ref) === selectedRef) || null;
 }
 
 function buildSelectedAlertRows(messages = [], selectedRefs = []) {
   const selected = new Set(Array.isArray(selectedRefs) ? selectedRefs : []);
-  return (Array.isArray(messages) ? messages : []).filter((message) => selected.has(message.ref));
+  return (Array.isArray(messages) ? messages : []).filter((message) => selected.has(message.scopeRowKey || message.ref));
 }
 
 function buildAlertCards(messages = [], policies = []) {

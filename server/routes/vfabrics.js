@@ -4,6 +4,9 @@ const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');
 const auditLogService = require('../services/audit-log');
 const { getVFabricScope } = require('../services/vfabric-scope');
+const governanceService = require('../services/governance');
+const { evaluateVFabricQuota } = require('../services/vfabric-quota');
+const { userModel } = require('../models/security-db');
 const {
   canManageRecord,
   enrichOwnedRecord,
@@ -36,6 +39,15 @@ function findManageable(id, actor, res) {
   return record;
 }
 
+function requireAdminSession(req, res) {
+  const account = req.session?.userId ? userModel.getById(req.session.userId) : null;
+  if ((account && (!account.active || account.role !== 'admin')) || governanceService.getSessionRole(req.session) !== 'admin') {
+    res.status(403).json({ error: 'ADMIN_ROLE_REQUIRED' });
+    return false;
+  }
+  return true;
+}
+
 function validateMemberVisibility(body, actor) {
   for (const id of body.connectionIds || []) {
     if (!connectionModel.getVisibleById(id, actor)) {
@@ -65,6 +77,56 @@ router.get('/:id/scope', validate(schemas.vFabricIdParam, 'params'), (req, res) 
     res.json(getVFabricScope(req, req.params.id));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.code || error.message });
+  }
+});
+
+router.get('/:id/quota', validate(schemas.vFabricIdParam, 'params'), async (req, res) => {
+  try {
+    res.json(await evaluateVFabricQuota(req, req.params.id));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.code || error.message, message: error.message });
+  }
+});
+
+router.put('/:id/quota', validate(schemas.vFabricIdParam, 'params'), validate(schemas.vFabricQuotaUpdate), (req, res) => {
+  try {
+    if (!requireAdminSession(req, res)) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vfabric_quota_save', entityType: 'vfabric', entityRef: String(req.params.id) })) return;
+    const actor = resolveActor(req);
+    const fabric = findManageable(req.params.id, actor, res);
+    if (!fabric) return;
+    const previous = governanceService.getVFabricQuota(fabric.id);
+    const quota = governanceService.upsertVFabricQuota(fabric.id, req.body);
+    auditLogService.record({
+      category: 'governance', action: 'vfabric_quota_saved', actionLabel: 'Saved vFabric quota for',
+      entityType: 'vfabric', entityRef: String(fabric.id), entityName: fabric.name, operator: actor.username,
+      route: '/vfabrics', status: 'success', before: previous, after: quota,
+      detail: `${quota.maxVmCount || 0} VM cap and ${quota.maxTotalMemoryGiB || 0} GiB cap configured across the vFabric.`,
+    });
+    res.json(quota);
+  } catch (error) {
+    res.status(500).json({ error: error.code || error.message });
+  }
+});
+
+router.delete('/:id/quota', validate(schemas.vFabricIdParam, 'params'), (req, res) => {
+  try {
+    if (!requireAdminSession(req, res)) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vfabric_quota_delete', entityType: 'vfabric', entityRef: String(req.params.id), destructive: true })) return;
+    const actor = resolveActor(req);
+    const fabric = findManageable(req.params.id, actor, res);
+    if (!fabric) return;
+    const previous = governanceService.getVFabricQuota(fabric.id);
+    governanceService.removeVFabricQuota(fabric.id);
+    auditLogService.record({
+      category: 'governance', action: 'vfabric_quota_removed', actionLabel: 'Removed vFabric quota for',
+      entityType: 'vfabric', entityRef: String(fabric.id), entityName: fabric.name, operator: actor.username,
+      route: '/vfabrics', status: 'success', before: previous, after: { success: true },
+      detail: 'Aggregate vFabric quota removed from the governance policy store.',
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.code || error.message });
   }
 });
 
@@ -112,6 +174,7 @@ router.delete('/:id', validate(schemas.vFabricIdParam, 'params'), (req, res) => 
   const actor = resolveActor(req);
   const previous = findManageable(req.params.id, actor, res);
   if (!previous) return;
+  governanceService.removeVFabricQuota(req.params.id);
   vFabricModel.delete(req.params.id);
   auditLogService.record({ category: 'vfabrics', action: 'vfabric_deleted', actionLabel: 'Deleted vFabric', entityType: 'vfabric', entityRef: String(req.params.id), entityName: previous.name, operator: actor.username, route: '/vfabrics', status: 'success', before: enrichOwnedRecord(previous, actor), after: { success: true }, detail: 'Logical grouping deleted; member targets were not changed.' });
   res.json({ success: true });

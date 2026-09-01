@@ -148,6 +148,10 @@ describe('System Config Routes', () => {
 
   it('should persist settings updates and run retention previews and sweeps', async () => {
     const auth = await login();
+    const freshTimestamp = new Date(Date.now() - 86400000).toISOString();
+    const oldTimestamp = new Date(Date.now() - (200 * 86400000)).toISOString();
+    const freshMetricTimestamp = new Date(freshTimestamp).getTime();
+    const oldMetricTimestamp = new Date(oldTimestamp).getTime();
 
     const network = await request('PUT', '/api/settings/network', {
       publicBaseUrl: 'https://xenmange.example.com',
@@ -192,13 +196,13 @@ describe('System Config Routes', () => {
         id: 'audit-old',
         category: 'alerts',
         summary: 'Old audit entry',
-        happenedAt: '2026-06-01T12:00:00.000Z',
+        happenedAt: oldTimestamp,
       },
       {
         id: 'audit-new',
         category: 'alerts',
         summary: 'Fresh audit entry',
-        happenedAt: '2026-08-23T12:00:00.000Z',
+        happenedAt: freshTimestamp,
       },
     ]));
 
@@ -207,19 +211,19 @@ describe('System Config Routes', () => {
         ref: 'OpaqueRef:task-old',
         name_label: 'Old closed task',
         status: 'success',
-        finished: '2026-05-15T12:00:00.000Z',
+        finished: oldTimestamp,
       },
       {
         ref: 'OpaqueRef:task-open',
         name_label: 'Old open task',
         status: 'in_progress',
-        updated_at: '2026-05-15T12:00:00.000Z',
+        updated_at: oldTimestamp,
       },
       {
         ref: 'OpaqueRef:task-new',
         name_label: 'Fresh closed task',
         status: 'warning',
-        finished: '2026-08-23T12:00:00.000Z',
+        finished: freshTimestamp,
       },
     ]));
 
@@ -231,7 +235,7 @@ describe('System Config Routes', () => {
     });
 
     getSecurityDb().prepare('UPDATE auth_events SET created_at = ? WHERE id = ?')
-      .run('2026-05-01T12:00:00.000Z', event.id);
+      .run(oldTimestamp, event.id);
 
     const expiredDeploymentRun = deploymentRunModel.create({
       id: 'tmplrun-expired',
@@ -242,8 +246,8 @@ describe('System Config Routes', () => {
       vmName: 'ubuntu-prod-01',
       status: 'success',
       progress: 1,
-      submittedAt: '2026-05-10T12:00:00.000Z',
-      finishedAt: '2026-05-10T12:30:00.000Z',
+      submittedAt: oldTimestamp,
+      finishedAt: oldTimestamp,
       validationStatus: 'validated',
       result: 'Deployment completed successfully.',
     }, [
@@ -264,7 +268,7 @@ describe('System Config Routes', () => {
       vmName: 'ubuntu-prod-02',
       status: 'warning',
       progress: 0.9,
-      submittedAt: '2026-05-10T12:00:00.000Z',
+      submittedAt: freshTimestamp,
       validationStatus: 'warning',
       result: 'Deployment is waiting for operator review.',
     }, [
@@ -281,14 +285,14 @@ describe('System Config Routes', () => {
         entityType: 'host',
         entityRef: 'OpaqueRef:host-old',
         metricName: 'memory_used_bytes',
-        ts: new Date('2026-05-10T12:00:00.000Z').getTime(),
+        ts: oldMetricTimestamp,
         value: 2048,
       },
       {
         entityType: 'host',
         entityRef: 'OpaqueRef:host-new',
         metricName: 'memory_used_bytes',
-        ts: new Date('2026-08-23T12:00:00.000Z').getTime(),
+        ts: freshMetricTimestamp,
         value: 1024,
       },
     ]);
@@ -349,7 +353,7 @@ describe('System Config Routes', () => {
     expect(remainingRollups).toEqual([
       expect.objectContaining({
         entity_ref: 'OpaqueRef:host-new',
-        bucket_ts: toHourlyBucket(new Date('2026-08-23T12:00:00.000Z').getTime()),
+        bucket_ts: toHourlyBucket(freshMetricTimestamp),
       }),
     ]);
   });

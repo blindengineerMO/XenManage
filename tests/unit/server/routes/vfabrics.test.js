@@ -26,6 +26,7 @@ jest.mock('../../../../server/services/xenapi', () => {
 
 const { getDb } = require('../../../../server/models/connection');
 const { getSecurityDb } = require('../../../../server/models/security-db');
+const { XenAPI } = require('../../../../server/services/xenapi');
 const app = require('../../../../server/index');
 
 describe('vFabric Routes', () => {
@@ -49,6 +50,7 @@ describe('vFabric Routes', () => {
     database.prepare('DELETE FROM vfabrics').run();
     database.prepare('DELETE FROM host_targets').run();
     database.prepare('DELETE FROM connections').run();
+    database.prepare(`DELETE FROM settings WHERE key = 'governance.vfabricQuotas'`).run();
 
     const securityDb = getSecurityDb();
     securityDb.prepare(`DELETE FROM users WHERE username != 'admin'`).run();
@@ -215,5 +217,62 @@ describe('vFabric Routes', () => {
     expect(scope.body.unavailableMembers).toEqual([
       expect.objectContaining({ targetId: hostTarget.id, kind: 'host', name: 'Edge Host' }),
     ]);
+  });
+
+  it('persists aggregate quotas and blocks a deployment that breaches the vFabric limit', async () => {
+    const auth = await login('admin');
+    const database = getDb();
+    const connection = database.prepare('SELECT id FROM connections').get();
+    const created = await request('POST', '/api/vfabrics', {
+      name: 'Quota Protected Pool', colorTag: 'green', visibility: 'private', connectionIds: [connection.id], hostTargetIds: [],
+    }, auth.cookie);
+    expect(created.status).toBe(201);
+
+    XenAPI.prototype.getHosts = jest.fn().mockResolvedValue({
+      records: { 'OpaqueRef:host1': { pool: 'OpaqueRef:pool1', name_label: 'host-one' } },
+    });
+    XenAPI.prototype.getVMs = jest.fn().mockResolvedValue({
+      records: {
+        'OpaqueRef:vm1': {
+          is_a_template: false,
+          resident_on: 'OpaqueRef:host1',
+          affinity: 'OpaqueRef:host1',
+          power_state: 'Running',
+          memory_static_max: 4294967296,
+        },
+      },
+    });
+
+    const attached = await request('POST', '/api/auth/xen-login', {
+      host: '10.42.0.11', username: 'root', password: 'password123!', connectionId: connection.id,
+    }, auth.cookie);
+    expect(attached.status).toBe(200);
+
+    const saved = await request('PUT', `/api/vfabrics/${created.body.id}/quota`, {
+      enabled: true,
+      owner: 'Platform Ops',
+      maxVmCount: 1,
+      maxRunningVmCount: 0,
+      maxTotalMemoryGiB: 0,
+      notes: 'Protect aggregate capacity.',
+    }, attached.cookie);
+    expect(saved.status).toBe(200);
+    expect(saved.body).toEqual(expect.objectContaining({ vFabricId: created.body.id, maxVmCount: 1 }));
+
+    const evaluation = await request('GET', `/api/vfabrics/${created.body.id}/quota`, null, attached.cookie);
+    expect(evaluation.status).toBe(200);
+    expect(evaluation.body).toEqual(expect.objectContaining({ coverageComplete: true, usage: expect.objectContaining({ vmCount: 1 }) }));
+
+    const deploy = await request('POST', '/api/vms/templates/OpaqueRef%3Atemplate1/deploy', {
+      nameLabel: 'blocked-vm',
+      hostRef: 'OpaqueRef:host1',
+      storageRef: 'OpaqueRef:sr1',
+      networkRef: 'OpaqueRef:net1',
+      vcpus: 2,
+      memoryStaticMax: 4294967296,
+      startAfter: true,
+    }, attached.cookie);
+    expect(deploy.status).toBe(409);
+    expect(deploy.body.error).toBe('VFABRIC_QUOTA_EXCEEDED');
   });
 });

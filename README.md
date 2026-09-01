@@ -8,7 +8,7 @@ A self-hosted, governance-first web console for administering XenServer/XCP-ng p
 
 Most XenServer tooling (XenCenter, the raw `xe` CLI) assumes a single trusted operator with root credentials talking straight to a host. That model breaks down the moment more than one person touches the infrastructure: there's no record of who did what, nothing stops someone from fat-fingering a delete on a production VM, there's no shared view of which pool is about to run out of memory, and there's no durable answer to "what's the recovery plan for this workload?" XenMange puts a governed control plane in front of XenServer without giving up direct XAPI access underneath it:
 
-- **Governance & compliance** exist because destructive hypervisor operations — VM delete, snapshot revert, host reboot/shutdown, credential rotation — are effectively irreversible, and "I have root, so I can" is not an audit trail. XenMange enforces role ceilings (`read-only` / `operator` / `admin`), per-pool resource quotas, and an approval-request/decision workflow so that a destructive action either requires a sufficiently privileged role or a recorded, scoped approval — and every action lands in a searchable, exportable log.
+- **Governance & compliance** exist because destructive hypervisor operations — VM delete, snapshot revert, host reboot/shutdown, credential rotation — are effectively irreversible, and "I have root, so I can" is not an audit trail. XenMange enforces role ceilings (`read-only` / `operator` / `admin`), per-pool and aggregate vFabric resource quotas, and an approval-request/decision workflow so that a destructive action either requires a sufficiently privileged role or a recorded, scoped approval — and every action lands in a searchable, exportable log.
 - **Disaster Recovery / Resilience tooling** exists because "we have snapshots somewhere" is not a recovery plan. XenMange derives a protection posture per workload — recovery tier, HA restart priority, backup freshness — from VM tags and XenServer's own task/message history, then lets operators author and drill actual recovery runbooks against that posture. Failover readiness becomes something you can see and rehearse instead of something you assume.
 - **Capacity / balancing tooling** exists because host memory pressure and storage over-commitment creep up silently between the moments someone happens to open a monitoring dashboard. XenMange persists telemetry history and continuously surfaces skew, saturation, and headroom so a hot host or an over-committed SR gets caught before it becomes an incident.
 
@@ -414,7 +414,7 @@ curl -b cookies.txt -X PUT "http://localhost:3000/api/vms/templates/deployments/
 
 ##### `POST /api/vms/templates/:ref/deploy`
 
-- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_deploy`). When `hostRef` is supplied, the request is also checked against the destination pool's configured governance quota (`409 QUOTA_EXCEEDED` if it would breach VM count, running VM count, or memory allocation limits).
+- **Auth:** Session + attached live target; operator/admin role required (actionKey: `template_deploy`). When `hostRef` is supplied, the request is checked against the destination pool's configured governance quota (`409 QUOTA_EXCEEDED`) and every enabled vFabric containing the active target (`409 VFABRIC_QUOTA_EXCEEDED` or `409 VFABRIC_QUOTA_SCOPE_INCOMPLETE`). Aggregate vFabric enforcement requires every saved member target to be attached, avoiding a decision based on partial usage.
 - **Path params:** `ref` — source template's OpaqueRef (not pattern-validated by this route)
 - **Body params:**
   - `nameLabel` — string, required, 1-120 chars
@@ -2071,7 +2071,9 @@ curl -b cookies.txt -X DELETE "http://localhost:3000/api/host-targets/9?approval
 
 Mounted at `/api/vfabrics` behind control-plane authentication only (`requireAuth`) — a vFabric is XenMange metadata, not a XenAPI cluster object. Its membership can include saved pool targets (`connections`) and standalone host targets (`host_targets`); deleting a vFabric only removes that metadata and never disconnects or deletes the underlying target registration. Records follow the standard owner/visibility model, mutating routes pass through governance, and every create/update/delete is audit logged.
 
-The TopNav **Read Scope** selector can expand a vFabric to the members currently attached to the control-plane session. It aggregates Dashboard and Capacity reads across those attached targets while keeping all mutations bound to the explicitly active live target; unattached or invisible members are never queried or exposed as live data. Capacity telemetry is partitioned by live target in `perf.db`, so matching Xen opaque references from separate pools cannot be mixed; aggregate Capacity scope is explicitly read-only and requires switching back to one live target before launching follow-through work.
+The TopNav **Read Scope** selector can expand a vFabric to the members currently attached to the control-plane session. It aggregates Dashboard, Capacity, Alerts, Activity, and Governance reads across those attached targets while keeping all mutations bound to the explicitly active live target; unattached or invisible members are never queried or exposed as live data. Scoped alerts, tasks, logs, and pool quota posture retain their target identity in the UI, while control-plane-wide policies, approvals, users, and groups are loaded once and cannot be changed from an aggregate scope. Capacity telemetry is partitioned by live target in `perf.db`, so matching Xen opaque references from separate pools cannot be mixed; aggregate scope is explicitly read-only and requires switching back to one live target before launching follow-through work.
+
+vFabric quotas are persisted control-plane policies, managed from the vFabric workspace by an administrator. Evaluation sums non-template VMs, running guests, and static memory allocation across every attached member. A quota is displayed as incomplete when any saved member is unattached; template and Compose deployments on an affected target fail closed until full coverage is available, then reject a projected breach before calling XenAPI.
 
 #### `GET /api/vfabrics`
 
@@ -2082,6 +2084,22 @@ The TopNav **Read Scope** selector can expand a vFabric to the members currently
 
 - **Auth:** Authenticated control-plane session (`requireAuth`).
 - **Description:** Resolves the visible vFabric members against the caller's attached live targets. Returns `attachedTargets` for safe read aggregation and `unavailableMembers` for saved members not attached to the session. This endpoint does not select or mutate a XenServer target.
+
+#### `GET /api/vfabrics/:id/quota`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`); the vFabric must be visible to the caller.
+- **Description:** Returns the persisted aggregate policy plus live per-target and total usage. The response explicitly reports `coverageComplete` and unavailable members rather than silently evaluating a partial scope.
+
+#### `PUT /api/vfabrics/:id/quota`
+
+- **Auth:** Administrator role, vFabric owner or administrator, and a non-read-only governance session.
+- **Body params:** `enabled` (boolean, default `true`) · `owner` (string, max 120 chars) · `maxVmCount` (integer, 0-100000) · `maxRunningVmCount` (integer, 0-100000) · `maxTotalMemoryGiB` (integer, 0-1048576) · `notes` (string, max 1000 chars). A zero limit is unlimited.
+- **Description:** Creates or replaces the single aggregate quota policy for the vFabric and records an audit entry.
+
+#### `DELETE /api/vfabrics/:id/quota`
+
+- **Auth:** Administrator role, vFabric owner or administrator, and the configured destructive-action governance policy.
+- **Description:** Removes the aggregate policy and records an audit entry. Deleting the vFabric also removes its policy.
 
 #### `POST /api/vfabrics`
 

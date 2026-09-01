@@ -834,6 +834,7 @@ const demoDb = {
       updated_at: '2026-08-25T09:00:00.000Z',
     },
   ],
+  vfabricQuotas: [],
   inventoryWorkspaces: [
     {
       id: 'workspace-demo-1',

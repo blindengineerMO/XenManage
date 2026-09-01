@@ -318,7 +318,10 @@ const api = {
   deleteHostTarget: (id, payload = null) => api.request('DELETE', `/api/host-targets/${id}`, payload),
   getVFabrics: () => api.request('GET', '/api/vfabrics'),
   getVFabricScope: (id) => api.request('GET', `/api/vfabrics/${encodeURIComponent(id)}/scope`),
+  getVFabricQuota: (id) => api.request('GET', `/api/vfabrics/${encodeURIComponent(id)}/quota`),
   createVFabric: (payload) => api.request('POST', '/api/vfabrics', payload),
   updateVFabric: (id, payload) => api.request('PUT', `/api/vfabrics/${id}`, payload),
   deleteVFabric: (id, payload = null) => api.request('DELETE', `/api/vfabrics/${id}`, payload),
+  saveVFabricQuota: (id, payload) => api.request('PUT', `/api/vfabrics/${encodeURIComponent(id)}/quota`, payload),
+  deleteVFabricQuota: (id, payload = null) => api.request('DELETE', `/api/vfabrics/${encodeURIComponent(id)}/quota`, payload),
 };
