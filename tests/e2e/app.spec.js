@@ -7718,6 +7718,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.getByRole('button', { name: 'Save Task Update' }).click();
   await expect.poll(() => fixtures.tasks[0]?.status || '').toBe('success');
   await expect(page.getByText('Mitigation completed on Saturday, August 22, 2026.')).toBeVisible();
+  await getFloatingWindowByTitle(page, 'Task Detail').locator('.fw-close').click();
   await page.getByText('Alerts').first().click();
   await expect(page).toHaveURL(/\/alerts$/);
   await page.locator('.data-table').getByText('Storage nearing threshold', { exact: true }).click();
