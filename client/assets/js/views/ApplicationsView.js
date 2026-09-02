@@ -228,3 +228,7 @@ const ApplicationsView = {
     },
   },
 };
+
+if (typeof module !== 'undefined') {
+  module.exports = ApplicationsView;
+}

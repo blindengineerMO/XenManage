@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
+const { runMigrations } = require('../migrations/runner');
 
 let db;
 
@@ -111,7 +112,13 @@ function getDb() {
   db = new Database(config.db.path);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  initializeSchema();
+  runMigrations(db, [{
+    version: 1,
+    name: 'control-plane-baseline',
+    checksum: 'control-plane-baseline-2026-09-02',
+    adoptLegacySchema: true,
+    up: initializeSchema,
+  }]);
   return db;
 }
 

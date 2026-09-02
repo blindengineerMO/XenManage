@@ -87,7 +87,7 @@ const DataTable = {
       <div class="data-table-pagination" v-if="filteredData.length > pageSize">
         <span>{{ (page - 1) * pageSize + 1 }}-{{ Math.min(page * pageSize, filteredData.length) }} of {{ filteredData.length }}</span>
         <div style="display:flex;gap:4px">
-          <button class="btn btn-sm" :disabled="page <= 1" @click="page -= 1">
+          <button class="btn btn-sm" type="button" aria-label="Previous page" :disabled="page <= 1" @click="page -= 1">
             <span class="mdi mdi-chevron-left"></span>
           </button>
           <button class="btn btn-sm" :disabled="page * pageSize >= filteredData.length" @click="page += 1">

@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
+const { runMigrations } = require('../migrations/runner');
 
 let db;
 
@@ -15,7 +16,13 @@ function getVaultDb() {
 
   db = new Database(config.db.vaultPath);
   db.pragma('journal_mode = WAL');
-  initializeSchema();
+  runMigrations(db, [{
+    version: 1,
+    name: 'vault-baseline',
+    checksum: 'vault-baseline-2026-09-02',
+    adoptLegacySchema: true,
+    up: initializeSchema,
+  }]);
   return db;
 }
 

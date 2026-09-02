@@ -30,31 +30,35 @@ const PromptWindow = {
     },
   },
   template: `
-    <div v-if="show" class="app-modal-backdrop" @mousedown.self="$emit('close')">
-      <section class="app-modal-window" role="dialog" aria-modal="true" :aria-label="title">
-        <header class="app-modal-header">
-          <span class="mdi mdi-form-textbox"></span>
-          <span>{{ title }}</span>
-          <button class="fw-close" type="button" @click="$emit('close')"><span class="mdi mdi-close"></span></button>
-        </header>
-        <div class="app-modal-body">
-        <div class="form-group" v-if="label">
-          <label>{{ label }}</label>
-          <input ref="input"
-                 class="form-input"
-                 type="text"
-                 :placeholder="placeholder"
-                 v-model="value"
-                 @keyup.enter="submit"
-                 @keyup.esc="$emit('close')" />
-        </div>
-        <div class="form-error" v-if="errorMessage" style="margin-top:8px">{{ errorMessage }}</div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-          <button class="btn btn-sm" type="button" @click="$emit('close')">Cancel</button>
-          <button class="btn btn-sm btn-primary" type="button" :disabled="!value.trim()" @click="submit">{{ confirmLabel }}</button>
-        </div>
-        </div>
-      </section>
-    </div>
+    <teleport to="body">
+      <div v-if="show" class="app-modal-backdrop" @mousedown.self="$emit('close')">
+        <section class="app-modal-window" role="dialog" aria-modal="true" :aria-label="title" @keydown.esc.prevent="$emit('close')">
+          <header class="app-modal-header">
+            <span class="mdi mdi-form-textbox"></span>
+            <span>{{ title }}</span>
+            <button class="fw-close" type="button" :aria-label="'Close ' + title" @click="$emit('close')"><span class="mdi mdi-close"></span></button>
+          </header>
+          <div class="app-modal-body">
+          <div class="form-group" v-if="label">
+            <label for="prompt-window-input">{{ label }}</label>
+            <input ref="input"
+                   class="form-input"
+                   id="prompt-window-input"
+                   type="text"
+                   :aria-describedby="errorMessage ? 'prompt-window-error' : null"
+                   :placeholder="placeholder"
+                   v-model="value"
+                   @keyup.enter="submit"
+                   @keyup.esc="$emit('close')" />
+          </div>
+          <div id="prompt-window-error" class="form-error" v-if="errorMessage" role="alert" style="margin-top:8px">{{ errorMessage }}</div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+            <button class="btn btn-sm" type="button" @click="$emit('close')">Cancel</button>
+            <button class="btn btn-sm btn-primary" type="button" :disabled="!value.trim()" @click="submit">{{ confirmLabel }}</button>
+          </div>
+          </div>
+        </section>
+      </div>
+    </teleport>
   `,
 };

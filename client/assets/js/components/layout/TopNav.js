@@ -4,7 +4,7 @@ const TopNav = {
   emits: ['toggle-sidebar'],
   template: `
     <nav class="topnav">
-      <button class="topnav-toggle" @click="$emit('toggle-sidebar')">
+      <button class="topnav-toggle" type="button" :aria-label="sidebarOpen ? 'Collapse navigation' : 'Expand navigation'" :aria-expanded="sidebarOpen" @click="$emit('toggle-sidebar')">
         <span class="mdi" :class="sidebarOpen ? 'mdi-menu-open' : 'mdi-menu'"></span>
       </button>
       <div class="topnav-brand">
@@ -41,7 +41,7 @@ const TopNav = {
           <span class="mdi mdi-shield-account-outline"></span>
           {{ roleLabel }}
         </button>
-        <button class="btn btn-sm" v-if="store.authenticated" @click="openProfileWindow" title="My Profile">
+        <button class="btn btn-sm" v-if="store.authenticated" aria-label="My Profile" @click="openProfileWindow" title="My Profile">
           <span class="mdi mdi-account-circle-outline"></span>
         </button>
         <div class="live-target-switcher" v-if="store.authenticated" ref="targetShell">
@@ -139,7 +139,7 @@ const TopNav = {
             <div class="form-error" v-if="targetError" style="text-align:left;margin-top:10px">{{ targetError }}</div>
           </div>
         </div>
-        <button class="btn btn-sm" v-if="store.authenticated" @click="handleLogout">
+        <button class="btn btn-sm" v-if="store.authenticated" aria-label="Sign out" title="Sign out" @click="handleLogout">
           <span class="mdi mdi-logout"></span>
         </button>
       </div>

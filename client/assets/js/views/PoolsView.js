@@ -783,6 +783,7 @@ const PoolsView = {
         );
         applySessionStatus(result);
         this.closeConnectDialog();
+        this.showRegisteredTargetsWindow = false;
         await this.loadAll();
         await this.navigateToPendingReturn();
       } catch (error) {

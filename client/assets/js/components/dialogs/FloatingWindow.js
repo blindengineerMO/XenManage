@@ -40,7 +40,8 @@ const FloatingWindow = {
   computed: {
     resolvedWidth() {
       const requested = Number(this.width || 560);
-      return Math.min(requested, this.viewportWidth - 24);
+      const workspaceInset = this.getWorkspaceLeftInset();
+      return Math.min(requested, Math.max(240, this.viewportWidth - workspaceInset - 12));
     },
     maxWindowHeight() {
       return Math.max(220, this.viewportHeight - 88 - 28);

@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
+const { runMigrations } = require('../migrations/runner');
 
 let perfDb;
 
@@ -17,7 +18,13 @@ function getPerfDb() {
   perfDb.pragma('journal_mode = WAL');
   perfDb.pragma('synchronous = NORMAL');
   perfDb.pragma('foreign_keys = ON');
-  initializeSchema();
+  runMigrations(perfDb, [{
+    version: 1,
+    name: 'performance-baseline',
+    checksum: 'performance-baseline-2026-09-02',
+    adoptLegacySchema: true,
+    up: initializeSchema,
+  }]);
   return perfDb;
 }
 

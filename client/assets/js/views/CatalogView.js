@@ -165,3 +165,7 @@ const CatalogView = {
     },
   },
 };
+
+if (typeof module !== 'undefined') {
+  module.exports = CatalogView;
+}

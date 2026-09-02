@@ -9,6 +9,7 @@ const securityMiddleware = require('./middleware/security');
 const { createApiRateLimiter } = require('./middleware/rate-limit');
 const { csrfProtection, getCsrfToken } = require('./middleware/csrf');
 const requestLogging = require('./middleware/request-logging');
+const { createErrorHandler } = require('./middleware/error-handler');
 const logger = require('./services/logger');
 const errorTracking = require('./services/error-tracking');
 const sessionMiddleware = require('./middleware/session');
@@ -168,14 +169,7 @@ app.get('/{*splat}', (req, res) => {
 });
 
 // Error handler
-app.use((err, req, res, _next) => {
-  logger.error('request_failed', { requestId: req.requestId, method: req.method, path: req.originalUrl, error: err });
-  errorTracking.captureException(err, { requestId: req.requestId, path: req.originalUrl });
-  if (req.path.startsWith('/api/')) {
-    return res.status(500).json({ error: 'INTERNAL_SERVER_ERROR' });
-  }
-  res.status(500).render('500', { error: config.env === 'development' ? err.message : '' });
-});
+app.use(createErrorHandler());
 
 // 404 handler
 app.use((req, res) => {

@@ -110,7 +110,7 @@ const TemplateLibraryView = {
           <button class="btn btn-sm" @click="openContextMenuForRoot">
             <span class="mdi mdi-plus"></span> New
           </button>
-          <button class="btn btn-sm" @click="loadTree">
+          <button class="btn btn-sm" type="button" aria-label="Refresh template library" title="Refresh" @click="loadTree">
             <span class="mdi mdi-refresh"></span>
           </button>
         </div>

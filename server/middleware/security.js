@@ -12,7 +12,9 @@ function securityMiddleware(app) {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.cspNonce}'`],
-        styleSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+        // Monaco injects its syntax-highlighting token colors as an unnoncable <style>
+        // element at runtime, so styleSrc needs 'unsafe-inline' (script-src stays nonce-only).
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
         // Vue's existing dynamic style attributes are isolated from stylesheet execution.
         styleSrcAttr: ["'unsafe-inline'"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],

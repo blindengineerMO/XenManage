@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const config = require('../config');
+const { runMigrations } = require('../migrations/runner');
 
 let db;
 
@@ -198,7 +199,14 @@ function getSecurityDb() {
   db = new Database(config.db.securityPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  initializeSchema();
+  runMigrations(db, [{
+    version: 1,
+    name: 'security-baseline',
+    checksum: 'security-baseline-2026-09-02',
+    adoptLegacySchema: true,
+    up: initializeSchema,
+  }]);
+  ensureBootstrapUser();
   return db;
 }
 
@@ -317,7 +325,6 @@ function initializeSchema() {
     db.exec('ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT');
   }
 
-  ensureBootstrapUser();
 }
 
 function ensureBootstrapUser() {

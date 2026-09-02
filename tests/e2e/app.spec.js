@@ -6,6 +6,12 @@ function getFloatingWindowByTitle(page, title) {
   }).last();
 }
 
+async function confirmAppAction(page, title, confirmLabel) {
+  const confirmWindow = page.locator('.confirm-window').filter({ hasText: title }).last();
+  await expect(confirmWindow).toBeVisible();
+  await confirmWindow.getByRole('button', { name: confirmLabel, exact: true }).click();
+}
+
 async function openDataTableRecord(page, name) {
   const row = page.locator('.data-table tbody tr').filter({ hasText: name }).first();
   await row.locator('td').last().click();
@@ -27,7 +33,7 @@ async function connectSavedPoolTarget(page, options = {}) {
     .getByRole('button', { name: 'Connect' })
     .click();
   await page.getByLabel('Pool Password').fill(options.password || 'secret');
-  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+  await page.getByRole('button', { name: 'Connect to Pool', exact: true }).click();
 }
 
 async function signInAndConnectDefaultTarget(page, options = {}) {
@@ -694,6 +700,9 @@ async function stubAuthenticatedRoutes(page, options = {}) {
     performance: {
       collectionEnabled: true,
       collectionIntervalSeconds: 60,
+    },
+    interaction: {
+      undoDelaySeconds: 1,
     },
     retention: {
       sweepIntervalHours: 24,
@@ -5605,9 +5614,9 @@ test('control-plane sign-in can attach a saved pool target from the pools worksp
   const registeredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
   await registeredTargetsWindow.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByLabel('Pool Password').fill('secret');
-  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+  await page.getByRole('button', { name: 'Connect to Pool', exact: true }).click();
 
-  await expect(page.getByText('connected now')).toBeVisible();
+  await expect(registeredTargetsWindow).toBeHidden();
   await expect(page.locator('.data-table').getByText('Production Pool', { exact: true })).toBeVisible();
 });
 
@@ -5628,7 +5637,7 @@ test('hosts workspace can connect a registered standalone host target without le
   await targetRow.getByRole('button', { name: 'Connect' }).click();
   const connectHostWindow = getFloatingWindowByTitle(page, 'Connect to Host Target');
   await connectHostWindow.getByLabel('Host Password').fill('secret');
-  await connectHostWindow.getByRole('button', { name: 'Connect to Host' }).click();
+  await connectHostWindow.getByRole('button', { name: 'Connect to Host', exact: true }).click();
 
   await expect(registeredHostTargetsWindow.getByText('edge-a', { exact: true })).toBeVisible();
   await expect(page.getByText('connected now')).toBeVisible();
@@ -5646,7 +5655,7 @@ test('pools workspace can activate and detach multiple attached live sessions', 
   let registeredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
   await registeredTargetsWindow.locator('.stack-item').filter({ hasText: 'Production Pool' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByLabel('Pool Password').fill('secret');
-  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+  await page.getByRole('button', { name: 'Connect to Pool', exact: true }).click();
 
   await page.getByRole('button', { name: 'Register Pool' }).click();
   await page.getByLabel('Profile Name').fill('DR Pool');
@@ -5657,7 +5666,7 @@ test('pools workspace can activate and detach multiple attached live sessions', 
   registeredTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Registered Pool Targets' }).last();
   await registeredTargetsWindow.locator('.stack-item').filter({ hasText: 'DR Pool' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByLabel('Pool Password').fill('secret');
-  await page.getByRole('button', { name: 'Connect to Pool' }).click();
+  await page.getByRole('button', { name: 'Connect to Pool', exact: true }).click();
 
   await page.locator('.section-head').getByRole('button', { name: /Attached Live Targets/ }).click();
   const attachedTargetsWindow = page.locator('.floating-window').filter({ hasText: 'Attached Live Targets' }).last();
@@ -6343,7 +6352,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
     mimeType: 'application/octet-stream',
     buffer: Buffer.from('demo-import-payload'),
   });
-  await page.getByRole('button', { name: 'Import Virtual Machine' }).click();
+  await getFloatingWindowByTitle(page, 'Import Virtual Machine').locator('button[type="submit"]').click();
   await expect.poll(() => importCompleted).toBe(true);
   await expect(page.getByRole('heading', { name: 'imported-app-01' })).toBeVisible();
   await page.locator('.fw-close').first().click();
@@ -6444,7 +6453,7 @@ test('vm operations open a floating window and submit lifecycle actions', async 
   await page.getByRole('button', { name: 'Add Disk Device' }).click();
   await expect.poll(() => diskAdded).toBe(true);
 
-  await page.getByLabel('Network').selectOption('OpaqueRef:net2');
+  await page.getByLabel('Network', { exact: true }).selectOption('OpaqueRef:net2');
   await page.getByLabel('Device Slot').fill('1');
   await page.getByRole('button', { name: 'Add Network Device' }).click();
   await expect.poll(() => nicAdded).toBe(true);
@@ -6536,14 +6545,13 @@ test('storage workspace supports selected-row rescans', async ({ page }) => {
   await page.getByLabel('Select Primary SR').click();
   await expect(page.getByText('1 repositories selected')).toBeVisible();
   await expect(page.getByText(/across 1 repository/)).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept());
-  const [rescanResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/storage/OpaqueRef%3Asr1/rescan')
-    ),
-    page.getByRole('button', { name: 'Rescan Selected (1)' }).click(),
-  ]);
+  const rescanResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/storage/OpaqueRef%3Asr1/rescan')
+  );
+  await page.getByRole('button', { name: 'Rescan Selected (1)' }).click();
+  await confirmAppAction(page, 'Rescan Storage Repositories', 'Rescan Selected');
+  const rescanResponse = await rescanResponsePromise;
   expect(rescanResponse.ok()).toBe(true);
   await expect.poll(async () => (await rescanResponse.json())?.other_config?.last_rescan_at || '').toBe('2026-08-26T18:45:00.000Z');
 });
@@ -6586,28 +6594,26 @@ test('storage workspace supports selected-row forget and empty-repository destro
   await expect(page.getByText('1 destroy-ready')).toBeVisible();
   await expect(page.getByText('1 non-empty')).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept());
-  const [destroyResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
-    ),
-    page.getByRole('button', { name: 'Destroy Selected (1)' }).click(),
-  ]);
+  const destroyResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
+  );
+  await page.getByRole('button', { name: 'Destroy Selected (1)' }).click();
+  await confirmAppAction(page, 'Destroy Storage Repositories', 'Destroy Selected');
+  const destroyResponse = await destroyResponsePromise;
   expect(destroyResponse.ok()).toBe(true);
   await expect(page.getByText('Archive SR was destroyed and removed from the current storage inventory view.')).toBeVisible();
   await expect(page.locator('.data-table').getByText('Archive SR', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Clear Selection' }).click();
   await page.getByLabel('Select Primary SR').check();
-  page.once('dialog', (dialog) => dialog.accept());
-  const [forgetResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
-    ),
-    page.getByRole('button', { name: 'Forget Selected (1)' }).click(),
-  ]);
+  const forgetResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
+  );
+  await page.getByRole('button', { name: 'Forget Selected (1)' }).click();
+  await confirmAppAction(page, 'Forget Storage Repositories', 'Forget Selected');
+  const forgetResponse = await forgetResponsePromise;
   expect(forgetResponse.ok()).toBe(true);
   await expect(page.getByText('Primary SR was forgotten and removed from the current storage inventory view.')).toBeVisible();
   await expect(page.locator('.data-table').getByText('Primary SR', { exact: true })).toHaveCount(0);
@@ -6983,7 +6989,7 @@ test('networking workspace can create a managed network', async ({ page }) => {
       response.request().method() === 'POST'
       && response.url().includes('/api/networks')
     ),
-    createNetworkWindow.getByRole('button', { name: 'Create Network' }).click(),
+    createNetworkWindow.locator('button[type="submit"]').click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect(page.getByText('Replication Transit was created on xenbr10.')).toBeVisible();
@@ -7085,17 +7091,13 @@ test('networking detail operations can hot-unplug a workload interface from the 
   const workloadRow = detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first();
   await expect(workloadRow).toContainText('attached');
 
-  page.once('dialog', async (dialog) => {
-    await dialog.accept();
-  });
-
-  const [disconnectResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/vms/OpaqueRef%3Avm1/nics/OpaqueRef%3Avif1/disconnect')
-    ),
-    workloadRow.getByRole('button', { name: 'Disconnect VIF' }).click(),
-  ]);
+  const disconnectResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/vms/OpaqueRef%3Avm1/nics/OpaqueRef%3Avif1/disconnect')
+  );
+  await workloadRow.getByRole('button', { name: 'Disconnect VIF' }).click();
+  await confirmAppAction(page, 'Hot-Unplug Interface', 'Hot-Unplug Interface');
+  const disconnectResponse = await disconnectResponsePromise;
   expect(disconnectResponse.status()).toBe(200);
   await expect(page.getByText('app-01 interface OpaqueRef:vif1 was hot-unplugged from VM Network.')).toBeVisible();
   await expect(detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first()).toContainText('hot-unplugged');
@@ -7113,17 +7115,13 @@ test('networking detail operations can remove a workload interface from the sele
   await expect(detailWindow.getByText('Connected Workloads')).toBeVisible();
   const workloadRow = detailWindow.locator('.stack-item').filter({ hasText: 'OpaqueRef:vif1' }).first();
 
-  page.once('dialog', async (dialog) => {
-    await dialog.accept();
-  });
-
-  const [removeResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'DELETE'
-      && response.url().includes('/api/vms/OpaqueRef%3Avm1/nics/OpaqueRef%3Avif1')
-    ),
-    workloadRow.getByRole('button', { name: 'Remove VIF' }).click(),
-  ]);
+  const removeResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'DELETE'
+    && response.url().includes('/api/vms/OpaqueRef%3Avm1/nics/OpaqueRef%3Avif1')
+  );
+  await workloadRow.getByRole('button', { name: 'Remove VIF' }).click();
+  await confirmAppAction(page, 'Remove Workload Interface', 'Remove Interface');
+  const removeResponse = await removeResponsePromise;
   expect(removeResponse.status()).toBe(200);
   await expect(page.getByText('app-01 interface OpaqueRef:vif1 was removed from VM Network.')).toBeVisible();
   await expect(detailWindow.getByText('No VM interfaces currently reference this network.')).toBeVisible();
@@ -7221,14 +7219,13 @@ test('networking detail operations gate attached network destroy and can destroy
   identityWindow = getFloatingWindowByTitle(page, 'Network Identity');
   await expect(identityWindow.getByRole('button', { name: 'Destroy Network' })).toBeEnabled();
 
-  page.once('dialog', (dialog) => dialog.accept());
-  const [destroyResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/networks/OpaqueRef%3Anet3/destroy')
-    ),
-    identityWindow.getByRole('button', { name: 'Destroy Network' }).click(),
-  ]);
+  const destroyResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/networks/OpaqueRef%3Anet3/destroy')
+  );
+  await identityWindow.getByRole('button', { name: 'Destroy Network' }).click();
+  await confirmAppAction(page, 'Destroy Network', 'Destroy Network');
+  const destroyResponse = await destroyResponsePromise;
   expect(destroyResponse.ok()).toBe(true);
 
   await expect(page.getByText('Workspace updated')).toBeVisible();
@@ -7255,7 +7252,7 @@ test('networking workspace supports selected-row destroy batching for detached n
       response.request().method() === 'POST'
       && response.url().endsWith('/api/networks')
     ),
-    createNetworkWindow.getByRole('button', { name: 'Create Network' }).click(),
+    createNetworkWindow.locator('button[type="submit"]').click(),
   ]);
   expect(createResponse.status()).toBe(201);
 
@@ -7265,17 +7262,19 @@ test('networking workspace supports selected-row destroy batching for detached n
   await expect(page.getByText('2 networks selected')).toBeVisible();
   await expect(page.getByText('2 destroy-ready')).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept());
+  const destroyArchiveResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/networks/OpaqueRef%3Anet3/destroy')
+  );
+  const destroyReplicationResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/networks/OpaqueRef%3Anet4/destroy')
+  );
+  await page.getByRole('button', { name: 'Destroy Selected (2)' }).click();
+  await confirmAppAction(page, 'Destroy Selected Networks', 'Destroy Networks');
   const [destroyArchiveResponse, destroyReplicationResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/networks/OpaqueRef%3Anet3/destroy')
-    ),
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/networks/OpaqueRef%3Anet4/destroy')
-    ),
-    page.getByRole('button', { name: 'Destroy Selected (2)' }).click(),
+    destroyArchiveResponsePromise,
+    destroyReplicationResponsePromise,
   ]);
   expect(destroyArchiveResponse.ok()).toBe(true);
   expect(destroyReplicationResponse.ok()).toBe(true);
@@ -7331,14 +7330,13 @@ test('storage detail operations can forget a repository from the current workspa
     has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
   }).last();
 
-  page.once('dialog', (dialog) => dialog.accept());
-  const [forgetResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
-    ),
-    repositoryActionsWindow.getByRole('button', { name: 'Forget Repository' }).click(),
-  ]);
+  const forgetResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/storage/OpaqueRef%3Asr1/forget')
+  );
+  await repositoryActionsWindow.getByRole('button', { name: 'Forget Repository' }).click();
+  await confirmAppAction(page, 'Forget Storage Repository', 'Forget Repository');
+  const forgetResponse = await forgetResponsePromise;
   expect(forgetResponse.ok()).toBe(true);
 
   await expect(page.getByText('Workspace updated')).toBeVisible();
@@ -7400,14 +7398,13 @@ test('storage detail operations gate destroy for non-empty repositories and can 
     has: page.locator('.fw-title', { hasText: 'Repository Actions' }),
   }).last();
   await expect(repositoryActionsWindow.getByRole('button', { name: 'Destroy Repository' })).toBeEnabled();
-  page.once('dialog', (dialog) => dialog.accept());
-  const [destroyResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === 'POST'
-      && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
-    ),
-    repositoryActionsWindow.getByRole('button', { name: 'Destroy Repository' }).click(),
-  ]);
+  const destroyResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+    && response.url().includes('/api/storage/OpaqueRef%3Asr2/destroy')
+  );
+  await repositoryActionsWindow.getByRole('button', { name: 'Destroy Repository' }).click();
+  await confirmAppAction(page, 'Destroy Storage Repository', 'Destroy Repository');
+  const destroyResponse = await destroyResponsePromise;
   expect(destroyResponse.ok()).toBe(true);
 
   await expect(page.getByText('Workspace updated')).toBeVisible();
@@ -8255,19 +8252,19 @@ test('lifecycle workspace supports selected-row maintenance and plan-clear batch
   await expect(page.getByText('1 lifecycle targets selected')).toBeVisible();
   await expect(page.getByText('1 saved plan · 1 ready for maintenance')).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Enter Maintenance Selected (1)' }).click();
+  await confirmAppAction(page, 'Enter Maintenance Mode', 'Enter Maintenance');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(true);
   await expect(page.getByText('1 selected host entered maintenance mode from the lifecycle queue.')).toBeVisible();
   await expect(page.getByText('1 already in maintenance')).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Exit Maintenance Selected (1)' }).click();
+  await confirmAppAction(page, 'Exit Maintenance Mode', 'Exit Maintenance');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(false);
   await expect(page.getByText('1 selected host exited maintenance mode from the lifecycle queue.')).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Clear Selected Plans (1)' }).click();
+  await confirmAppAction(page, 'Clear Lifecycle Plans', 'Clear Plans');
   await expect.poll(() => fixtures.lifecyclePlans.find((plan) => plan.hostRef === 'OpaqueRef:host1') || null).toBeNull();
   await expect(page.getByText('1 selected lifecycle plan was cleared from the maintenance planner queue.')).toBeVisible();
 });

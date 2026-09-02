@@ -337,10 +337,10 @@ const SettingsView = {
               </template>
               <template #cell-actions="{ row }">
                 <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end" @click.stop>
-                  <button class="btn btn-sm" @click.stop="openCredentialEditor(row)">
+                  <button class="btn btn-sm" :aria-label="'Edit ' + row.name" @click.stop="openCredentialEditor(row)">
                     <span class="mdi mdi-pencil-outline"></span>
                   </button>
-                  <button class="btn btn-sm"
+                  <button class="btn btn-sm" :aria-label="'Delete ' + row.name"
                           :disabled="credentialDeleteId === row.id"
                           @click.stop="removeCredential(row)">
                     <span class="mdi" :class="credentialDeleteId === row.id ? 'mdi-loading mdi-spin' : 'mdi-delete-outline'"></span>

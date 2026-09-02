@@ -94,13 +94,13 @@ const PoolTargetsDialogs = {
                   <span class="mdi mdi-target"></span>
                   Activate
                 </button>
-                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="$emit('open-registration', connection)">
+                <button class="btn btn-sm" v-if="connection.can_manage !== false" :aria-label="'Edit ' + connection.name" @click="$emit('open-registration', connection)">
                   <span class="mdi mdi-pencil-outline"></span>
                 </button>
-                <button class="btn btn-sm" v-if="!connection.is_default && connection.can_manage !== false" @click="$emit('make-default', connection.id)">
+                <button class="btn btn-sm" v-if="!connection.is_default && connection.can_manage !== false" :aria-label="'Make ' + connection.name + ' the default'" @click="$emit('make-default', connection.id)">
                   <span class="mdi mdi-star-outline"></span>
                 </button>
-                <button class="btn btn-sm" v-if="connection.can_manage !== false" @click="$emit('remove-connection', connection.id)">
+                <button class="btn btn-sm" v-if="connection.can_manage !== false" :aria-label="'Remove ' + connection.name" @click="$emit('remove-connection', connection.id)">
                   <span class="mdi mdi-delete-outline"></span>
                 </button>
               </div>

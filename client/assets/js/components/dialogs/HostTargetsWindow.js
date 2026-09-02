@@ -78,10 +78,10 @@ const HostTargetsWindow = {
                 <span class="mdi mdi-open-in-app"></span>
                 Open Pool
               </button>
-              <button class="btn btn-sm" v-if="target.can_manage !== false" @click="$emit('edit', target)">
+              <button class="btn btn-sm" v-if="target.can_manage !== false" :aria-label="'Edit ' + target.name" @click="$emit('edit', target)">
                 <span class="mdi mdi-pencil-outline"></span>
               </button>
-              <button class="btn btn-sm" v-if="target.can_manage !== false" @click="$emit('remove', target.id)">
+              <button class="btn btn-sm" v-if="target.can_manage !== false" :aria-label="'Remove ' + target.name" @click="$emit('remove', target.id)">
                 <span class="mdi mdi-delete-outline"></span>
               </button>
             </div>
