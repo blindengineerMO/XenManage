@@ -156,6 +156,17 @@ async function planCompose(xenApi, spec) {
     return match;
   }
 
+  function resolveOperatingSystemSource(value) {
+    const identifier = String(value || '').trim();
+    const match = (creationSources.operatingSystems || []).find((source) => (
+      source.ref === identifier || source.uuid === identifier || source.name_label === identifier
+    ));
+    if (!match) {
+      throw createComposeError('COMPOSE_OPERATING_SYSTEM_SOURCE_INVALID', `Operating-system source "${identifier}" is not available on the target pool.`);
+    }
+    return match;
+  }
+
   async function resolveNetworkAlias(alias) {
     if (networkRefCache.has(alias)) return networkRefCache.get(alias);
     const entry = resolvedNetworks[alias];
@@ -187,7 +198,10 @@ async function planCompose(xenApi, spec) {
   const plans = [];
   for (const key of order) {
     const vmSpec = resolvedVms[key];
-    const template = resolveDeployableTemplate(vmSpec.template);
+    const creationMode = vmSpec.creationMode || 'template';
+    const source = creationMode === 'operating-system'
+      ? resolveOperatingSystemSource(vmSpec.source)
+      : resolveDeployableTemplate(vmSpec.template);
     const nameLabel = String(vmSpec.nameLabel || '').trim();
     if (plannedNames.has(nameLabel)) {
       throw createComposeError('COMPOSE_DUPLICATE_VM_NAME', `VM name "${nameLabel}" is declared more than once in this compose spec.`);
@@ -227,8 +241,10 @@ async function planCompose(xenApi, spec) {
 
     plans.push({
       key,
-      template: template.name_label || vmSpec.template,
-      templateRef: template.ref,
+      creationMode,
+      template: source.name_label || vmSpec.template || vmSpec.source,
+      templateRef: source.ref,
+      operatingSystemProfileId: vmSpec.operatingSystemProfileId || '',
       nameLabel,
       nameDescription: vmSpec.nameDescription || '',
       memoryStaticMax,
@@ -313,7 +329,7 @@ async function executeCompose(xenApi, spec, { submittedBy = '', beforeDeploy, af
         await beforeDeploy(plan);
       }
 
-      const createdVm = await xenApi.deployComposeVM(plan.templateRef, {
+      const composeOptions = {
         nameLabel: plan.nameLabel,
         nameDescription: plan.nameDescription,
         vcpusAtStartup: plan.vcpusAtStartup,
@@ -328,7 +344,36 @@ async function executeCompose(xenApi, spec, { submittedBy = '', beforeDeploy, af
         disks: plan.disks,
         networkInterfaces: plan.networkInterfaces,
         startAfter: plan.startAfter,
-      });
+      };
+      const createdVm = plan.creationMode === 'operating-system'
+        ? await xenApi.provisionVM({
+          creationMode: 'operating-system',
+          sourceRef: plan.templateRef,
+          operatingSystemProfileId: plan.operatingSystemProfileId,
+          nameLabel: plan.nameLabel,
+          nameDescription: plan.nameDescription,
+          hostRef: plan.affinityRef,
+          vcpus: plan.vcpusAtStartup,
+          memoryGiB: plan.memoryStaticMax / BYTES_PER_GIB,
+          diskPlan: plan.disks.map((disk, index) => ({
+            srRef: disk.srRef,
+            nameLabel: disk.nameLabel,
+            nameDescription: disk.nameDescription,
+            sizeGiB: disk.sizeBytes / BYTES_PER_GIB,
+            bootable: index === 0,
+          })),
+          networkInterfaces: plan.networkInterfaces,
+          tags: plan.tags,
+          startAfter: plan.startAfter,
+        })
+        : await xenApi.deployComposeVM(plan.templateRef, composeOptions);
+
+      if (plan.creationMode === 'operating-system') {
+        await xenApi.call('VM', 'set_memory_limits', [createdVm.ref,
+          String(plan.memoryDynamicMin), String(plan.memoryDynamicMin), String(plan.memoryDynamicMax), String(plan.memoryStaticMax)]);
+        await xenApi.setField('VM', createdVm.ref, 'other_config', plan.otherConfig);
+        await xenApi.setField('VM', createdVm.ref, 'xenstore_data', plan.xenstoreData);
+      }
 
       if (typeof afterDeploy === 'function') {
         await afterDeploy(plan, createdVm);

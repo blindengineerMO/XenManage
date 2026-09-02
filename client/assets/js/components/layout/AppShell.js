@@ -12,9 +12,10 @@ const AppShell = {
       </div>
 
       <template v-else-if="store.authenticated">
+        <a class="skip-link" href="#workspace-main">Skip to workspace content</a>
         <top-nav :sidebar-open="store.sidebarOpen" @toggle-sidebar="store.sidebarOpen = !store.sidebarOpen"></top-nav>
         <side-nav :collapsed="!store.sidebarOpen"></side-nav>
-        <main class="main-content" :class="{ expanded: !store.sidebarOpen }">
+        <main id="workspace-main" class="main-content" :class="{ expanded: !store.sidebarOpen }" tabindex="-1">
           <nav v-if="workspaceTabs.length" class="workspace-tabs" aria-label="Open workspaces">
             <div class="workspace-tabs-scroller">
               <div v-for="tab in workspaceTabs"
