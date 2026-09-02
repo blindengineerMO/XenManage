@@ -41,7 +41,12 @@ const DataTable = {
                 <p>No data available</p>
               </td>
             </tr>
-            <tr v-for="(row, index) in paginatedData" :key="rowIdentifier(row, index)" @click="$emit('row-click', row)">
+            <tr v-for="(row, index) in paginatedData"
+                :key="rowIdentifier(row, index)"
+                class="data-table-row"
+                tabindex="0"
+                @click="$emit('row-click', row)"
+                @keydown="onRowKeydown($event, row, index)">
               <td v-if="selectable" class="data-table-sticky-select" @click.stop>
                 <input type="checkbox"
                        :checked="isSelected(row, index)"
@@ -202,6 +207,25 @@ const DataTable = {
         this.sortKey = key;
         this.sortDir = 'asc';
       }
+    },
+    onRowKeydown(event, row, index) {
+      if (event.target.closest('input, button, select, textarea, [contenteditable="true"]')) return;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.$emit('row-click', row);
+        return;
+      }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const rows = Array.from(this.$el.querySelectorAll('.data-table-row'));
+      const currentIndex = rows.indexOf(event.currentTarget);
+      if (currentIndex < 0) return;
+      const nextIndex = event.key === 'ArrowDown'
+        ? Math.min(rows.length - 1, currentIndex + 1)
+        : event.key === 'ArrowUp'
+          ? Math.max(0, currentIndex - 1)
+          : event.key === 'Home' ? 0 : rows.length - 1;
+      rows[nextIndex]?.focus();
     },
     editingCellKey(row, column, index) {
       return `${this.rowIdentifier(row, index)}:${column.key}`;

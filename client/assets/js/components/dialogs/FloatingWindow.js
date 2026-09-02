@@ -2,8 +2,13 @@ const FloatingWindow = {
   props: ['title', 'show', 'width', 'height', 'x', 'y'],
   emits: ['close'],
   template: `
-    <div class="floating-window"
+    <div ref="windowRoot"
+         class="floating-window"
          v-if="show"
+         role="dialog"
+         aria-modal="false"
+         :aria-label="title"
+         tabindex="-1"
          :style="{ width: resolvedWidth + 'px', left: posX + 'px', top: posY + 'px', zIndex, maxHeight: maxWindowHeight + 'px' }"
          @mousedown="bringToFront">
       <div class="fw-header" @mousedown="startDrag">
@@ -106,9 +111,26 @@ const FloatingWindow = {
       return this.zIndex >= topZIndex;
     },
     onKeydown(event) {
-      if (!this.show || event.defaultPrevented || event.key !== 'Escape') return;
-      if (!this.isTopmostWindow()) return;
-      this.$emit('close');
+      if (!this.show || event.defaultPrevented || !this.isTopmostWindow()) return;
+      if (event.key === 'Escape') {
+        this.$emit('close');
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(this.$refs.windowRoot?.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) || []).filter((element) => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     },
   },
   mounted() {
