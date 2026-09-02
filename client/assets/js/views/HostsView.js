@@ -543,9 +543,12 @@ const HostsView = {
     async toggleHostMultipathing(enabled) {
       if (!this.selectedHost?.ref) return;
 
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`${enabled ? 'Enable' : 'Disable'} storage multipathing on ${this.selectedHost.name_label || this.selectedHost.ref}? Every storage path on this host will be unplugged and replugged.`);
+      const confirmed = await requestGlobalConfirm({
+        title: `${enabled ? 'Enable' : 'Disable'} Multipathing`,
+        message: `${enabled ? 'Enable' : 'Disable'} storage multipathing on ${this.selectedHost.name_label || this.selectedHost.ref}? Every storage path on this host will be unplugged and replugged.`,
+        confirmLabel: enabled ? 'Enable Multipathing' : 'Disable Multipathing',
+        danger: true,
+      });
       if (!confirmed) return;
 
       this.actionError = null;

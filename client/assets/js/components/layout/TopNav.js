@@ -11,21 +11,29 @@ const TopNav = {
         <img src="/assets/images/logo.svg" alt="XenMange">
         <span>XenMange</span>
       </div>
-      <div class="topnav-breadcrumb">
-        <span class="mdi mdi-home" style="font-size:14px"></span>
-        <span class="bc-sep">/</span>
-        <span class="bc-current">{{ currentPage }}</span>
+      <div class="topnav-breadcrumb" aria-label="Breadcrumb">
+        <template v-for="(crumb, index) in breadcrumbTrail" :key="crumb.key">
+          <span v-if="crumb.icon" class="mdi" :class="crumb.icon" style="font-size:14px"></span>
+          <button v-if="crumb.to && !crumb.current"
+                  type="button"
+                  class="topnav-breadcrumb-link"
+                  @click="navigateBreadcrumb(crumb.to)">
+            {{ crumb.label }}
+          </button>
+          <span v-else class="bc-current" :class="{ 'bc-muted': !crumb.current }">{{ crumb.label }}</span>
+          <span v-if="index < breadcrumbTrail.length - 1" class="bc-sep">/</span>
+        </template>
       </div>
       <div class="topnav-actions">
-        <button class="btn btn-sm" v-if="store.authenticated" @click="openVmCreate">
+        <button class="btn btn-sm" v-if="store.authenticated" @click="openVmCreate" title="New VM (Ctrl/Cmd+N)">
           <span class="mdi mdi-desktop-tower-monitor"></span>
           New VM
         </button>
-        <button class="btn btn-sm btn-primary" v-if="store.authenticated" @click="showAddTargetWindow = true">
+        <button class="btn btn-sm btn-primary" v-if="store.authenticated" @click="openAddTargetWindow" title="Add Target">
           <span class="mdi mdi-server-plus"></span>
           Add Target
         </button>
-        <button class="btn btn-sm" v-if="store.authenticated" @click="router.push('/inventory')">
+        <button class="btn btn-sm" v-if="store.authenticated" @click="openGlobalSearch" title="Search (Ctrl/Cmd+K)">
           <span class="mdi mdi-magnify"></span>
           Search
         </button>
@@ -147,27 +155,7 @@ const TopNav = {
     const scopeLoading = ref(false);
     const scopePendingId = ref(null);
 
-    const currentPage = computed(() => {
-      const names = {
-        '/': 'Dashboard',
-        '/login': 'Connection',
-        '/pools': 'Pools',
-        '/templates': 'Templates',
-        '/vfabrics': 'vFabrics',
-        '/vms': 'Virtual Machines',
-        '/hosts': 'Hosts',
-        '/storage': 'Storage',
-        '/networking': 'Networking',
-        '/inventory': 'Inventory',
-        '/governance': 'Governance',
-        '/lifecycle': 'Lifecycle',
-        '/capacity': 'Capacity',
-        '/resilience': 'Resilience',
-        '/alerts': 'Alerts',
-        '/activity': 'Activity',
-      };
-      return names[route.path] || route.path;
-    });
+    const breadcrumbTrail = computed(() => buildTopNavBreadcrumbs(route));
     const roleLabel = computed(() => {
       const value = store.governance?.currentRole || 'admin';
       if (value === 'read-only') return 'Read Only';
@@ -282,8 +270,56 @@ const TopNav = {
       router.push('/pools');
     };
 
+    const navigateBreadcrumb = (to) => {
+      if (!to) return;
+      router.push(to);
+    };
+
+    const openGlobalSearch = () => {
+      const query = route.path === '/inventory'
+        ? cleanRouteQuery({ ...route.query, focusSearch: '1' })
+        : { focusSearch: '1' };
+      router.push({ path: '/inventory', query });
+    };
+
+    const openAddTargetWindow = () => {
+      showAddTargetWindow.value = true;
+    };
+
     const openVmCreate = () => {
       router.push({ path: '/vms', query: { create: '1' } });
+    };
+
+    const isEditableTarget = (target) => {
+      const tagName = String(target?.tagName || '').toLowerCase();
+      return target?.isContentEditable || ['input', 'textarea', 'select'].includes(tagName);
+    };
+
+    const onShortcutKeydown = (event) => {
+      if (!store.authenticated || event.defaultPrevented) return;
+      if (isEditableTarget(event.target)) return;
+
+      const key = String(event.key || '').toLowerCase();
+      const hasPrimaryModifier = event.metaKey || event.ctrlKey;
+      if (!hasPrimaryModifier || event.altKey) return;
+
+      if (key === 'k') {
+        event.preventDefault();
+        openGlobalSearch();
+        return;
+      }
+
+      if (key === 'n') {
+        event.preventDefault();
+        if (store.connected) {
+          openVmCreate();
+        } else {
+          openAddTargetWindow();
+          if (route.path === '/login') {
+            router.push('/pools');
+          }
+        }
+      }
     };
 
     const handleLogout = async () => {
@@ -299,19 +335,24 @@ const TopNav = {
 
     onMounted(() => {
       document.addEventListener('click', onDocumentClick);
+      document.addEventListener('keydown', onShortcutKeydown);
     });
 
     onBeforeUnmount(() => {
       document.removeEventListener('click', onDocumentClick);
+      document.removeEventListener('keydown', onShortcutKeydown);
     });
 
     return {
       activateTarget,
       attachedTargets,
+      breadcrumbTrail,
       clearScope,
-      currentPage,
       detachTarget,
       handleLogout,
+      navigateBreadcrumb,
+      openAddTargetWindow,
+      openGlobalSearch,
       openPools,
       openVmCreate,
       pendingTargetKey,

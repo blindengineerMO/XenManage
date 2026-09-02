@@ -74,6 +74,7 @@ const InventoryView = {
             <div class="dash-card-label">Search Workspace</div>
             <div class="inventory-toolbar">
               <input class="data-table-search"
+                     ref="searchInput"
                      placeholder="Search live inventory, alerts, tasks, UUIDs, and tags..."
                      v-model="searchQuery">
               <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -267,9 +268,32 @@ const InventoryView = {
 
     await this.loadSavedWorkspaces();
     await this.loadInventory();
+    this.focusSearchFromRoute();
+  },
+  watch: {
+    '$route.query': {
+      deep: true,
+      handler() {
+        this.focusSearchFromRoute();
+      },
+    },
   },
   methods: {
     formatDateTime,
+    focusSearchFromRoute() {
+      if (String(this.$route.query.focusSearch || '') !== '1') return;
+      this.$nextTick(() => {
+        const input = this.$refs.searchInput;
+        if (input?.focus) {
+          input.focus();
+          if (input.select) input.select();
+        }
+      });
+      this.$router.replace({
+        path: this.$route.path,
+        query: clearRouteFocusQuery(this.$route.query),
+      });
+    },
     firstTag(tags) {
       return getInventoryFirstTag(tags);
     },

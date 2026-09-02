@@ -458,15 +458,24 @@ const StorageView = {
         return;
       }
 
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(
-          isRescan
-            ? `Rescan ${targets.length} selected ${targets.length === 1 ? 'repository' : 'repositories'}?`
-            : isForget
-              ? `Forget ${targets.length} selected ${targets.length === 1 ? 'repository' : 'repositories'} from XenManage inventory? The backing storage will not be deleted.`
-              : `Destroy ${targets.length} selected empty ${targets.length === 1 ? 'repository' : 'repositories'}? This permanently deletes the backing storage after XenAPI accepts the request.`
-        );
+      const confirmed = await requestGlobalConfirm({
+        title: isRescan
+          ? 'Rescan Storage Repositories'
+          : isForget
+            ? 'Forget Storage Repositories'
+            : 'Destroy Storage Repositories',
+        message: isRescan
+          ? `Rescan ${targets.length} selected ${targets.length === 1 ? 'repository' : 'repositories'}?`
+          : isForget
+            ? `Forget ${targets.length} selected ${targets.length === 1 ? 'repository' : 'repositories'} from XenManage inventory? The backing storage will not be deleted.`
+            : `Destroy ${targets.length} selected empty ${targets.length === 1 ? 'repository' : 'repositories'}? This permanently deletes the backing storage after XenAPI accepts the request.`,
+        confirmLabel: isRescan
+          ? 'Rescan Selected'
+          : isForget
+            ? 'Forget Selected'
+            : 'Destroy Selected',
+        danger: !isRescan,
+      });
       if (!confirmed) return;
 
       this.workspaceMessage = '';
@@ -611,9 +620,12 @@ const StorageView = {
       }
 
       const repository = { ...this.selectedSR };
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Forget ${repository.name_label || repository.ref} from XenManage inventory? The backing storage will not be deleted.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Forget Storage Repository',
+        message: `Forget ${repository.name_label || repository.ref} from XenManage inventory? The backing storage will not be deleted.`,
+        confirmLabel: 'Forget Repository',
+        danger: true,
+      });
 
       if (!confirmed) return;
 
@@ -655,9 +667,12 @@ const StorageView = {
       }
 
       const repository = { ...this.selectedSR };
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Destroy ${repository.name_label || repository.ref}? This permanently deletes the backing storage after XenAPI accepts the request.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Destroy Storage Repository',
+        message: `Destroy ${repository.name_label || repository.ref}? This permanently deletes the backing storage after XenAPI accepts the request.`,
+        confirmLabel: 'Destroy Repository',
+        danger: true,
+      });
 
       if (!confirmed) return;
 
@@ -950,9 +965,12 @@ const StorageView = {
     async deleteFileBrowserEntry(entry) {
       if (!this.selectedSR?.ref) return;
       const targetPath = this.fileBrowserPath ? `${this.fileBrowserPath}/${entry.name}` : entry.name;
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Delete ${entry.name}? This cannot be undone.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Delete Storage File',
+        message: `Delete ${entry.name}? This cannot be undone.`,
+        confirmLabel: 'Delete File',
+        danger: true,
+      });
       if (!confirmed) return;
 
       this.fileBrowserActionBusy = `delete:${entry.name}`;
