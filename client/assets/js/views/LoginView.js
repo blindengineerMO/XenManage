@@ -2,6 +2,7 @@ const LoginView = {
   template: `
     <div class="login-screen">
       <div class="scanline-overlay"></div>
+      <div class="login-stack">
       <div class="login-box animate-scale-in">
         <div class="login-logo">
           <img src="/assets/images/logo.svg" alt="XenMange">
@@ -43,6 +44,30 @@ const LoginView = {
           <div class="login-meta-note">Bootstrap control-plane credentials default to <span class="mono">admin / admin123!</span> unless overridden by environment configuration. Pool and host target registration now happens after sign-in from the Pools and Hosts workspaces.</div>
           <div class="form-error" v-if="error">{{ error }}</div>
         </form>
+      </div>
+
+      <div class="donate-card animate-scale-in">
+        <div class="donate-card-header">
+          <span class="mdi mdi-heart-outline"></span>
+          <span>Donate to the Developer</span>
+        </div>
+        <p class="donate-card-text">
+          XenMange is a homebrew, one-person project — built out of a wish to see the Xen ecosystem grow into something as robust and enterprise-capable as its bigger competitors. The time and cost of development is covered entirely by donations from users like <strong>you</strong>.
+        </p>
+        <div class="donate-card-body">
+          <img class="donate-qr"
+               src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=https%3A%2F%2Fcash.app%2F%24MatthewPuckett"
+               width="84" height="84" loading="lazy"
+               alt="Cash App QR code for $MatthewPuckett">
+          <div class="donate-card-cta">
+            <a class="donate-link" href="https://cash.app/$MatthewPuckett" target="_blank" rel="noopener noreferrer">
+              <span class="mdi mdi-cash-multiple"></span>
+              Click here to offer support
+            </a>
+            <span class="donate-card-note">Scan the code or follow the link to send any amount you choose.</span>
+          </div>
+        </div>
+      </div>
       </div>
     </div>
   `,
