@@ -169,24 +169,46 @@ app.use((req, res) => {
   res.status(404).render('404');
 });
 
-// Start server only when run directly
-if (require.main === module) {
+function stopRuntimeServices() {
+  retentionService.stopScheduler();
+  workflowEngine.stop();
+  metricsCollector.stop();
+  return managedTargetService.stop();
+}
+
+function startServer({ port = config.port, exit = process.exit } = {}) {
   retentionService.startScheduler();
   managedTargetService.start();
   workflowEngine.start();
   metricsCollector.start();
-  const server = app.listen(config.port, () => {
-    logger.info('server_started', { port: config.port, environment: config.env });
+  const server = app.listen(port, () => {
+    logger.info('server_started', { port, environment: config.env });
+  });
+  let shuttingDown = false;
+
+  const shutdown = async (signal, error = null) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger[error ? 'error' : 'info']('shutdown_requested', { signal, error });
+    await Promise.allSettled([stopRuntimeServices()]);
+    server.close(() => exit(error ? 1 : 0));
+  };
+
+  process.once('SIGTERM', () => { shutdown('SIGTERM'); });
+  process.once('SIGINT', () => { shutdown('SIGINT'); });
+  process.once('uncaughtException', (error) => { shutdown('uncaughtException', error); });
+  process.once('unhandledRejection', (reason) => {
+    shutdown('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
   });
 
-  process.on('SIGTERM', () => {
-    logger.info('shutdown_requested', { signal: 'SIGTERM' });
-    retentionService.stopScheduler();
-    managedTargetService.stop();
-    workflowEngine.stop();
-    metricsCollector.stop();
-    server.close(() => process.exit(0));
-  });
+  return { server, shutdown };
+}
+
+// Start server only when run directly
+if (require.main === module) {
+  startServer();
 }
 
 module.exports = app;
+module.exports.startServer = startServer;
+module.exports.stopRuntimeServices = stopRuntimeServices;
