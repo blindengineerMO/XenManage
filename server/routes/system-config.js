@@ -15,6 +15,7 @@ function getSectionSchema(section) {
   if (section === 'security') return schemas.systemConfigSecurityUpdate;
   if (section === 'logging') return schemas.systemConfigLoggingUpdate;
   if (section === 'performance') return schemas.systemConfigPerformanceUpdate;
+  if (section === 'interaction') return schemas.systemConfigInteractionUpdate;
   if (section === 'retention') return schemas.systemConfigRetentionUpdate;
   return null;
 }

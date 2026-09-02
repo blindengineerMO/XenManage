@@ -8,6 +8,7 @@ const demoSystemConfig = {
   security: { sessionMaxAgeMs: 86400000, failedLoginWindowMinutes: 15, failedLoginMaxAttempts: 20 },
   logging: { level: 'info', structuredJson: false },
   performance: { collectionEnabled: true, collectionIntervalSeconds: 60 },
+  interaction: { undoDelaySeconds: 5 },
   retention: { sweepIntervalHours: 24, vacuumAfterSweep: true },
 };
 
@@ -55,7 +56,7 @@ function handleDemoSettingsRoutes(method, path, body) {
     return buildDemoSettingsResponse();
   }
 
-  const sectionMatch = path.match(/^\/api\/settings\/(general|network|security|logging|performance|retention)$/);
+  const sectionMatch = path.match(/^\/api\/settings\/(general|network|security|logging|performance|interaction|retention)$/);
   if (method === 'PUT' && sectionMatch) {
     const section = sectionMatch[1];
     demoSystemConfig[section] = {

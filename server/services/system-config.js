@@ -24,6 +24,9 @@ const SECTION_KEYS = {
     collectionEnabled: 'performance.collectionEnabled',
     collectionIntervalSeconds: 'performance.collectionIntervalSeconds',
   },
+  interaction: {
+    undoDelaySeconds: 'interaction.undoDelaySeconds',
+  },
   retention: {
     sweepIntervalHours: 'retention.sweepIntervalHours',
     vacuumAfterSweep: 'retention.vacuumAfterSweep',
@@ -51,6 +54,9 @@ const DEFAULTS = {
   performance: {
     collectionEnabled: true,
     collectionIntervalSeconds: 60,
+  },
+  interaction: {
+    undoDelaySeconds: 5,
   },
   retention: {
     sweepIntervalHours: 24,
@@ -124,6 +130,7 @@ const systemConfigService = {
       security: getSection('security'),
       logging: getSection('logging'),
       performance: getSection('performance'),
+      interaction: getSection('interaction'),
       retention: getSection('retention'),
       vault: credentialVaultService.getRuntimeStatus(),
       runtime: {
@@ -141,6 +148,7 @@ const systemConfigService = {
           'logging.structuredJson',
           'performance.collectionEnabled',
           'performance.collectionIntervalSeconds',
+          'interaction.undoDelaySeconds',
           'retention.sweepIntervalHours',
           'retention.vacuumAfterSweep',
         ],

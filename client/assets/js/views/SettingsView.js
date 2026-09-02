@@ -140,6 +140,31 @@ const SettingsView = {
 
         <div class="dashboard-panels">
           <div class="dash-card">
+            <div class="dash-card-label">Operator Interaction</div>
+            <system-config-section-form
+              :initial-value="config.interaction"
+              :fields="interactionFields"
+              :saving="savingSection === 'interaction' || savingAll"
+              submit-label="Save Interaction Settings"
+              @submit="saveSection('interaction', $event)"
+              @draft-change="updateSectionDraft('interaction', $event)">
+            </system-config-section-form>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-label">Undo Window</div>
+            <div class="stack-item">
+              <div>
+                <strong>{{ config.interaction.undoDelaySeconds }} second{{ Number(config.interaction.undoDelaySeconds) === 1 ? '' : 's' }}</strong>
+                <div class="text-muted" style="font-size:12px;margin-top:6px">Queued VM power operations can be cancelled before the request reaches XenServer.</div>
+              </div>
+              <span class="badge badge-info">live</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-panels">
+          <div class="dash-card">
             <div class="dash-card-label">Telemetry Collection</div>
             <system-config-section-form
               :initial-value="config.performance"
@@ -442,6 +467,7 @@ const SettingsView = {
         security: { sessionMaxAgeMs: 86400000, failedLoginWindowMinutes: 15, failedLoginMaxAttempts: 20 },
         logging: { level: 'info', structuredJson: false },
         performance: { collectionEnabled: true, collectionIntervalSeconds: 60 },
+        interaction: { undoDelaySeconds: 5 },
         retention: { sweepIntervalHours: 24, vacuumAfterSweep: true },
       },
       runtime: {
@@ -515,6 +541,9 @@ const SettingsView = {
     performanceFields() {
       return getSettingsPerformanceFields();
     },
+    interactionFields() {
+      return getSettingsInteractionFields();
+    },
     retentionRuntimeFields() {
       return getSettingsRetentionRuntimeFields();
     },
@@ -569,6 +598,7 @@ const SettingsView = {
         security: 'Security',
         logging: 'Logging',
         performance: 'Telemetry Collection',
+        interaction: 'Operator Interaction',
         retention: 'Retention Runtime',
       };
       return this.dirtySectionKeys.map((section) => labels[section] || section);
@@ -598,6 +628,7 @@ const SettingsView = {
           security: response.security || this.config.security,
           logging: response.logging || this.config.logging,
           performance: response.performance || this.config.performance,
+          interaction: response.interaction || this.config.interaction,
           retention: response.retention || this.config.retention,
         };
         this.runtime = response.runtime || this.runtime;
@@ -628,6 +659,7 @@ const SettingsView = {
       try {
         const response = await api.saveSystemConfigSection(section, payload);
         this.config[section] = response.section || this.config[section];
+        if (section === 'interaction') applyUndoDelaySeconds(this.config.interaction.undoDelaySeconds);
         this.runtime = response.runtime || this.runtime;
         this.retentionPolicies = Array.isArray(response.retentionPolicies) ? response.retentionPolicies : this.retentionPolicies;
         this.clearSectionDraft(section);
@@ -663,6 +695,7 @@ const SettingsView = {
         for (const [section, payload] of pendingEntries) {
           const response = await api.saveSystemConfigSection(section, payload);
           this.config[section] = response.section || this.config[section];
+          if (section === 'interaction') applyUndoDelaySeconds(this.config.interaction.undoDelaySeconds);
           this.runtime = response.runtime || this.runtime;
           this.retentionPolicies = Array.isArray(response.retentionPolicies) ? response.retentionPolicies : this.retentionPolicies;
           this.clearSectionDraft(section);
