@@ -7542,6 +7542,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(registeredHostTargetsWindow.getByText('gamma-xen', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open Pool' }).click();
   await expect(page).toHaveURL(/\/pools/);
+  await registeredHostTargetsWindow.locator('.fw-close').click();
   await page.getByText('Hosts').first().click();
   await expect(page).toHaveURL(/\/hosts$/);
   await openDataTableRecord(page, 'alpha-xen');
@@ -7632,7 +7633,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await operatorCreateNetworkWindow.getByLabel('MTU').fill('1600');
   await operatorCreateNetworkWindow.getByLabel('Tags').fill('replication, backup');
   await operatorCreateNetworkWindow.getByLabel('Network other_config').fill('vlan=330\ndomain=replication');
-  await operatorCreateNetworkWindow.getByRole('button', { name: 'Create Network' }).click();
+  await operatorCreateNetworkWindow.locator('button[type="submit"]').click();
   await expect(page.getByText('Replication Transit was created on xenbr10.')).toBeVisible();
   await expect(page.locator('.floating-window').getByText('Replication Transit', { exact: true }).first()).toBeVisible();
   await expect(page.locator('.floating-window').getByText('1600', { exact: true })).toBeVisible();
