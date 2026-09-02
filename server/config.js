@@ -15,6 +15,10 @@ const config = {
     bootstrapPassword: process.env.XENMANGE_BOOTSTRAP_PASSWORD || 'admin123!',
     bootstrapDisplayName: process.env.XENMANGE_BOOTSTRAP_DISPLAY_NAME || 'Platform Administrator',
   },
+  rateLimit: {
+    apiWindowMs: parseInt(process.env.API_RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
+    apiMax: parseInt(process.env.API_RATE_LIMIT_MAX, 10) || 300,
+  },
   db: {
     path: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'xenmange.db'),
     securityPath: process.env.SECURITY_DB_PATH || path.join(__dirname, '..', 'data', 'security.db'),
