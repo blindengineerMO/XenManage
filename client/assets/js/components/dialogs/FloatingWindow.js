@@ -7,14 +7,14 @@ const FloatingWindow = {
          v-if="show"
          role="dialog"
          aria-modal="false"
-         :aria-label="title"
+         :aria-labelledby="titleId"
          tabindex="-1"
          :style="{ width: resolvedWidth + 'px', left: posX + 'px', top: posY + 'px', zIndex, maxHeight: maxWindowHeight + 'px' }"
          @mousedown="bringToFront">
       <div class="fw-header" @mousedown="startDrag">
         <span class="mdi mdi-window-restore" style="font-size:14px;color:var(--text-muted)"></span>
-        <span class="fw-title">{{ title }}</span>
-        <button class="fw-close" @click.stop="$emit('close')">
+        <span :id="titleId" class="fw-title">{{ title }}</span>
+        <button class="fw-close" type="button" :aria-label="'Close ' + title" @click.stop="$emit('close')">
           <span class="mdi mdi-close"></span>
         </button>
       </div>
@@ -49,6 +49,9 @@ const FloatingWindow = {
       const available = this.viewportHeight - this.posY - headerHeight - 28 - 18;
       return Math.max(160, Math.min(requested, available));
     },
+    titleId() {
+      return `floating-window-title-${this.zIndex}`;
+    },
   },
   watch: {
     show(value) {
@@ -56,6 +59,7 @@ const FloatingWindow = {
         this.bringToFront();
         this.syncViewport();
         this.constrainPosition();
+        this.$nextTick(() => this.focusFirstControl());
       }
     },
   },
@@ -132,11 +136,18 @@ const FloatingWindow = {
         first.focus();
       }
     },
+    focusFirstControl() {
+      const focusable = this.$refs.windowRoot?.querySelector(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      (focusable || this.$refs.windowRoot)?.focus();
+    },
   },
   mounted() {
     window.addEventListener('resize', this.onResize);
     document.addEventListener('keydown', this.onKeydown);
     this.constrainPosition();
+    if (this.show) this.$nextTick(() => this.focusFirstControl());
   },
   beforeUnmount() {
     this.stopDrag();

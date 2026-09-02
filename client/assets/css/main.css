@@ -117,6 +117,25 @@ a:hover {
   text-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
 }
 
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: calc(var(--z-tooltip) + 1);
+  padding: 8px 12px;
+  color: var(--bg-void);
+  background: var(--neon-green);
+  border: 1px solid #fff;
+  transform: translateY(-160%);
+  transition: transform 0.15s ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading);

@@ -730,11 +730,14 @@ function buildDemoComposePlan(spec) {
   const resolvedStorageRepositories = buildDemoComposeInterpolate(spec.storageRepositories || {}, variables);
   const order = buildDemoComposeTopoSort(resolvedVms);
   const templates = demoDb.vms.filter((vm) => vm.is_a_template && vm.templateKind !== 'operating-system');
+  const operatingSystems = demoDb.vms.filter((vm) => vm.is_a_template && vm.templateKind === 'operating-system');
   const plannedNames = new Set();
 
   const plans = order.map((key) => {
     const vmSpec = resolvedVms[key];
-    const template = buildDemoComposeResolveRef(templates, vmSpec.template, `deployable template "${vmSpec.template}"`);
+    const creationMode = vmSpec.creationMode || 'template';
+    const sourceValue = creationMode === 'operating-system' ? vmSpec.source : vmSpec.template;
+    const template = buildDemoComposeResolveRef(creationMode === 'operating-system' ? operatingSystems : templates, sourceValue, `VM source "${sourceValue}"`);
     const memoryStaticMax = Number(vmSpec.memoryStaticMax);
     const memoryDynamicMax = vmSpec.memoryDynamicMax ? Number(vmSpec.memoryDynamicMax) : memoryStaticMax;
     const memoryDynamicMin = vmSpec.memoryDynamicMin ? Number(vmSpec.memoryDynamicMin) : memoryDynamicMax;
@@ -776,7 +779,8 @@ function buildDemoComposePlan(spec) {
 
     return {
       key,
-      template: vmSpec.template,
+      creationMode,
+      template: sourceValue,
       templateRef: template,
       nameLabel: vmSpec.nameLabel,
       nameDescription: vmSpec.nameDescription || '',

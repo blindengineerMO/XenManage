@@ -339,3 +339,7 @@ const api = {
   saveVFabricQuota: (id, payload) => api.request('PUT', `/api/vfabrics/${encodeURIComponent(id)}/quota`, payload),
   deleteVFabricQuota: (id, payload = null) => api.request('DELETE', `/api/vfabrics/${encodeURIComponent(id)}/quota`, payload),
 };
+
+if (typeof module !== 'undefined') {
+  module.exports = { api, appendTargetKey };
+}

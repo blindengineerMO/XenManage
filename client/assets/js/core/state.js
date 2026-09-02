@@ -462,3 +462,7 @@ function recordMatchesRouteFocus(record, focus, fields = [], extraValues = []) {
 
   return false;
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = { store, normalizeUndoDelaySeconds, applyUndoDelaySeconds };
+}

@@ -727,7 +727,10 @@ const schemas = {
     vms: Joi.object().pattern(
       Joi.string().min(1).max(64),
       Joi.object({
-        template: Joi.string().trim().required().min(1).max(200),
+        creationMode: Joi.string().valid('template', 'operating-system').default('template'),
+        template: Joi.string().trim().min(1).max(200).when('creationMode', { is: 'template', then: Joi.required(), otherwise: Joi.forbidden() }),
+        source: Joi.string().trim().min(1).max(200).when('creationMode', { is: 'operating-system', then: Joi.required(), otherwise: Joi.forbidden() }),
+        operatingSystemProfileId: Joi.string().trim().max(200).default(''),
         nameLabel: Joi.string().trim().required().min(1).max(120),
         nameDescription: Joi.string().allow('').max(500).default(''),
         memoryStaticMax: Joi.alternatives().try(Joi.number().positive(), Joi.string().trim().min(1)).required(),
