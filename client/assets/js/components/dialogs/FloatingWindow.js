@@ -97,13 +97,28 @@ const FloatingWindow = {
       this.syncViewport();
       this.constrainPosition();
     },
+    isTopmostWindow() {
+      const windows = Array.from(document.querySelectorAll('.floating-window'));
+      const zIndexes = windows
+        .map((entry) => Number(window.getComputedStyle(entry).zIndex || 0))
+        .filter((value) => Number.isFinite(value));
+      const topZIndex = zIndexes.length ? Math.max(...zIndexes) : this.zIndex;
+      return this.zIndex >= topZIndex;
+    },
+    onKeydown(event) {
+      if (!this.show || event.defaultPrevented || event.key !== 'Escape') return;
+      if (!this.isTopmostWindow()) return;
+      this.$emit('close');
+    },
   },
   mounted() {
     window.addEventListener('resize', this.onResize);
+    document.addEventListener('keydown', this.onKeydown);
     this.constrainPosition();
   },
   beforeUnmount() {
     this.stopDrag();
     window.removeEventListener('resize', this.onResize);
+    document.removeEventListener('keydown', this.onKeydown);
   },
 };

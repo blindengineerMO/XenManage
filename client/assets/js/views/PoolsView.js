@@ -560,9 +560,12 @@ const PoolsView = {
     },
     async ejectSelectedPoolHost(host) {
       if (!this.selectedPool?.ref || !host?.ref) return;
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Eject ${host.name_label || host.ref} from this pool? It will revert to a standalone host.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Eject Pool Host',
+        message: `Eject ${host.name_label || host.ref} from this pool? It will revert to a standalone host.`,
+        confirmLabel: 'Eject Host',
+        danger: true,
+      });
       if (!confirmed) return;
 
       this.poolActionMessage = '';

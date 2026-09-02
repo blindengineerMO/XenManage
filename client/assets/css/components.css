@@ -83,11 +83,29 @@
 .topnav-breadcrumb span {
   white-space: nowrap;
 }
+.topnav-breadcrumb-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.topnav-breadcrumb-link:hover {
+  color: var(--text-primary);
+}
 .topnav-breadcrumb .bc-sep {
   color: var(--text-muted);
 }
 .topnav-breadcrumb .bc-current {
   color: var(--neon-green);
+  max-width: min(32vw, 320px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topnav-breadcrumb .bc-muted {
+  color: var(--text-secondary);
 }
 
 .topnav-actions {

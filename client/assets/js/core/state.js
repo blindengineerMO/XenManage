@@ -25,6 +25,14 @@ const store = reactive({
   ready: false,
   bootMessage: 'Verifying session state',
 });
+const globalConfirmState = reactive({
+  show: false,
+  title: 'Confirm',
+  message: '',
+  confirmLabel: 'Confirm',
+  danger: false,
+});
+let globalConfirmResolver = null;
 
 const GOVERNANCE_APPROVAL_STORAGE_KEY = 'xenmange.pendingGovernanceApproval';
 
@@ -191,7 +199,55 @@ function resetSessionState() {
   });
 }
 
+function settleGlobalConfirm(confirmed = false) {
+  const resolver = globalConfirmResolver;
+  globalConfirmResolver = null;
+  globalConfirmState.show = false;
+  globalConfirmState.title = 'Confirm';
+  globalConfirmState.message = '';
+  globalConfirmState.confirmLabel = 'Confirm';
+  globalConfirmState.danger = false;
+  if (typeof resolver === 'function') {
+    resolver(Boolean(confirmed));
+  }
+}
+
+function requestGlobalConfirm(options = {}) {
+  if (typeof window === 'undefined') return Promise.resolve(true);
+  if (globalConfirmResolver) settleGlobalConfirm(false);
+
+  globalConfirmState.title = String(options.title || 'Confirm').trim() || 'Confirm';
+  globalConfirmState.message = String(options.message || '').trim();
+  globalConfirmState.confirmLabel = String(options.confirmLabel || 'Confirm').trim() || 'Confirm';
+  globalConfirmState.danger = Boolean(options.danger);
+  globalConfirmState.show = true;
+
+  return new Promise((resolve) => {
+    globalConfirmResolver = resolve;
+  });
+}
+
 const ROUTE_FOCUS_KEYS = ['focusKind', 'focusRef', 'focusUuid', 'focusName', 'focusClass', 'focusSource'];
+const APP_ROUTE_LABELS = {
+  '/': 'Dashboard',
+  '/login': 'Connection',
+  '/pools': 'Pools',
+  '/templates': 'Templates',
+  '/template-library': 'Template Library',
+  '/vfabrics': 'vFabrics',
+  '/vms': 'Virtual Machines',
+  '/hosts': 'Hosts',
+  '/storage': 'Storage',
+  '/networking': 'Networking',
+  '/inventory': 'Inventory',
+  '/governance': 'Governance',
+  '/settings': 'Settings',
+  '/lifecycle': 'Lifecycle',
+  '/capacity': 'Capacity',
+  '/resilience': 'Resilience',
+  '/alerts': 'Alerts',
+  '/activity': 'Activity',
+};
 
 function cleanRouteQuery(query = {}) {
   return Object.fromEntries(
@@ -199,6 +255,19 @@ function cleanRouteQuery(query = {}) {
       .filter(([, value]) => value !== undefined && value !== null && value !== '')
       .map(([key, value]) => [key, String(value)])
   );
+}
+
+function resolveAppRouteLabel(path = '') {
+  return APP_ROUTE_LABELS[String(path || '').trim()] || String(path || '').trim() || 'Workspace';
+}
+
+function clearRouteFocusQuery(query = {}) {
+  const nextQuery = { ...(query || {}) };
+  ROUTE_FOCUS_KEYS.forEach((key) => {
+    delete nextQuery[key];
+  });
+  delete nextQuery.focusSearch;
+  return cleanRouteQuery(nextQuery);
 }
 
 function getRouteFocus(query = {}) {
@@ -221,6 +290,73 @@ function getRouteFocus(query = {}) {
 function getRouteFocusKey(focus) {
   if (!focus) return '';
   return [focus.kind, focus.ref, focus.uuid, focus.name, focus.cls, focus.source].join('|').toLowerCase();
+}
+
+function humanizeFocusKind(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  const labels = {
+    vm: 'VM',
+    host: 'Host',
+    pool: 'Pool',
+    sr: 'Storage Repository',
+    storage: 'Storage',
+    vdi: 'VDI',
+    vbd: 'VBD',
+    network: 'Network',
+    vif: 'VIF',
+    pif: 'PIF',
+    bond: 'Bond',
+    vlan: 'VLAN',
+    alert: 'Alert',
+    task: 'Task',
+    template: 'Template',
+    workspace: 'Workspace',
+  };
+  return labels[normalized] || normalized.toUpperCase() || 'Resource';
+}
+
+function buildTopNavBreadcrumbs(route = {}) {
+  const path = String(route?.path || '/').trim() || '/';
+  const focus = getRouteFocus(route?.query || {});
+  const breadcrumbs = [
+    {
+      key: 'home',
+      label: 'Home',
+      to: store.authenticated ? '/' : '/login',
+      icon: 'mdi-home-outline',
+    },
+  ];
+
+  if (path !== '/login' && path !== '/') {
+    breadcrumbs.push({
+      key: `route:${path}`,
+      label: resolveAppRouteLabel(path),
+      to: focus ? { path, query: clearRouteFocusQuery(route?.query || {}) } : null,
+    });
+  } else if (path === '/login') {
+    breadcrumbs.push({
+      key: 'route:/login',
+      label: resolveAppRouteLabel(path),
+      to: null,
+    });
+  }
+
+  if (focus) {
+    const subject = focus.name || focus.ref || focus.uuid || '';
+    const label = subject
+      ? `${humanizeFocusKind(focus.kind || focus.cls)} ${subject}`
+      : humanizeFocusKind(focus.kind || focus.cls);
+    breadcrumbs.push({
+      key: `focus:${getRouteFocusKey(focus)}`,
+      label,
+      to: null,
+    });
+  }
+
+  return breadcrumbs.map((entry, index) => ({
+    ...entry,
+    current: index === breadcrumbs.length - 1,
+  }));
 }
 
 function buildFocusedRoute(path, focus = {}, extraQuery = {}) {

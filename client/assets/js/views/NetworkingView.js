@@ -439,9 +439,12 @@ const NetworkingView = {
         return;
       }
 
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Remove ${attachment.interfaceRef} from ${attachment.vmName || attachment.vmRef}? This deletes the network interface record from the selected VM.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Remove Workload Interface',
+        message: `Remove ${attachment.interfaceRef} from ${attachment.vmName || attachment.vmRef}? This deletes the network interface record from the selected VM.`,
+        confirmLabel: 'Remove Interface',
+        danger: true,
+      });
 
       if (!confirmed) return;
 
@@ -599,9 +602,12 @@ const NetworkingView = {
       }
 
       const network = { ...this.selectedNetwork };
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Destroy ${network.name_label || network.ref}? This permanently removes the Xen network record once the platform accepts the request.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Destroy Network',
+        message: `Destroy ${network.name_label || network.ref}? This permanently removes the Xen network record once the platform accepts the request.`,
+        confirmLabel: 'Destroy Network',
+        danger: true,
+      });
 
       if (!confirmed) return;
 
@@ -640,9 +646,12 @@ const NetworkingView = {
         return;
       }
 
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Destroy ${targets.length} selected network${targets.length === 1 ? '' : 's'}? This permanently removes each detached Xen network record once the platform accepts the request.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Destroy Selected Networks',
+        message: `Destroy ${targets.length} selected network${targets.length === 1 ? '' : 's'}? This permanently removes each detached Xen network record once the platform accepts the request.`,
+        confirmLabel: targets.length === 1 ? 'Destroy Network' : 'Destroy Networks',
+        danger: true,
+      });
 
       if (!confirmed) return;
 
@@ -742,9 +751,12 @@ const NetworkingView = {
         return;
       }
 
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(`Hot-unplug ${attachment.interfaceRef} from ${attachment.vmName || attachment.vmRef}? The VIF record stays mapped to this network and VM, but live traffic is disconnected until it is plugged again.`);
+      const confirmed = await requestGlobalConfirm({
+        title: 'Hot-Unplug Interface',
+        message: `Hot-unplug ${attachment.interfaceRef} from ${attachment.vmName || attachment.vmRef}? The VIF record stays mapped to this network and VM, but live traffic is disconnected until it is plugged again.`,
+        confirmLabel: 'Hot-Unplug Interface',
+        danger: true,
+      });
 
       if (!confirmed) return;
 

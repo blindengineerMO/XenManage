@@ -1,5 +1,5 @@
 const AppShell = {
-  components: { TopNav, SideNav, StatusBar },
+  components: { TopNav, SideNav, StatusBar, ConfirmWindow },
   template: `
     <div>
       <div v-if="!store.ready" class="boot-shell">
@@ -23,9 +23,27 @@ const AppShell = {
       <template v-else>
         <router-view></router-view>
       </template>
+
+      <confirm-window
+        :show="globalConfirmState.show"
+        :title="globalConfirmState.title"
+        :message="globalConfirmState.message"
+        :confirm-label="globalConfirmState.confirmLabel"
+        :danger="globalConfirmState.danger"
+        @close="respondToGlobalConfirm(false)"
+        @confirm="respondToGlobalConfirm(true)">
+      </confirm-window>
     </div>
   `,
   setup() {
-    return { store };
+    const respondToGlobalConfirm = (confirmed) => {
+      settleGlobalConfirm(confirmed);
+    };
+
+    return {
+      globalConfirmState,
+      respondToGlobalConfirm,
+      store,
+    };
   },
 };

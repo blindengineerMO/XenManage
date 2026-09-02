@@ -619,15 +619,24 @@ const LifecycleView = {
         return;
       }
 
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(
-          isEnter
-            ? `Enter maintenance mode for ${targets.length} selected host${targets.length === 1 ? '' : 's'} from the lifecycle queue?`
-            : isExit
-              ? `Exit maintenance mode for ${targets.length} selected host${targets.length === 1 ? '' : 's'} from the lifecycle queue?`
-              : `Clear ${targets.length} selected lifecycle plan${targets.length === 1 ? '' : 's'}?`
-        );
+      const confirmed = await requestGlobalConfirm({
+        title: isEnter
+          ? 'Enter Maintenance Mode'
+          : isExit
+            ? 'Exit Maintenance Mode'
+            : 'Clear Lifecycle Plans',
+        message: isEnter
+          ? `Enter maintenance mode for ${targets.length} selected host${targets.length === 1 ? '' : 's'} from the lifecycle queue?`
+          : isExit
+            ? `Exit maintenance mode for ${targets.length} selected host${targets.length === 1 ? '' : 's'} from the lifecycle queue?`
+            : `Clear ${targets.length} selected lifecycle plan${targets.length === 1 ? '' : 's'}?`,
+        confirmLabel: isEnter
+          ? 'Enter Maintenance'
+          : isExit
+            ? 'Exit Maintenance'
+            : 'Clear Plans',
+        danger: !isExit,
+      });
       if (!confirmed) return;
 
       this.workspaceMessage = '';
