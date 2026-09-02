@@ -50,6 +50,16 @@ describe('Health Routes', () => {
     });
   }
 
+  function requestPage(pathname) {
+    return new Promise((resolve, reject) => {
+      http.get({ hostname: 'localhost', port, path: pathname }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => body += chunk);
+        res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
+      }).on('error', reject);
+    });
+  }
+
   it('returns a lightweight liveness response', async () => {
     await expect(request('/healthz')).resolves.toEqual({ status: 200, body: { status: 'ok' } });
   });
@@ -65,5 +75,13 @@ describe('Health Routes', () => {
       expect.objectContaining({ name: 'performance', ok: true }),
     ]));
     expect(response.body.managedTargets).toEqual({ enabled: 0, healthy: 0, unhealthy: 0 });
+  });
+
+  it('uses a response nonce instead of unsafe inline scripts', async () => {
+    const response = await requestPage('/login');
+    expect(response.status).toBe(200);
+    expect(response.headers['content-security-policy']).toMatch(/script-src 'self' 'nonce-[^']+'/);
+    expect(response.headers['content-security-policy']).not.toContain("script-src 'self' 'unsafe-inline'");
+    expect(response.body).toMatch(/<script nonce="[^"]+">/);
   });
 });
