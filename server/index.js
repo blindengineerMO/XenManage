@@ -10,6 +10,7 @@ const { createApiRateLimiter } = require('./middleware/rate-limit');
 const { csrfProtection } = require('./middleware/csrf');
 const requestLogging = require('./middleware/request-logging');
 const logger = require('./services/logger');
+const errorTracking = require('./services/error-tracking');
 const sessionMiddleware = require('./middleware/session');
 const { router: authRouter, requireAuth, requireXenConnection, buildStatusPayload } = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
@@ -157,6 +158,7 @@ app.get('/{*splat}', (req, res) => {
 // Error handler
 app.use((err, req, res, _next) => {
   logger.error('request_failed', { requestId: req.requestId, method: req.method, path: req.originalUrl, error: err });
+  errorTracking.captureException(err, { requestId: req.requestId, path: req.originalUrl });
   if (req.path.startsWith('/api/')) {
     return res.status(500).json({ error: 'INTERNAL_SERVER_ERROR' });
   }
@@ -198,9 +200,14 @@ function startServer({ port = config.port, exit = process.exit } = {}) {
 
   process.once('SIGTERM', () => { shutdown('SIGTERM'); });
   process.once('SIGINT', () => { shutdown('SIGINT'); });
-  process.once('uncaughtException', (error) => { shutdown('uncaughtException', error); });
+  process.once('uncaughtException', (error) => {
+    errorTracking.captureException(error, { path: 'uncaughtException' });
+    shutdown('uncaughtException', error);
+  });
   process.once('unhandledRejection', (reason) => {
-    shutdown('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    errorTracking.captureException(error, { path: 'unhandledRejection' });
+    shutdown('unhandledRejection', error);
   });
 
   return { server, shutdown };
