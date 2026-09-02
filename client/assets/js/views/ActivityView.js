@@ -705,7 +705,7 @@ const ActivityView = {
 
         const response = await fetch('/api/logs/export', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...api.csrfHeaders() },
           credentials: 'same-origin',
           body: JSON.stringify({
             ids: this.selectedLogIds,

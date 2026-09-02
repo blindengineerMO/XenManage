@@ -6,6 +6,8 @@ const rateLimit = require('express-rate-limit');
 
 const config = require('./config');
 const securityMiddleware = require('./middleware/security');
+const { createApiRateLimiter } = require('./middleware/rate-limit');
+const { csrfProtection } = require('./middleware/csrf');
 const sessionMiddleware = require('./middleware/session');
 const { router: authRouter, requireAuth, requireXenConnection, buildStatusPayload } = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
@@ -35,6 +37,7 @@ const managedTargetRoutes = require('./routes/managed-targets');
 const workflowRoutes = require('./routes/workflows');
 const publicApiRoutes = require('./routes/public-api');
 const projectRoutes = require('./routes/projects');
+const healthRoutes = require('./routes/health');
 const governanceService = require('./services/governance');
 const metricsCollector = require('./services/metrics-collector');
 const managedTargetService = require('./services/managed-targets');
@@ -58,6 +61,12 @@ const authLimiter = rateLimit({
   skip: () => config.env === 'test',
   message: { error: 'Too many login attempts, please try again later' },
 });
+const apiLimiter = createApiRateLimiter({
+  windowMs: config.rateLimit.apiWindowMs,
+  max: config.rateLimit.apiMax,
+  skip: () => config.env === 'test',
+});
+const apiCsrfProtection = csrfProtection({ skip: () => config.env === 'test' });
 
 // Session
 sessionMiddleware(app);
@@ -77,6 +86,9 @@ app.use('/dist', express.static(path.join(__dirname, '..', 'client', 'dist'), {
 }));
 
 // API Routes
+app.use(healthRoutes);
+app.use('/api', apiLimiter);
+app.use('/api', apiCsrfProtection);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/xen-login', authLimiter);
 app.use('/api/auth', authRouter);

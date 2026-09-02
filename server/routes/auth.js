@@ -16,6 +16,7 @@ const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const credentialVaultService = require('../services/credential-vault');
 const managedTargetService = require('../services/managed-targets');
+const { getCsrfToken } = require('../middleware/csrf');
 
 function normalizeConnectionId(value) {
   const normalized = Number(value || 0);
@@ -239,6 +240,7 @@ function buildStatusPayload(req) {
       currentRole: governanceService.getSessionRole(req.session),
       policy: governanceService.getPolicy(),
     },
+    csrfToken: getCsrfToken(req),
   };
 }
 

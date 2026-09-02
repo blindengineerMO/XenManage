@@ -11,6 +11,16 @@ function appendTargetKey(path, targetKey = '') {
   return `${url.pathname}${url.search}`;
 }
 
+let csrfToken = '';
+
+function rememberCsrfToken(response, data) {
+  csrfToken = response.headers.get('X-CSRF-Token') || data?.csrfToken || csrfToken;
+}
+
+function csrfHeaders() {
+  return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
+}
+
 const api = {
   async request(method, url, body) {
     if (store.demoMode) {
@@ -19,7 +29,7 @@ const api = {
 
     const options = {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(method === 'GET' ? {} : csrfHeaders()) },
       credentials: 'same-origin',
     };
 
@@ -29,6 +39,7 @@ const api = {
 
     const response = await fetch(url, options);
     const data = await response.json();
+    rememberCsrfToken(response, data);
 
     if (!response.ok) {
       const error = new Error(data.message || data.error || 'REQUEST_FAILED');
@@ -39,6 +50,7 @@ const api = {
 
     return data;
   },
+  csrfHeaders,
   login: (username, password) => api.request('POST', '/api/auth/login', { username, password }),
   xenLogin: (host, username, password, options = {}) => api.request('POST', '/api/auth/xen-login', {
     host,
@@ -207,6 +219,7 @@ const api = {
       headers: {
         'Content-Type': 'application/octet-stream',
         'X-Xenmange-Filename': payload.fileName || payload.file?.name || 'package.xva',
+        ...csrfHeaders(),
       },
       credentials: 'same-origin',
     });
@@ -274,6 +287,7 @@ const api = {
     const response = await fetch(`/api/storage/${encodeURIComponent(ref)}/files/upload`, {
       method: 'POST',
       body: formData,
+      headers: csrfHeaders(),
       credentials: 'same-origin',
     });
     const data = await response.json();
