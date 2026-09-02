@@ -2342,6 +2342,20 @@ PERF_DB_PATH=./data/perf.db
 # VAULT_ENCRYPTION_KEY_PREVIOUS=   # set when rotating VAULT_ENCRYPTION_KEY, then re-wrap and clear
 ```
 
+## Production Deployment
+
+Terminate TLS at a reverse proxy and forward only trusted traffic to XenManage. Use a long, randomly generated `SESSION_SECRET`, a non-default bootstrap password, and a production vault key. Persist the four database files and the control-plane backup directory on storage that is included in your host backup policy.
+
+For a non-container deployment, install the application under `/opt/xenmange`, create an `xenmange` system user, and copy [deploy/xenmange.service](deploy/xenmange.service) to `/etc/systemd/system/xenmange.service`. Put production environment values in `/etc/xenmange/xenmange.env`, set database paths beneath `/var/lib/xenmange`, then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now xenmange
+sudo systemctl status xenmange
+```
+
+Use `GET /healthz` for liveness, `GET /readyz` for database readiness, and `GET /metrics` for Prometheus scraping. The systemd unit intentionally grants write access only to `/var/lib/xenmange`; make that directory owned by the `xenmange` user before starting the service.
+
 ## Development & Testing
 
 | Script | Description |

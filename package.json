@@ -10,7 +10,7 @@
     "test": "jest --coverage",
     "test:unit": "jest --testPathPatterns=tests/unit",
     "test:e2e": "npm run build:client && playwright test",
-    "lint": "echo 'Lint configured'"
+    "lint": "eslint server scripts tests"
   },
   "keywords": [
     "xenserver",
@@ -23,6 +23,7 @@
   "type": "commonjs",
   "dependencies": {
     "@mdi/font": "^7.4.47",
+    "@sentry/node": "^10.73.0",
     "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
@@ -44,10 +45,13 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
     "@vue/compiler-dom": "^3.5.13",
     "@vue/test-utils": "^2.4.11",
     "esbuild": "^0.28.2",
+    "eslint": "^10.9.1",
+    "globals": "^17.12.0",
     "jest": "^30.4.2",
     "nodemon": "^3.1.14"
   },

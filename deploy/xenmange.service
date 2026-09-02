@@ -1,0 +1,23 @@
+[Unit]
+Description=XenManage control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xenmange
+Group=xenmange
+WorkingDirectory=/opt/xenmange
+EnvironmentFile=/etc/xenmange/xenmange.env
+ExecStart=/usr/bin/node /opt/xenmange/server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/xenmange
+
+[Install]
+WantedBy=multi-user.target
