@@ -5639,8 +5639,8 @@ test('hosts workspace can connect a registered standalone host target without le
   await connectHostWindow.getByLabel('Host Password').fill('secret');
   await connectHostWindow.getByRole('button', { name: 'Connect to Host', exact: true }).click();
 
-  await expect(registeredHostTargetsWindow.getByText('edge-a', { exact: true })).toBeVisible();
-  await expect(page.getByText('connected now')).toBeVisible();
+  await expect(registeredHostTargetsWindow).toBeHidden();
+  await expect(page.getByRole('button', { name: /2 live targets attached/ })).toBeVisible();
 });
 
 test('pools workspace can activate and detach multiple attached live sessions', async ({ page }) => {
@@ -7604,7 +7604,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await hostSchedulerWindow.locator('.fw-close').click();
   await hostDetailWindow.getByRole('button', { name: 'Host Logging' }).click();
   const hostLoggingWindow = page.locator('.floating-window').filter({ hasText: 'Host Logging' }).last();
-  await hostLoggingWindow.getByLabel('Host Logging').fill('syslog_destination=10.0.0.51\nsyslog_level=warning');
+  await hostLoggingWindow.getByRole('textbox', { name: 'Host Logging', exact: true }).fill('syslog_destination=10.0.0.51\nsyslog_level=warning');
   await hostLoggingWindow.getByRole('button', { name: 'Save Host Logging' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_destination || '').toBe('10.0.0.51');
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.logging?.syslog_level || '').toBe('warning');

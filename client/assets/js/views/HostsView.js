@@ -626,6 +626,7 @@ const HostsView = {
             port: target.port || 443,
           });
           applySessionStatus(result);
+          this.showRegisteredTargetsWindow = false;
           await this.loadAll();
           return;
         }
@@ -658,6 +659,7 @@ const HostsView = {
         );
         applySessionStatus(result);
         this.closeHostConnectDialog();
+        this.showRegisteredTargetsWindow = false;
         await this.loadAll();
       } catch (error) {
         this.connectError = error.message || 'Unable to connect the selected host target';
