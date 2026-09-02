@@ -11,7 +11,11 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
     if (!nameLabel) throw new Error('TEMPLATE_NAME_REQUIRED');
     if (!['operating-system', 'deployable'].includes(kind)) throw new Error('TEMPLATE_KIND_INVALID');
 
-    const operatingSystemRefs = ['OpaqueRef:os-profile-ubuntu-24', 'OpaqueRef:os-profile-windows-2025'];
+    const operatingSystemRefs = [
+      'OpaqueRef:os-profile-ubuntu-24',
+      'OpaqueRef:os-profile-windows-2025',
+      ...DEMO_BUNDLED_OS_PROFILES.map((profile) => profile.sourceRef),
+    ];
     const sourceVm = demoDb.vms.find((entry) => entry.ref === body?.sourceRef);
     if (kind === 'operating-system' && !operatingSystemRefs.includes(body?.sourceRef)) throw new Error('OS_TEMPLATE_SOURCE_INVALID');
     if (kind === 'deployable' && (!sourceVm || sourceVm.is_a_template || String(sourceVm.power_state || '').toLowerCase() !== 'halted')) throw new Error('GOLDEN_TEMPLATE_SOURCE_INVALID');
@@ -27,6 +31,7 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
       is_a_template: true,
       is_a_snapshot: false,
       templateKind: kind,
+      baseOperatingSystemProfileId: kind === 'operating-system' ? String(body?.operatingSystemProfileId || '') : '',
       tags: Array.isArray(body?.tags) ? body.tags : [],
       VBDs: kind === 'deployable' ? [...(sourceVm.VBDs || [])] : [],
       VIFs: [],

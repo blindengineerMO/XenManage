@@ -132,6 +132,13 @@ function normalizeRrdRows(payload = {}) {
     .filter((row) => row.length > 1);
 }
 
+function latestRrdTimestamp(payload = {}) {
+  return normalizeRrdRows(payload).reduce((latest, row) => {
+    const ts = Number(row[0] || 0);
+    return Number.isInteger(ts) && ts > latest ? ts : latest;
+  }, 0);
+}
+
 function parseHostCpuUsage(payload = {}, hosts = []) {
   const lookup = buildEntityLookup(hosts, ['ref', 'uuid', 'name_label', 'hostname', 'address']);
   const legends = normalizeRrdLegends(payload);
@@ -227,7 +234,7 @@ function parseRrdMetricTotals(payload = {}, records = [], fields = [], entityTyp
   return Object.fromEntries(totalsByRef.entries());
 }
 
-async function loadRrdDerivedMetrics(xenApi, hosts = [], vms = [], now = Date.now()) {
+async function loadRrdDerivedMetrics(xenApi, hosts = [], vms = [], now = Date.now(), start = 0) {
   if (!xenApi || typeof xenApi.getRrdUpdates !== 'function' || (!hosts.length && !vms.length)) {
     return {
       hostCpuUsage: {},
@@ -238,12 +245,14 @@ async function loadRrdDerivedMetrics(xenApi, hosts = [], vms = [], now = Date.no
       vmNetworkTx: {},
       vmDiskRead: {},
       vmDiskWrite: {},
+      latestTs: 0,
     };
   }
 
   try {
     const payload = await xenApi.getRrdUpdates({
-      start: Math.max(0, Math.floor((now - STALE_SAMPLE_WINDOW_MS) / 1000)),
+      // A stored cursor avoids repeatedly downloading the same rolling window.
+      start: Math.max(0, Number(start) || Math.floor((now - STALE_SAMPLE_WINDOW_MS) / 1000)),
       cf: 'AVERAGE',
       interval: 60,
       host: true,
@@ -257,6 +266,7 @@ async function loadRrdDerivedMetrics(xenApi, hosts = [], vms = [], now = Date.no
       vmNetworkTx: parseRrdMetricTotals(payload, vms, ['ref', 'uuid', 'name_label'], 'vm', (metricName) => isVmNetworkLegendMetric(metricName, 'tx')),
       vmDiskRead: parseRrdMetricTotals(payload, vms, ['ref', 'uuid', 'name_label'], 'vm', (metricName) => isVmDiskLegendMetric(metricName, 'read')),
       vmDiskWrite: parseRrdMetricTotals(payload, vms, ['ref', 'uuid', 'name_label'], 'vm', (metricName) => isVmDiskLegendMetric(metricName, 'write')),
+      latestTs: latestRrdTimestamp(payload),
     };
   } catch (error) {
     return {
@@ -268,6 +278,7 @@ async function loadRrdDerivedMetrics(xenApi, hosts = [], vms = [], now = Date.no
       vmNetworkTx: {},
       vmDiskRead: {},
       vmDiskWrite: {},
+      latestTs: 0,
     };
   }
 }
@@ -495,6 +506,7 @@ const metricsHistoryService = {
     const now = Date.now();
     const targetKey = String(options.targetKey || '');
     const latestTs = metricSampleModel.getLatestTimestamp(targetKey);
+    const rrdCursor = metricSampleModel.getRrdCursor(targetKey);
 
     if (!options.force && latestTs && now - latestTs < STALE_SAMPLE_WINDOW_MS) {
       return { captured: false, ts: latestTs, sampleCount: 0 };
@@ -518,7 +530,8 @@ const metricsHistoryService = {
       vmNetworkTx,
       vmDiskRead,
       vmDiskWrite,
-    } = await loadRrdDerivedMetrics(xenApi, hosts, vms, now);
+      latestTs: latestRrdTs,
+    } = await loadRrdDerivedMetrics(xenApi, hosts, vms, now, rrdCursor ? rrdCursor + 1 : 0);
 
     const hostMetrics = await Promise.all(hosts.map(async (record) => {
       try {
@@ -556,6 +569,7 @@ const metricsHistoryService = {
     ];
 
     metricSampleModel.insertMany(samples.map((sample) => ({ ...sample, targetKey })));
+    if (latestRrdTs) metricSampleModel.setRrdCursor(targetKey, latestRrdTs);
 
     return {
       captured: true,
@@ -564,6 +578,7 @@ const metricsHistoryService = {
       hostCount: hosts.length,
       vmCount: vms.length,
       srCount: srs.length,
+      rrdCursor: latestRrdTs || rrdCursor,
     };
   },
 

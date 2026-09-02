@@ -278,6 +278,18 @@ function initializeSchema() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS terraform_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      lock_id TEXT NOT NULL DEFAULT '',
+      lock_json TEXT NOT NULL DEFAULT '{}',
+      lock_expires_at DATETIME,
+      owner_user_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS retention_policies (
       domain TEXT PRIMARY KEY,
       retention_days INTEGER NOT NULL,
@@ -288,6 +300,7 @@ function initializeSchema() {
 
     CREATE TABLE IF NOT EXISTS deployment_runs (
       id TEXT PRIMARY KEY,
+      catalog_request_id INTEGER REFERENCES catalog_requests(id) ON DELETE SET NULL,
       deployment_audit_id TEXT NOT NULL DEFAULT '',
       template_ref TEXT NOT NULL,
       template_name TEXT NOT NULL DEFAULT '',
@@ -362,6 +375,96 @@ function initializeSchema() {
       saved_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS catalog_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      source_item_id INTEGER REFERENCES template_library_items(id) ON DELETE SET NULL,
+      source_kind TEXT NOT NULL DEFAULT 'deployment-template',
+      category TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      image_url TEXT NOT NULL DEFAULT '',
+      visibility TEXT NOT NULL DEFAULT 'draft',
+      naming_pattern TEXT NOT NULL DEFAULT 'NODE-XXXX',
+      next_sequence INTEGER NOT NULL DEFAULT 1,
+      fixed_variables_json TEXT NOT NULL DEFAULT '{}',
+      subscriber_fields_json TEXT NOT NULL DEFAULT '[]',
+      max_active_per_subscriber INTEGER,
+      requires_approval INTEGER NOT NULL DEFAULT 1,
+      approval_policy_json TEXT NOT NULL DEFAULT '{"mode":"manual"}',
+      cost_rates_json TEXT NOT NULL DEFAULT '{}',
+      target_pool_refs_json TEXT NOT NULL DEFAULT '[]',
+      lease_duration_hours INTEGER,
+      current_version_id INTEGER,
+      owner_user_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS catalog_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      catalog_entry_id INTEGER NOT NULL REFERENCES catalog_entries(id) ON DELETE CASCADE,
+      requested_by INTEGER,
+      requested_by_name TEXT NOT NULL DEFAULT '',
+      parameters_json TEXT NOT NULL DEFAULT '{}',
+      generated_name TEXT NOT NULL DEFAULT '',
+      deployment_run_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      decided_at DATETIME,
+      decided_by_user_id INTEGER,
+      lease_duration_hours INTEGER,
+      lease_expires_at DATETIME,
+      expired_at DATETIME,
+      estimated_monthly_cost REAL,
+      actual_monthly_cost REAL,
+      cost_currency TEXT NOT NULL DEFAULT 'USD',
+      actual_cost_updated_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS catalog_entry_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      catalog_entry_id INTEGER NOT NULL REFERENCES catalog_entries(id) ON DELETE CASCADE,
+      version_number INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      lifecycle_stage TEXT NOT NULL DEFAULT 'draft' CHECK (lifecycle_stage IN ('draft', 'staged', 'stable', 'deprecated')),
+      validation_status TEXT NOT NULL DEFAULT 'untested' CHECK (validation_status IN ('untested', 'validated', 'failed')),
+      validation_notes TEXT NOT NULL DEFAULT '',
+      created_by_user_id INTEGER,
+      validated_by_user_id INTEGER,
+      validated_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(catalog_entry_id, version_number)
+    );
+
+    CREATE TABLE IF NOT EXISTS catalog_request_approval_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      catalog_request_id INTEGER NOT NULL REFERENCES catalog_requests(id) ON DELETE CASCADE,
+      step_order INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+      decided_by_user_id INTEGER,
+      decided_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(catalog_request_id, step_order)
+    );
+
+    CREATE TABLE IF NOT EXISTS catalog_approval_hook_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      catalog_request_id INTEGER NOT NULL REFERENCES catalog_requests(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      response_code INTEGER,
+      response_body TEXT NOT NULL DEFAULT '',
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_catalog_hook_attempts_due ON catalog_approval_hook_attempts(status, next_attempt_at);
+
     CREATE TABLE IF NOT EXISTS vfabrics (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -434,6 +537,121 @@ function initializeSchema() {
   if (!deploymentRunColumns.has('spec_json')) {
     db.exec(`ALTER TABLE deployment_runs ADD COLUMN spec_json TEXT NOT NULL DEFAULT ''`);
   }
+  if (!deploymentRunColumns.has('catalog_request_id')) {
+    db.exec('ALTER TABLE deployment_runs ADD COLUMN catalog_request_id INTEGER REFERENCES catalog_requests(id) ON DELETE SET NULL');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_deployment_runs_catalog_request ON deployment_runs(catalog_request_id)');
+
+  const catalogEntryColumns = new Set(
+    db.prepare('PRAGMA table_info(catalog_entries)').all().map((column) => column.name)
+  );
+  if (!catalogEntryColumns.has('naming_pattern')) {
+    db.exec(`ALTER TABLE catalog_entries ADD COLUMN naming_pattern TEXT NOT NULL DEFAULT 'NODE-XXXX'`);
+  }
+  if (!catalogEntryColumns.has('next_sequence')) {
+    db.exec('ALTER TABLE catalog_entries ADD COLUMN next_sequence INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!catalogEntryColumns.has('fixed_variables_json')) {
+    db.exec(`ALTER TABLE catalog_entries ADD COLUMN fixed_variables_json TEXT NOT NULL DEFAULT '{}'`);
+  }
+  if (!catalogEntryColumns.has('subscriber_fields_json')) {
+    db.exec(`ALTER TABLE catalog_entries ADD COLUMN subscriber_fields_json TEXT NOT NULL DEFAULT '[]'`);
+  }
+  if (!catalogEntryColumns.has('max_active_per_subscriber')) {
+    db.exec('ALTER TABLE catalog_entries ADD COLUMN max_active_per_subscriber INTEGER');
+  }
+  if (!catalogEntryColumns.has('requires_approval')) {
+    db.exec('ALTER TABLE catalog_entries ADD COLUMN requires_approval INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!catalogEntryColumns.has('approval_policy_json')) {
+    db.exec("ALTER TABLE catalog_entries ADD COLUMN approval_policy_json TEXT NOT NULL DEFAULT '{\"mode\":\"manual\"}'");
+  }
+  if (!catalogEntryColumns.has('current_version_id')) {
+    db.exec('ALTER TABLE catalog_entries ADD COLUMN current_version_id INTEGER');
+  }
+  if (!catalogEntryColumns.has('lease_duration_hours')) {
+    db.exec('ALTER TABLE catalog_entries ADD COLUMN lease_duration_hours INTEGER');
+  }
+  if (!catalogEntryColumns.has('cost_rates_json')) {
+    db.exec("ALTER TABLE catalog_entries ADD COLUMN cost_rates_json TEXT NOT NULL DEFAULT '{}'");
+  }
+  if (!catalogEntryColumns.has('target_pool_refs_json')) {
+    db.exec("ALTER TABLE catalog_entries ADD COLUMN target_pool_refs_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  const catalogRequestColumns = new Set(
+    db.prepare('PRAGMA table_info(catalog_requests)').all().map((column) => column.name)
+  );
+  if (!catalogRequestColumns.has('generated_name')) {
+    db.exec(`ALTER TABLE catalog_requests ADD COLUMN generated_name TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!catalogRequestColumns.has('deployment_run_id')) {
+    db.exec(`ALTER TABLE catalog_requests ADD COLUMN deployment_run_id TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!catalogRequestColumns.has('decided_at')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN decided_at DATETIME');
+  }
+  if (!catalogRequestColumns.has('decided_by_user_id')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN decided_by_user_id INTEGER');
+  }
+  if (!catalogRequestColumns.has('lease_duration_hours')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN lease_duration_hours INTEGER');
+  }
+  if (!catalogRequestColumns.has('lease_expires_at')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN lease_expires_at DATETIME');
+  }
+  if (!catalogRequestColumns.has('expired_at')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN expired_at DATETIME');
+  }
+  if (!catalogRequestColumns.has('estimated_monthly_cost')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN estimated_monthly_cost REAL');
+  }
+  if (!catalogRequestColumns.has('actual_monthly_cost')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN actual_monthly_cost REAL');
+  }
+  if (!catalogRequestColumns.has('cost_currency')) {
+    db.exec("ALTER TABLE catalog_requests ADD COLUMN cost_currency TEXT NOT NULL DEFAULT 'USD'");
+  }
+  if (!catalogRequestColumns.has('actual_cost_updated_at')) {
+    db.exec('ALTER TABLE catalog_requests ADD COLUMN actual_cost_updated_at DATETIME');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_catalog_requests_lease_due ON catalog_requests(status, lease_expires_at)');
+  db.exec(`CREATE TABLE IF NOT EXISTS catalog_approval_hook_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    catalog_request_id INTEGER NOT NULL REFERENCES catalog_requests(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP, response_code INTEGER,
+    response_body TEXT NOT NULL DEFAULT '', last_error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  ); CREATE INDEX IF NOT EXISTS idx_catalog_hook_attempts_due ON catalog_approval_hook_attempts(status, next_attempt_at);
+  `);
+  db.exec(`CREATE TABLE IF NOT EXISTS catalog_request_approval_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    catalog_request_id INTEGER NOT NULL REFERENCES catalog_requests(id) ON DELETE CASCADE,
+    step_order INTEGER NOT NULL, label TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    decided_by_user_id INTEGER, decided_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(catalog_request_id, step_order)
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS catalog_entry_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    catalog_entry_id INTEGER NOT NULL REFERENCES catalog_entries(id) ON DELETE CASCADE,
+    version_number INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
+    lifecycle_stage TEXT NOT NULL DEFAULT 'draft' CHECK (lifecycle_stage IN ('draft', 'staged', 'stable', 'deprecated')),
+    validation_status TEXT NOT NULL DEFAULT 'untested' CHECK (validation_status IN ('untested', 'validated', 'failed')),
+    validation_notes TEXT NOT NULL DEFAULT '', created_by_user_id INTEGER, validated_by_user_id INTEGER,
+    validated_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(catalog_entry_id, version_number)
+  )`);
+  const unversionedEntries = db.prepare(`SELECT * FROM catalog_entries
+    WHERE current_version_id IS NULL OR NOT EXISTS (SELECT 1 FROM catalog_entry_versions WHERE id = catalog_entries.current_version_id)`).all();
+  const insertCatalogVersion = db.prepare(`INSERT INTO catalog_entry_versions
+    (catalog_entry_id, version_number, snapshot_json, lifecycle_stage, validation_status, validated_at)
+    VALUES (?, 1, ?, ?, ?, ?)`);
+  unversionedEntries.forEach((entry) => {
+    const trustedPublished = entry.visibility === 'published';
+    const result = insertCatalogVersion.run(entry.id, JSON.stringify(entry), trustedPublished ? 'stable' : 'draft', trustedPublished ? 'validated' : 'untested', trustedPublished ? new Date().toISOString() : null);
+    db.prepare('UPDATE catalog_entries SET current_version_id = ? WHERE id = ?').run(result.lastInsertRowid, entry.id);
+  });
 }
 
 // Connection CRUD
@@ -1055,6 +1273,16 @@ const retentionPolicyModel = {
 };
 
 const deploymentRunModel = {
+  getByCatalogRequestId(catalogRequestId) {
+    const row = getDb().prepare(`SELECT id FROM deployment_runs WHERE catalog_request_id = ?
+      ORDER BY submitted_at DESC LIMIT 1`).get(Number(catalogRequestId));
+    return row ? this.getById(row.id) : null;
+  },
+  linkCatalogRequest(id, catalogRequestId) {
+    const result = getDb().prepare('UPDATE deployment_runs SET catalog_request_id = ? WHERE id = ?')
+      .run(Number(catalogRequestId), String(id));
+    return result.changes ? this.getById(id) : null;
+  },
   list() {
     const rows = getDb().prepare(`
       SELECT *
@@ -1430,4 +1658,352 @@ const templateLibraryModel = {
   },
 };
 
-module.exports = { getDb, connectionModel, hostTargetModel, managedTargetModel, projectModel, vFabricModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel };
+function parseCatalogJson(value, fallback) {
+  try { return JSON.parse(value || JSON.stringify(fallback)); } catch (_error) { return fallback; }
+}
+
+function normalizeCatalogEntry(entry, { includeFixedVariables = false, includeApprovalPolicy = includeFixedVariables } = {}) {
+  const { tags_json, subscriber_fields_json, fixed_variables_json, approval_policy_json, cost_rates_json, target_pool_refs_json, ...record } = entry;
+  const fixedVariables = parseCatalogJson(fixed_variables_json, {});
+  const normalized = {
+    ...record,
+    tags: parseCatalogJson(tags_json, []),
+    subscriberFields: parseCatalogJson(subscriber_fields_json, []),
+    maxActivePerSubscriber: entry.max_active_per_subscriber == null ? null : Number(entry.max_active_per_subscriber),
+    requiresApproval: Boolean(entry.requires_approval),
+    leaseDurationHours: entry.lease_duration_hours == null ? null : Number(entry.lease_duration_hours),
+    costRates: parseCatalogJson(cost_rates_json, {}),
+    targetPoolRefs: parseCatalogJson(target_pool_refs_json, []),
+    costBasis: {
+      vcpus: Number(fixedVariables.vcpus || fixedVariables.VCPUs || 0),
+      memoryGiB: Number(fixedVariables.memoryGiB ?? (Number(fixedVariables.memoryStaticMax || 0) / (1024 ** 3))),
+      diskGiB: Number(fixedVariables.diskGiB ?? fixedVariables.diskSizeGiB ?? fixedVariables.diskSizeGb ?? fixedVariables.storageGiB ?? 0),
+    },
+  };
+  if (includeApprovalPolicy) normalized.approvalPolicy = parseCatalogJson(approval_policy_json, entry.requires_approval ? { mode: 'manual' } : { mode: 'auto' });
+  if (includeFixedVariables) normalized.fixedVariables = fixedVariables;
+  return normalized;
+}
+
+const catalogModel = {
+  createVersion(entryId, createdByUserId = null, { trustedPublished = false } = {}) {
+    const db = getDb();
+    const entry = db.prepare('SELECT * FROM catalog_entries WHERE id = ?').get(entryId);
+    if (!entry) return null;
+    const next = db.prepare('SELECT COALESCE(MAX(version_number), 0) + 1 AS version FROM catalog_entry_versions WHERE catalog_entry_id = ?').get(entryId);
+    const result = db.prepare(`INSERT INTO catalog_entry_versions
+      (catalog_entry_id, version_number, snapshot_json, lifecycle_stage, validation_status, created_by_user_id, validated_by_user_id, validated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(entryId, Number(next.version), JSON.stringify(entry), trustedPublished ? 'stable' : 'draft', trustedPublished ? 'validated' : 'untested', createdByUserId || null, trustedPublished ? createdByUserId || null : null, trustedPublished ? new Date().toISOString() : null);
+    db.prepare('UPDATE catalog_entries SET current_version_id = ? WHERE id = ?').run(result.lastInsertRowid, entryId);
+    return this.getVersion(result.lastInsertRowid);
+  },
+  getVersion(versionId) {
+    const record = getDb().prepare('SELECT * FROM catalog_entry_versions WHERE id = ?').get(versionId);
+    return record ? { ...record, snapshot: parseCatalogJson(record.snapshot_json, {}) } : null;
+  },
+  listVersions(entryId) {
+    return getDb().prepare(`SELECT * FROM catalog_entry_versions WHERE catalog_entry_id = ? ORDER BY version_number DESC`).all(entryId)
+      .map((record) => ({ ...record, snapshot: parseCatalogJson(record.snapshot_json, {}) }));
+  },
+  validateVersion(entryId, versionId, validationStatus, notes, userId) {
+    const stage = validationStatus === 'validated' ? 'staged' : 'draft';
+    const result = getDb().prepare(`UPDATE catalog_entry_versions SET validation_status = ?, validation_notes = ?,
+      lifecycle_stage = ?, validated_by_user_id = ?, validated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND catalog_entry_id = ? AND id = (SELECT current_version_id FROM catalog_entries WHERE id = ?)`)
+      .run(validationStatus, notes || '', stage, userId || null, versionId, entryId, entryId);
+    return result.changes ? this.getVersion(versionId) : null;
+  },
+  publishVersion(entryId, userId) {
+    const db = getDb();
+    return db.transaction(() => {
+      const entry = db.prepare('SELECT * FROM catalog_entries WHERE id = ?').get(entryId);
+      const version = entry?.current_version_id ? db.prepare('SELECT * FROM catalog_entry_versions WHERE id = ?').get(entry.current_version_id) : null;
+      if (!entry || !version) return null;
+      if (version.validation_status !== 'validated') {
+        const error = new Error('CATALOG_VERSION_VALIDATION_REQUIRED');
+        error.code = 'CATALOG_VERSION_VALIDATION_REQUIRED';
+        throw error;
+      }
+      db.prepare(`UPDATE catalog_entry_versions SET lifecycle_stage = 'deprecated'
+        WHERE catalog_entry_id = ? AND lifecycle_stage = 'stable' AND id != ?`).run(entryId, version.id);
+      db.prepare(`UPDATE catalog_entry_versions SET lifecycle_stage = 'stable', validated_by_user_id = COALESCE(validated_by_user_id, ?),
+        validated_at = COALESCE(validated_at, CURRENT_TIMESTAMP) WHERE id = ?`).run(userId || null, version.id);
+      db.prepare("UPDATE catalog_entries SET visibility = 'published', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(entryId);
+      return this.getById(entryId);
+    })();
+  },
+  createHookAttempt(requestId) {
+    const db = getDb();
+    return db.transaction(() => {
+      const existing = db.prepare('SELECT * FROM catalog_approval_hook_attempts WHERE catalog_request_id = ?').get(requestId);
+      if (existing) return existing;
+      const result = db.prepare('INSERT INTO catalog_approval_hook_attempts (catalog_request_id) VALUES (?)').run(requestId);
+      return db.prepare('SELECT * FROM catalog_approval_hook_attempts WHERE id = ?').get(result.lastInsertRowid);
+    })();
+  },
+  listDueHookAttempts() {
+    return getDb().prepare(`SELECT a.*, r.parameters_json, r.catalog_entry_id, r.status AS request_status,
+        r.requested_by, r.requested_by_name, e.slug, e.title, e.approval_policy_json
+      FROM catalog_approval_hook_attempts a JOIN catalog_requests r ON r.id = a.catalog_request_id
+      JOIN catalog_entries e ON e.id = r.catalog_entry_id
+      WHERE a.status = 'pending' AND a.next_attempt_at <= CURRENT_TIMESTAMP`).all();
+  },
+  claimHookAttempt(id) {
+    const result = getDb().prepare(`UPDATE catalog_approval_hook_attempts
+      SET status = 'processing', attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'pending' AND next_attempt_at <= CURRENT_TIMESTAMP`).run(id);
+    return result.changes
+      ? getDb().prepare('SELECT * FROM catalog_approval_hook_attempts WHERE id = ?').get(id)
+      : null;
+  },
+  finishHookAttempt(id, { status, responseCode = null, responseBody = '', error = '', retryDelaySeconds = 0 }) {
+    getDb().prepare(`UPDATE catalog_approval_hook_attempts SET status = ?, response_code = ?, response_body = ?,
+      last_error = ?, next_attempt_at = datetime('now', ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(status, responseCode, responseBody, error, `+${Math.max(0, retryDelaySeconds)} seconds`, id);
+    return getDb().prepare('SELECT * FROM catalog_approval_hook_attempts WHERE id = ?').get(id) || null;
+  },
+  recoverProcessingHookAttempts() {
+    return getDb().prepare(`UPDATE catalog_approval_hook_attempts SET status = 'pending',
+      next_attempt_at = CURRENT_TIMESTAMP, last_error = 'CATALOG_APPROVAL_HOOK_PROCESS_RESTARTED',
+      updated_at = CURRENT_TIMESTAMP WHERE status = 'processing'`).run().changes;
+  },
+  listHookAttempts(requestId) {
+    return getDb().prepare('SELECT * FROM catalog_approval_hook_attempts WHERE catalog_request_id = ? ORDER BY id').all(requestId);
+  },
+  listAll() {
+    return getDb().prepare('SELECT * FROM catalog_entries ORDER BY lower(title)').all()
+      .map((entry) => ({ ...normalizeCatalogEntry(entry, { includeFixedVariables: true }), currentVersion: this.getVersion(entry.current_version_id) }));
+  },
+  listPublished() {
+    return getDb().prepare("SELECT * FROM catalog_entries WHERE visibility = 'published' ORDER BY lower(title)").all()
+      .map(normalizeCatalogEntry);
+  },
+  getPublishedBySlug(slug) {
+    const entry = getDb().prepare("SELECT * FROM catalog_entries WHERE visibility = 'published' AND slug = ?").get(slug);
+    return entry ? normalizeCatalogEntry(entry, { includeApprovalPolicy: true }) : null;
+  },
+  getById(id) {
+    const entry = getDb().prepare('SELECT * FROM catalog_entries WHERE id = ?').get(id);
+    return entry ? { ...normalizeCatalogEntry(entry, { includeFixedVariables: true }), currentVersion: this.getVersion(entry.current_version_id) } : null;
+  },
+  createRequest(entryId, requestedBy, requestedByName, parameters = {}, approvalPolicy = null, estimate = null) {
+    const db = getDb();
+    return db.transaction(() => {
+      const result = db.prepare(`INSERT INTO catalog_requests (catalog_entry_id, requested_by, requested_by_name, parameters_json, estimated_monthly_cost, cost_currency)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(entryId, requestedBy || null, requestedByName || '', JSON.stringify(parameters || {}), estimate?.monthlyCost ?? null, estimate?.currency || 'USD');
+      const requestId = Number(result.lastInsertRowid);
+      if (approvalPolicy?.mode === 'multi-step') {
+        const insertStep = db.prepare(`INSERT INTO catalog_request_approval_steps
+          (catalog_request_id, step_order, label) VALUES (?, ?, ?)`);
+        approvalPolicy.steps.forEach((label, index) => insertStep.run(requestId, index + 1, label));
+      }
+      return db.prepare('SELECT * FROM catalog_requests WHERE id = ?').get(requestId);
+    })();
+  },
+  listApprovalSteps(requestId) {
+    return getDb().prepare(`SELECT * FROM catalog_request_approval_steps
+      WHERE catalog_request_id = ? ORDER BY step_order`).all(requestId);
+  },
+  reviewRequest(id, status, decidedByUserId, renderName) {
+    const db = getDb();
+    return db.transaction(() => {
+      const request = db.prepare('SELECT * FROM catalog_requests WHERE id = ? AND status = \'pending\'').get(id);
+      if (!request) return null;
+      const steps = db.prepare(`SELECT * FROM catalog_request_approval_steps
+        WHERE catalog_request_id = ? ORDER BY step_order`).all(id);
+      if (!steps.length) {
+        const decided = status === 'approved'
+          ? this.approveRequestWithNextName(id, renderName, decidedByUserId)
+          : this.decideRequest(id, status, decidedByUserId);
+        return decided ? { request: decided, approvalStep: null, chainComplete: true } : null;
+      }
+      const current = steps.find((step) => step.status === 'pending');
+      if (!current) return null;
+      if (status === 'approved' && steps.some((step) => step.status === 'approved' && Number(step.decided_by_user_id) === Number(decidedByUserId))) {
+        const error = new Error('CATALOG_APPROVER_SEPARATION_REQUIRED');
+        error.code = 'CATALOG_APPROVER_SEPARATION_REQUIRED';
+        throw error;
+      }
+      db.prepare(`UPDATE catalog_request_approval_steps SET status = ?, decided_by_user_id = ?, decided_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'`).run(status, decidedByUserId || null, current.id);
+      if (status === 'rejected') {
+        const rejected = this.decideRequest(id, 'rejected', decidedByUserId);
+        return rejected ? { request: rejected, approvalStep: { ...current, status }, chainComplete: true } : null;
+      }
+      const remaining = db.prepare(`SELECT COUNT(*) AS count FROM catalog_request_approval_steps
+        WHERE catalog_request_id = ? AND status = 'pending'`).get(id);
+      if (Number(remaining.count) > 0) {
+        return {
+          request: db.prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id),
+          approvalStep: { ...current, status },
+          chainComplete: false,
+        };
+      }
+      const approved = this.approveRequestWithNextName(id, renderName, decidedByUserId);
+      return approved ? { request: approved, approvalStep: { ...current, status }, chainComplete: true } : null;
+    })();
+  },
+  listRequests() {
+    return getDb().prepare(`SELECT catalog_requests.*, catalog_entries.slug, catalog_entries.title,
+        hook.status AS hook_status, hook.attempt_count AS hook_attempt_count,
+        hook.last_error AS hook_last_error, hook.next_attempt_at AS hook_next_attempt_at
+      FROM catalog_requests JOIN catalog_entries ON catalog_entries.id = catalog_requests.catalog_entry_id
+      LEFT JOIN catalog_approval_hook_attempts hook ON hook.id = (
+        SELECT latest_hook.id FROM catalog_approval_hook_attempts latest_hook
+        WHERE latest_hook.catalog_request_id = catalog_requests.id
+        ORDER BY latest_hook.id DESC LIMIT 1
+      )
+      ORDER BY catalog_requests.created_at DESC`).all().map((entry) => ({ ...entry, parameters: JSON.parse(entry.parameters_json || '{}'), approvalSteps: this.listApprovalSteps(entry.id) }));
+  },
+  listRequestsForUser(userId) {
+    return getDb().prepare(`SELECT catalog_requests.*, catalog_entries.slug, catalog_entries.title,
+        hook.status AS hook_status, hook.attempt_count AS hook_attempt_count,
+        hook.last_error AS hook_last_error, hook.next_attempt_at AS hook_next_attempt_at
+      FROM catalog_requests JOIN catalog_entries ON catalog_entries.id = catalog_requests.catalog_entry_id
+      LEFT JOIN catalog_approval_hook_attempts hook ON hook.id = (
+        SELECT latest_hook.id FROM catalog_approval_hook_attempts latest_hook
+        WHERE latest_hook.catalog_request_id = catalog_requests.id
+        ORDER BY latest_hook.id DESC LIMIT 1
+      )
+      WHERE catalog_requests.requested_by = ?
+      ORDER BY catalog_requests.created_at DESC`).all(userId)
+      .map((entry) => ({ ...entry, parameters: JSON.parse(entry.parameters_json || '{}'), approvalSteps: this.listApprovalSteps(entry.id) }));
+  },
+  getAnalytics() {
+    const entries = getDb().prepare(`SELECT catalog_entries.id, catalog_entries.slug, catalog_entries.title,
+        COUNT(catalog_requests.id) AS request_volume,
+        ROUND(AVG(CASE WHEN catalog_requests.decided_at IS NOT NULL THEN
+          (julianday(catalog_requests.decided_at) - julianday(catalog_requests.created_at)) * 1440 END), 1) AS avg_approval_minutes,
+        SUM(CASE WHEN catalog_requests.status = 'complete' THEN 1 ELSE 0 END) AS active_count,
+        SUM(CASE WHEN catalog_requests.status IN ('reclaimed', 'expired') THEN 1 ELSE 0 END) AS reclaimed_count,
+        SUM(CASE WHEN catalog_requests.status = 'pending' THEN 1 ELSE 0 END) AS pending_count
+      FROM catalog_entries LEFT JOIN catalog_requests ON catalog_requests.catalog_entry_id = catalog_entries.id
+      GROUP BY catalog_entries.id ORDER BY request_volume DESC, lower(catalog_entries.title)`).all();
+    return {
+      entries,
+      totals: entries.reduce((totals, entry) => ({
+        requestVolume: totals.requestVolume + Number(entry.request_volume || 0),
+        activeCount: totals.activeCount + Number(entry.active_count || 0),
+        reclaimedCount: totals.reclaimedCount + Number(entry.reclaimed_count || 0),
+        pendingCount: totals.pendingCount + Number(entry.pending_count || 0),
+      }), { requestVolume: 0, activeCount: 0, reclaimedCount: 0, pendingCount: 0 }),
+    };
+  },
+  countActiveRequestsForUser(entryId, userId) {
+    const row = getDb().prepare(`SELECT COUNT(*) AS count FROM catalog_requests
+      WHERE catalog_entry_id = ? AND requested_by = ?
+        AND status IN ('pending', 'approved', 'deploying')`).get(entryId, userId);
+    return Number(row?.count || 0);
+  },
+  updateRequestStatus(id, status) {
+    getDb().prepare('UPDATE catalog_requests SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, id);
+    return getDb().prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id) || null;
+  },
+  decideRequest(id, status, decidedByUserId) {
+    const result = getDb().prepare(`UPDATE catalog_requests
+      SET status = ?, decided_at = CURRENT_TIMESTAMP, decided_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'pending'`).run(status, decidedByUserId || null, id);
+    return result.changes ? getDb().prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id) : null;
+  },
+  approveRequestWithNextName(id, renderName, decidedByUserId = null) {
+    const db = getDb();
+    const approve = db.transaction(() => {
+      const request = db.prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id);
+      if (!request || request.status !== 'pending') return null;
+      const entry = db.prepare('SELECT * FROM catalog_entries WHERE id = ?').get(request.catalog_entry_id);
+      if (!entry) return null;
+      const sequence = Number(entry.next_sequence || 1);
+      const generatedName = renderName(entry.naming_pattern, sequence);
+      db.prepare('UPDATE catalog_entries SET next_sequence = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(sequence + 1, entry.id);
+      db.prepare(`UPDATE catalog_requests
+        SET status = 'approved', generated_name = ?, decided_at = CURRENT_TIMESTAMP,
+          decided_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`).run(generatedName, decidedByUserId || null, id);
+      return db.prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id);
+    });
+    return approve();
+  },
+  beginDeployment(id) {
+    const db = getDb();
+    const begin = db.transaction(() => {
+      const request = db.prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id);
+      if (!request || request.status !== 'approved') return null;
+      db.prepare(`UPDATE catalog_requests SET status = 'deploying', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
+      return db.prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id);
+    });
+    return begin();
+  },
+  finishDeployment(id, status, deploymentRunId = '') {
+    getDb().prepare(`UPDATE catalog_requests SET status = ?, deployment_run_id = ?,
+      lease_duration_hours = CASE WHEN ? = 'complete' THEN (SELECT lease_duration_hours FROM catalog_entries WHERE id = catalog_requests.catalog_entry_id) ELSE NULL END,
+      lease_expires_at = CASE WHEN ? = 'complete' THEN datetime('now', '+' || (SELECT lease_duration_hours FROM catalog_entries WHERE id = catalog_requests.catalog_entry_id) || ' hours') ELSE NULL END,
+      expired_at = NULL,
+      actual_monthly_cost = CASE WHEN ? = 'complete' THEN estimated_monthly_cost ELSE NULL END,
+      actual_cost_updated_at = CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP ELSE NULL END,
+      updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(status, deploymentRunId, status, status, status, status, id);
+    return getDb().prepare('SELECT * FROM catalog_requests WHERE id = ?').get(id) || null;
+  },
+  expireDueLeases() {
+    const db = getDb();
+    return db.transaction(() => {
+      const due = db.prepare(`SELECT catalog_requests.id, catalog_requests.generated_name, catalog_requests.requested_by, catalog_entries.title
+        FROM catalog_requests JOIN catalog_entries ON catalog_entries.id = catalog_requests.catalog_entry_id
+        WHERE catalog_requests.status = 'complete' AND catalog_requests.lease_expires_at IS NOT NULL
+          AND catalog_requests.lease_expires_at <= CURRENT_TIMESTAMP`).all();
+      const expire = db.prepare(`UPDATE catalog_requests SET status = 'expired', expired_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'complete' AND lease_expires_at <= CURRENT_TIMESTAMP`);
+      return due.filter((request) => expire.run(request.id).changes > 0);
+    })();
+  },
+  create(entry) {
+    const result = getDb().prepare(`INSERT INTO catalog_entries (slug, title, description, source_item_id, source_kind, category, tags_json, image_url, visibility, naming_pattern, next_sequence, fixed_variables_json, subscriber_fields_json, max_active_per_subscriber, requires_approval, approval_policy_json, cost_rates_json, target_pool_refs_json, lease_duration_hours, owner_user_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`).run(entry.slug, entry.title, entry.description || '', entry.sourceItemId || null, entry.sourceKind || 'deployment-template', entry.category || '', JSON.stringify(entry.tags || []), entry.imageUrl || '', entry.visibility || 'draft', entry.namingPattern || 'NODE-XXXX', Number(entry.nextSequence || 1), JSON.stringify(entry.fixedVariables || {}), JSON.stringify(entry.subscriberFields || []), entry.maxActivePerSubscriber || null, entry.requiresApproval === false ? 0 : 1, JSON.stringify(entry.approvalPolicy || (entry.requiresApproval === false ? { mode: 'auto' } : { mode: 'manual' })), JSON.stringify(entry.costRates || {}), JSON.stringify(entry.targetPoolRefs || []), entry.leaseDurationHours || null, entry.ownerUserId || null);
+    this.createVersion(result.lastInsertRowid, entry.ownerUserId, { trustedPublished: entry.visibility === 'published' });
+    return this.getById(result.lastInsertRowid);
+  },
+  update(id, entry) {
+    getDb().prepare(`UPDATE catalog_entries SET slug = ?, title = ?, description = ?, source_item_id = ?, source_kind = ?, category = ?, tags_json = ?, image_url = ?, visibility = ?, naming_pattern = ?, fixed_variables_json = ?, subscriber_fields_json = ?, max_active_per_subscriber = ?, requires_approval = ?, approval_policy_json = ?, cost_rates_json = ?, target_pool_refs_json = ?, lease_duration_hours = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(entry.slug, entry.title, entry.description || '', entry.sourceItemId || null, entry.sourceKind || 'deployment-template', entry.category || '', JSON.stringify(entry.tags || []), entry.imageUrl || '', entry.visibility || 'draft', entry.namingPattern || 'NODE-XXXX', JSON.stringify(entry.fixedVariables || {}), JSON.stringify(entry.subscriberFields || []), entry.maxActivePerSubscriber || null, entry.requiresApproval === false ? 0 : 1, JSON.stringify(entry.approvalPolicy || (entry.requiresApproval === false ? { mode: 'auto' } : { mode: 'manual' })), JSON.stringify(entry.costRates || {}), JSON.stringify(entry.targetPoolRefs || []), entry.leaseDurationHours || null, id);
+    const updated = getDb().prepare('SELECT * FROM catalog_entries WHERE id = ?').get(id);
+    if (!updated) return null;
+    this.createVersion(id, entry.ownerUserId || null);
+    return this.getById(id);
+  },
+  delete(id) { return getDb().prepare('DELETE FROM catalog_entries WHERE id = ?').run(id).changes > 0; },
+};
+
+const terraformStateModel = {
+  get(name) {
+    return getDb().prepare('SELECT * FROM terraform_states WHERE name = ?').get(name) || null;
+  },
+  save(name, stateJson, ownerUserId = null) {
+    getDb().prepare(`INSERT INTO terraform_states (name, state_json, owner_user_id, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(name) DO UPDATE SET state_json = excluded.state_json, owner_user_id = excluded.owner_user_id, updated_at = CURRENT_TIMESTAMP`)
+      .run(name, stateJson, ownerUserId);
+    return this.get(name);
+  },
+  lock(name, lockId, lockJson, ownerUserId = null) {
+    const db = getDb();
+    const acquire = db.transaction(() => {
+      const existing = this.get(name);
+      if (existing?.lock_id && existing.lock_id !== lockId) return null;
+      if (!existing) db.prepare('INSERT INTO terraform_states (name, owner_user_id) VALUES (?, ?)').run(name, ownerUserId);
+      db.prepare(`UPDATE terraform_states SET lock_id = ?, lock_json = ?, owner_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
+        .run(lockId, lockJson, ownerUserId, name);
+      return this.get(name);
+    });
+    return acquire();
+  },
+  unlock(name, lockId) {
+    const state = this.get(name);
+    if (!state || !state.lock_id || state.lock_id !== lockId) return false;
+    return getDb().prepare(`UPDATE terraform_states SET lock_id = '', lock_json = '{}', lock_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name).changes > 0;
+  },
+};
+
+module.exports = { getDb, connectionModel, hostTargetModel, managedTargetModel, projectModel, vFabricModel, settingsModel, retentionPolicyModel, deploymentRunModel, templateLibraryModel, catalogModel, terraformStateModel };

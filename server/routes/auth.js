@@ -15,6 +15,7 @@ const { validate, schemas } = require('../middleware/validate');
 const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
 const credentialVaultService = require('../services/credential-vault');
+const profileService = require('../services/profile');
 const managedTargetService = require('../services/managed-targets');
 const { getCsrfToken } = require('../middleware/csrf');
 
@@ -230,12 +231,18 @@ function buildStatusPayload(req) {
     username: req.session?.appUsername || req.session?.xenUser || '',
     currentTargetKey: activeTarget?.targetKey || '',
     connectedTargets,
-    user: req.session?.userId ? {
-      id: req.session.userId,
-      username: req.session.appUsername || '',
-      displayName: req.session.displayName || '',
-      role: governanceService.getSessionRole(req.session),
-    } : null,
+    user: req.session?.userId ? (() => {
+      const account = userModel.getById(req.session.userId);
+      return {
+        id: req.session.userId,
+        username: req.session.appUsername || '',
+        displayName: req.session.displayName || '',
+        role: governanceService.getSessionRole(req.session),
+        theme: account?.theme || 'dark',
+        avatarPath: account?.avatar_path || '',
+        mfaEnabled: Boolean(account?.mfa_enabled),
+      };
+    })() : null,
     governance: {
       currentRole: governanceService.getSessionRole(req.session),
       policy: governanceService.getPolicy(),
@@ -258,6 +265,18 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
         else resolve();
       });
     });
+
+    if (user.mfa_enabled) {
+      req.session.pendingMfaUserId = user.id;
+      authEventModel.create({
+        userId: user.id,
+        username: user.username,
+        event: 'app_login_mfa_pending',
+        ip: req.ip,
+        detail: 'Password verified; awaiting MFA token.',
+      });
+      return res.json({ success: true, mfaRequired: true });
+    }
 
     req.session.userId = user.id;
     req.session.appUsername = user.username;
@@ -290,6 +309,73 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
       before: null,
       after: { id: user.id, username: user.username, role: user.role || 'operator' },
       detail: `Signed into the XenMange control plane as ${user.username}.`,
+    });
+
+    res.json({
+      success: true,
+      connected: false,
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name || user.username,
+        role: user.role || 'operator',
+      },
+      ...buildStatusPayload(req),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'AUTH_FAILED' });
+  }
+});
+
+// POST /api/auth/mfa/verify - Complete a login that requires a TOTP token
+router.post('/mfa/verify', validate(schemas.appLoginMfaVerify), async (req, res) => {
+  try {
+    const pendingUserId = req.session.pendingMfaUserId;
+    if (!pendingUserId) {
+      return res.status(400).json({ error: 'NO_PENDING_MFA_LOGIN' });
+    }
+
+    const user = userModel.getById(pendingUserId);
+    if (!user || !user.active) {
+      return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+    }
+
+    if (!profileService.verifyMfaToken(pendingUserId, req.body.token)) {
+      return res.status(401).json({ error: 'MFA_TOKEN_INVALID' });
+    }
+
+    delete req.session.pendingMfaUserId;
+    req.session.userId = user.id;
+    req.session.appUsername = user.username;
+    req.session.displayName = user.display_name || user.username;
+    req.session.authenticated = true;
+    req.session.authMode = 'local';
+    req.session.governanceRole = governanceService.getPolicy().defaultRole;
+    req.session.governanceRole = user.role || req.session.governanceRole;
+    req.session.xenUser = user.username;
+    persistSessionTargets(req.session, [], '');
+
+    userModel.touchLastLogin(user.id);
+    authEventModel.create({
+      userId: user.id,
+      username: user.username,
+      event: 'app_login',
+      ip: req.ip,
+      detail: 'Authenticated to the XenMange control plane (MFA).',
+    });
+    auditLogService.record({
+      category: 'session',
+      action: 'app_session_login',
+      actionLabel: 'Signed into XenMange as',
+      entityType: 'user',
+      entityRef: String(user.id),
+      entityName: user.username,
+      operator: user.username,
+      route: '/login',
+      status: 'success',
+      before: null,
+      after: { id: user.id, username: user.username, role: user.role || 'operator' },
+      detail: `Signed into the XenMange control plane as ${user.username} using MFA.`,
     });
 
     res.json({

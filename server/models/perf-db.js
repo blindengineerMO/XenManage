@@ -39,6 +39,12 @@ function initializeSchema() {
     CREATE INDEX IF NOT EXISTS idx_metric_rollup
     ON metric_samples (entity_type, metric_name, ts);
 
+    CREATE TABLE IF NOT EXISTS metric_collection_cursors (
+      target_key TEXT PRIMARY KEY,
+      last_rrd_ts INTEGER NOT NULL DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS metric_hourly_rollups (
       target_key TEXT NOT NULL DEFAULT '',
       entity_type TEXT NOT NULL,
@@ -180,6 +186,26 @@ const metricSampleModel = {
   getLatestTimestamp(targetKey = '') {
     const row = getPerfDb().prepare('SELECT MAX(ts) AS latestTs FROM metric_samples WHERE target_key = ?').get(String(targetKey || ''));
     return Number(row?.latestTs || 0);
+  },
+
+  getRrdCursor(targetKey = '') {
+    const row = getPerfDb().prepare(
+      'SELECT last_rrd_ts FROM metric_collection_cursors WHERE target_key = ?'
+    ).get(String(targetKey || ''));
+    return Number(row?.last_rrd_ts || 0);
+  },
+
+  setRrdCursor(targetKey = '', lastRrdTs = 0) {
+    const ts = Number(lastRrdTs || 0);
+    if (!Number.isInteger(ts) || ts <= 0) return 0;
+    getPerfDb().prepare(`
+      INSERT INTO metric_collection_cursors (target_key, last_rrd_ts, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(target_key) DO UPDATE SET
+        last_rrd_ts = excluded.last_rrd_ts,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(String(targetKey || ''), ts);
+    return ts;
   },
 
   listEntityMetric(entityType, entityRef, metricName, sinceTs, targetKey = '') {

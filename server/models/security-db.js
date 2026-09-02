@@ -102,7 +102,7 @@ function syncGroupMembers(groupId, memberUserIds = []) {
   transaction();
 }
 
-function normalizeUserRecord(record, { includePasswordHash = false } = {}) {
+function normalizeUserRecord(record, { includePasswordHash = false, includeMfaSecret = false } = {}) {
   if (!record) return null;
 
   const user = {
@@ -114,6 +114,9 @@ function normalizeUserRecord(record, { includePasswordHash = false } = {}) {
     active: Boolean(record.active),
     created_at: record.created_at || '',
     last_login_at: record.last_login_at || '',
+    avatar_path: record.avatar_path || '',
+    theme: record.theme === 'light' ? 'light' : 'dark',
+    mfa_enabled: Boolean(record.mfa_enabled),
     group_count: Number(record.group_count || 0),
     groups: Array.isArray(record.groups)
       ? record.groups
@@ -125,6 +128,10 @@ function normalizeUserRecord(record, { includePasswordHash = false } = {}) {
 
   if (includePasswordHash) {
     user.password_hash = record.password_hash || '';
+  }
+
+  if (includeMfaSecret) {
+    user.mfa_secret_encrypted = record.mfa_secret_encrypted || '';
   }
 
   return user;
@@ -251,6 +258,13 @@ function initializeSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_permission_grants_user ON permission_grants(user_id);
 
+    CREATE TABLE IF NOT EXISTS catalog_roles (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('viewer', 'subscriber', 'admin')),
+      granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      granted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS api_tokens (
       id TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -273,25 +287,57 @@ function initializeSchema() {
       key_version INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      keys_json TEXT NOT NULL,
+      notify_alerts INTEGER NOT NULL DEFAULT 1,
+      notify_approvals INTEGER NOT NULL DEFAULT 1,
+      notify_catalog INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
   `);
+
+  const userColumns = new Set(
+    db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  );
+  if (!userColumns.has('avatar_path')) {
+    db.exec('ALTER TABLE users ADD COLUMN avatar_path TEXT');
+  }
+  if (!userColumns.has('theme')) {
+    db.exec(`ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'`);
+  }
+  if (!userColumns.has('mfa_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!userColumns.has('mfa_secret_encrypted')) {
+    db.exec('ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT');
+  }
 
   ensureBootstrapUser();
 }
 
 function ensureBootstrapUser() {
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(config.auth.bootstrapUsername);
-  if (existing) return;
+  let bootstrap = db.prepare('SELECT id FROM users WHERE username = ?').get(config.auth.bootstrapUsername);
+  if (!bootstrap) {
+    const passwordHash = bcrypt.hashSync(config.auth.bootstrapPassword, 10);
+    const result = db.prepare(`
+      INSERT INTO users (username, password_hash, display_name, email, role, active, last_login_at)
+      VALUES (?, ?, ?, ?, 'admin', 1, NULL)
+    `).run(
+      config.auth.bootstrapUsername,
+      passwordHash,
+      config.auth.bootstrapDisplayName,
+      ''
+    );
+    bootstrap = { id: result.lastInsertRowid };
+  }
 
-  const passwordHash = bcrypt.hashSync(config.auth.bootstrapPassword, 10);
-  db.prepare(`
-    INSERT INTO users (username, password_hash, display_name, email, role, active, last_login_at)
-    VALUES (?, ?, ?, ?, 'admin', 1, NULL)
-  `).run(
-    config.auth.bootstrapUsername,
-    passwordHash,
-    config.auth.bootstrapDisplayName,
-    ''
-  );
+  db.prepare(`INSERT OR IGNORE INTO catalog_roles (user_id, role, granted_by_user_id)
+    VALUES (?, 'admin', ?)`).run(bootstrap.id, bootstrap.id);
 }
 
 const sessionStoreModel = {
@@ -317,6 +363,28 @@ const sessionStoreModel = {
 
   purgeExpired(now = Date.now()) {
     return getSecurityDb().prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now).changes;
+  },
+
+  destroyForUserExcept(userId, exceptSid = '') {
+    const rows = getSecurityDb().prepare('SELECT sid, data FROM sessions').all();
+    const targetUserId = Number(userId);
+    const del = getSecurityDb().prepare('DELETE FROM sessions WHERE sid = ?');
+    let removed = 0;
+
+    for (const row of rows) {
+      if (row.sid === exceptSid) continue;
+      try {
+        const parsed = JSON.parse(row.data);
+        if (Number(parsed?.userId) === targetUserId) {
+          del.run(row.sid);
+          removed += 1;
+        }
+      } catch (_) {
+        // Ignore unparsable session rows.
+      }
+    }
+
+    return removed;
   },
 };
 
@@ -419,6 +487,9 @@ const userModel = {
         u.active,
         u.created_at,
         u.last_login_at,
+        u.avatar_path,
+        u.theme,
+        u.mfa_enabled,
         COUNT(gm.group_id) AS group_count,
         GROUP_CONCAT(g.name, '|') AS group_names
       FROM users u
@@ -440,6 +511,9 @@ const userModel = {
         u.active,
         u.created_at,
         u.last_login_at,
+        u.avatar_path,
+        u.theme,
+        u.mfa_enabled,
         COUNT(gm.group_id) AS group_count,
         GROUP_CONCAT(g.name, '|') AS group_names
       FROM users u
@@ -454,7 +528,7 @@ const userModel = {
 
   getByUsername(username) {
     const record = getSecurityDb().prepare(`
-      SELECT id, username, password_hash, display_name, email, role, active, created_at, last_login_at
+      SELECT id, username, password_hash, display_name, email, role, active, created_at, last_login_at, avatar_path, theme, mfa_enabled
       FROM users
       WHERE lower(username) = lower(?)
     `).get(String(username || '').trim());
@@ -578,12 +652,160 @@ const userModel = {
 
   getByUsernameById(id) {
     const record = getSecurityDb().prepare(`
-      SELECT id, username, password_hash, display_name, email, role, active, created_at, last_login_at
+      SELECT id, username, password_hash, display_name, email, role, active, created_at, last_login_at, avatar_path, theme, mfa_enabled, mfa_secret_encrypted
       FROM users
       WHERE id = ?
     `).get(Number(id));
 
-    return normalizeUserRecord(record, { includePasswordHash: true });
+    return normalizeUserRecord(record, { includePasswordHash: true, includeMfaSecret: true });
+  },
+
+  updateProfile(id, { displayName, email } = {}) {
+    const existing = this.getById(id);
+    if (!existing) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+
+    getSecurityDb().prepare(`
+      UPDATE users
+      SET display_name = ?, email = ?
+      WHERE id = ?
+    `).run(String(displayName ?? existing.display_name).trim(), String(email ?? existing.email).trim(), Number(id));
+
+    return this.getById(id);
+  },
+
+  setTheme(id, theme) {
+    const normalizedTheme = theme === 'light' ? 'light' : 'dark';
+    getSecurityDb().prepare(`
+      UPDATE users
+      SET theme = ?
+      WHERE id = ?
+    `).run(normalizedTheme, Number(id));
+
+    return this.getById(id);
+  },
+
+  setAvatarPath(id, avatarPath) {
+    getSecurityDb().prepare(`
+      UPDATE users
+      SET avatar_path = ?
+      WHERE id = ?
+    `).run(avatarPath || null, Number(id));
+
+    return this.getById(id);
+  },
+
+  setMfaSecret(id, secretEncrypted) {
+    getSecurityDb().prepare(`
+      UPDATE users
+      SET mfa_secret_encrypted = ?, mfa_enabled = 0
+      WHERE id = ?
+    `).run(secretEncrypted || null, Number(id));
+
+    return this.getByUsernameById(id);
+  },
+
+  setMfaEnabled(id, enabled) {
+    getSecurityDb().prepare(`
+      UPDATE users
+      SET mfa_enabled = ?
+      WHERE id = ?
+    `).run(enabled ? 1 : 0, Number(id));
+
+    if (!enabled) {
+      getSecurityDb().prepare('UPDATE users SET mfa_secret_encrypted = NULL WHERE id = ?').run(Number(id));
+    }
+
+    return this.getById(id);
+  },
+};
+
+const pushSubscriptionModel = {
+  listForUser(userId) {
+    return getSecurityDb().prepare(`
+      SELECT id, user_id, endpoint, keys_json, notify_alerts, notify_approvals, notify_catalog, created_at
+      FROM push_subscriptions WHERE user_id = ? ORDER BY created_at DESC
+    `).all(Number(userId)).map((record) => ({
+      ...record,
+      keys: (() => { try { return JSON.parse(record.keys_json || '{}'); } catch (_) { return {}; } })(),
+    }));
+  },
+
+  upsert({ userId, endpoint, keys, notifyAlerts = true, notifyApprovals = true, notifyCatalog = true }) {
+    getSecurityDb().prepare(`
+      INSERT INTO push_subscriptions (user_id, endpoint, keys_json, notify_alerts, notify_approvals, notify_catalog)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET
+        user_id = excluded.user_id,
+        keys_json = excluded.keys_json,
+        notify_alerts = excluded.notify_alerts,
+        notify_approvals = excluded.notify_approvals,
+        notify_catalog = excluded.notify_catalog
+    `).run(
+      Number(userId),
+      String(endpoint || ''),
+      JSON.stringify(keys || {}),
+      notifyAlerts ? 1 : 0,
+      notifyApprovals ? 1 : 0,
+      notifyCatalog ? 1 : 0
+    );
+
+    return getSecurityDb().prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?').get(String(endpoint || ''));
+  },
+
+  removeForUser(userId, endpoint) {
+    return getSecurityDb().prepare(`
+      DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?
+    `).run(Number(userId), String(endpoint || '')).changes > 0;
+  },
+
+  listAll() {
+    return getSecurityDb().prepare(`
+      SELECT id, user_id, endpoint, keys_json, notify_alerts, notify_approvals, notify_catalog, created_at
+      FROM push_subscriptions
+    `).all().map((record) => ({
+      ...record,
+      keys: (() => { try { return JSON.parse(record.keys_json || '{}'); } catch (_) { return {}; } })(),
+    }));
+  },
+};
+
+const CATALOG_ROLES = new Set(['viewer', 'subscriber', 'admin']);
+
+const catalogRoleModel = {
+  getByUserId(userId) {
+    return getSecurityDb().prepare(`SELECT user_id, role, granted_at, granted_by_user_id
+      FROM catalog_roles WHERE user_id = ?`).get(Number(userId)) || null;
+  },
+
+  list() {
+    return getSecurityDb().prepare(`SELECT catalog_roles.user_id, catalog_roles.role, catalog_roles.granted_at,
+      catalog_roles.granted_by_user_id, users.username, users.display_name, users.active
+      FROM catalog_roles JOIN users ON users.id = catalog_roles.user_id
+      ORDER BY lower(users.username)`).all();
+  },
+
+  set(userId, role, grantedByUserId = null) {
+    const normalizedUserId = Number(userId);
+    const normalizedRole = String(role || '').trim().toLowerCase();
+    if (!CATALOG_ROLES.has(normalizedRole)) {
+      const error = new Error('CATALOG_ROLE_INVALID');
+      error.code = 'CATALOG_ROLE_INVALID';
+      throw error;
+    }
+    if (!userModel.getById(normalizedUserId)) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    getSecurityDb().prepare(`INSERT INTO catalog_roles (user_id, role, granted_by_user_id)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET role = excluded.role, granted_at = CURRENT_TIMESTAMP,
+        granted_by_user_id = excluded.granted_by_user_id`).run(normalizedUserId, normalizedRole, grantedByUserId || null);
+    return this.getByUserId(normalizedUserId);
   },
 };
 
@@ -702,4 +924,4 @@ const groupModel = {
   },
 };
 
-module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel, permissionGrantModel, apiTokenModel };
+module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel, permissionGrantModel, apiTokenModel, catalogRoleModel, pushSubscriptionModel };

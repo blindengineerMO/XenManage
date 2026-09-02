@@ -22,7 +22,7 @@ function csrfProtection(options = {}) {
   const skip = options.skip || (() => false);
 
   return (req, res, next) => {
-    if (skip(req) || req.originalUrl.startsWith('/api/v1/') || SAFE_METHODS.has(req.method)) {
+    if (skip(req) || req.originalUrl.startsWith('/api/v1/') || req.originalUrl.startsWith('/api/terraform/') || SAFE_METHODS.has(req.method)) {
       if (req.session) res.setHeader('X-CSRF-Token', getCsrfToken(req));
       return next();
     }

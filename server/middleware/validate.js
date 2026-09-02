@@ -88,12 +88,15 @@ function validate(schema, source = 'body') {
 const schemas = {
   appLogin: Joi.object({
     username: Joi.string().required().min(1).max(100),
-    password: Joi.string().required().min(1).max(255),
+    password: Joi.string().required().min(1).max(4096),
+  }),
+  appLoginMfaVerify: Joi.object({
+    token: Joi.string().required().pattern(/^\d{6}$/),
   }),
   xenLogin: Joi.object({
     host: Joi.string().required().min(1).max(255),
     username: Joi.string().required().min(1).max(100),
-    password: Joi.string().allow('').max(255).default(''),
+    password: Joi.string().allow('').max(4096).default(''),
     connectionId: Joi.alternatives().try(
       Joi.number().integer().min(1),
       Joi.allow(null)
@@ -241,7 +244,7 @@ const schemas = {
   credentialCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     scope: Joi.string().valid('private', 'shared').default('private'),
-    targetType: Joi.string().valid('pool', 'host').required(),
+    targetType: Joi.string().valid('pool', 'host', 'webhook').required(),
     targetHint: Joi.string().allow('').max(180).default(''),
     username: Joi.string().trim().required().min(1).max(100),
     password: Joi.string().required().min(1).max(255),
@@ -249,7 +252,7 @@ const schemas = {
   credentialUpdate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     scope: Joi.string().valid('private', 'shared').default('private'),
-    targetType: Joi.string().valid('pool', 'host').required(),
+    targetType: Joi.string().valid('pool', 'host', 'webhook').required(),
     targetHint: Joi.string().allow('').max(180).default(''),
     username: Joi.string().trim().required().min(1).max(100),
     password: Joi.string().allow('').max(255).default(''),
@@ -711,6 +714,7 @@ const schemas = {
   templateCreate: Joi.object({
     kind: Joi.string().valid('operating-system', 'deployable').required(),
     sourceRef: Joi.string().required().pattern(/^OpaqueRef:/),
+    operatingSystemProfileId: Joi.string().allow('').max(80).default(''),
     nameLabel: Joi.string().trim().required().min(1).max(120),
     nameDescription: Joi.string().allow('').max(500).default(''),
     tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
@@ -991,6 +995,36 @@ const schemas = {
   }),
   userPasswordReset: Joi.object({
     password: Joi.string().required().min(10).max(256),
+  }),
+  profileUpdate: Joi.object({
+    displayName: Joi.string().allow('').max(120).default(''),
+    email: Joi.string().allow('').email({ tlds: { allow: false } }).max(160).default(''),
+  }),
+  profilePasswordChange: Joi.object({
+    currentPassword: Joi.string().required().min(1).max(256),
+    newPassword: Joi.string().required().min(8).max(256),
+  }),
+  profileTheme: Joi.object({
+    theme: Joi.string().valid('dark', 'light').required(),
+  }),
+  profileMfaVerify: Joi.object({
+    token: Joi.string().required().pattern(/^\d{6}$/),
+  }),
+  profileMfaDisable: Joi.object({
+    currentPassword: Joi.string().required().min(1).max(256),
+  }),
+  profilePushSubscribe: Joi.object({
+    endpoint: Joi.string().uri().required().max(1000),
+    keys: Joi.object({
+      p256dh: Joi.string().required().max(500),
+      auth: Joi.string().required().max(500),
+    }).required(),
+    notifyAlerts: Joi.boolean().default(true),
+    notifyApprovals: Joi.boolean().default(true),
+    notifyCatalog: Joi.boolean().default(true),
+  }),
+  profilePushUnsubscribe: Joi.object({
+    endpoint: Joi.string().uri().required().max(1000),
   }),
   groupIdParam: Joi.object({
     id: Joi.number().integer().min(1).required(),

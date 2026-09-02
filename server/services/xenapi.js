@@ -497,14 +497,21 @@ class XenAPI {
     };
   }
 
-  async createVmTemplate({ kind, sourceRef, nameLabel, nameDescription = '', tags = [] } = {}) {
+  async createVmTemplate({ kind, sourceRef, operatingSystemProfileId = '', nameLabel, nameDescription = '', tags = [] } = {}) {
     const creationSources = await this.getVmCreationSources();
     let source;
+    let baseOperatingSystemProfile = null;
 
     if (kind === 'operating-system') {
       source = creationSources.operatingSystems.find((entry) => entry.ref === sourceRef);
       if (!source) {
         throw createXenApiError('OS_TEMPLATE_SOURCE_INVALID', 'Choose an empty operating-system profile as the source.');
+      }
+      if (operatingSystemProfileId) {
+        baseOperatingSystemProfile = findBundledOsProfile(operatingSystemProfileId, creationSources.operatingSystems);
+        if (!baseOperatingSystemProfile || baseOperatingSystemProfile.sourceRef !== sourceRef) {
+          throw createXenApiError('OS_TEMPLATE_SOURCE_INVALID', 'The bundled operating-system profile does not resolve to the submitted XenServer source.');
+        }
       }
     } else if (kind === 'deployable') {
       const vms = await this.getVMs();
@@ -525,6 +532,11 @@ class XenAPI {
     try {
       await this.setField('VM', templateRef, 'name_description', nameDescription);
       await this.setField('VM', templateRef, 'tags', Array.isArray(tags) ? tags : []);
+      await this.setField('VM', templateRef, 'other_config', {
+        ...normalizeStringMap(source.other_config),
+        'xenmange:template-kind': kind,
+        ...(baseOperatingSystemProfile ? { 'xenmange:base-os-profile': baseOperatingSystemProfile.profileId } : {}),
+      });
       await this.setField('VM', templateRef, 'is_a_template', true);
       return { ref: templateRef, ...(await this.getRecord('VM', templateRef)) };
     } catch (error) {
@@ -1837,6 +1849,7 @@ class XenAPI {
     memoryStaticMax,
     tags = [],
     startAfter = false,
+    xenstoreData = {},
   }) {
     const vmRef = await this.cloneVM(ref, nameLabel);
 
@@ -1847,6 +1860,7 @@ class XenAPI {
       vcpusMax: vcpus,
       memoryStaticMax,
       tags,
+      xenstoreData,
     });
 
     if (hostRef) {

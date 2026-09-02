@@ -47,6 +47,16 @@ let globalUndoTicker = null;
 
 const GOVERNANCE_APPROVAL_STORAGE_KEY = 'xenmange.pendingGovernanceApproval';
 
+function applyTheme(theme) {
+  const normalizedTheme = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', normalizedTheme);
+  try {
+    localStorage.setItem('xenmange.theme', normalizedTheme);
+  } catch (_) {
+    // Ignore storage failures (private browsing, disabled storage).
+  }
+}
+
 function getActiveLiveTarget(targets = store.connectedTargets) {
   const list = Array.isArray(targets) ? targets : [];
   return list.find((target) => target?.active) || list[0] || null;
@@ -177,6 +187,7 @@ function applySessionStatus(status = {}) {
     clearVFabricScope();
   }
   store.user = status.user || null;
+  applyTheme(store.user?.theme || 'dark');
   store.governance = status.governance || {
     currentRole: 'admin',
     policy: {

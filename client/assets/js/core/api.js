@@ -17,6 +17,10 @@ function rememberCsrfToken(response, data) {
   csrfToken = response.headers.get('X-CSRF-Token') || data?.csrfToken || csrfToken;
 }
 
+function seedCsrfToken(token) {
+  if (token) csrfToken = token;
+}
+
 function csrfHeaders() {
   return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
 }
@@ -149,6 +153,23 @@ const api = {
   deployTemplate: (ref, payload) => api.request('POST', `/api/vms/templates/${encodeURIComponent(ref)}/deploy`, payload),
   dryRunCompose: (spec) => api.request('POST', '/api/vms/compose/dry-run', spec),
   deployCompose: (spec) => api.request('POST', '/api/vms/compose/deploy', spec),
+  getCatalog: () => api.request('GET', '/api/catalog'),
+  getCatalogEntry: (slug) => api.request('GET', `/api/catalog/${encodeURIComponent(slug)}`),
+  submitCatalogRequest: (slug, parameters) => api.request('POST', `/api/catalog/${encodeURIComponent(slug)}/requests`, { parameters }),
+  getMyCatalogRequests: () => api.request('GET', '/api/catalog/requests/mine'),
+  runCatalogDay2Action: (id, payload) => api.request('POST', `/api/catalog/requests/${encodeURIComponent(id)}/actions`, payload),
+  getCatalogAdminEntries: () => api.request('GET', '/api/catalog/admin/entries'),
+  getCatalogEntryVersions: (id) => api.request('GET', `/api/catalog/admin/entries/${encodeURIComponent(id)}/versions`),
+  validateCatalogEntryVersion: (entryId, versionId, payload) => api.request('PUT', `/api/catalog/admin/entries/${encodeURIComponent(entryId)}/versions/${encodeURIComponent(versionId)}/validation`, payload),
+  publishCatalogEntry: (id) => api.request('POST', `/api/catalog/admin/entries/${encodeURIComponent(id)}/publish`),
+  getCatalogAdminRequests: () => api.request('GET', '/api/catalog/admin/requests'),
+  getCatalogAnalytics: () => api.request('GET', '/api/catalog/admin/analytics'),
+  getCatalogHookAttempts: (id) => api.request('GET', `/api/catalog/admin/requests/${encodeURIComponent(id)}/hook-attempts`),
+  createCatalogEntry: (payload) => api.request('POST', '/api/catalog', payload),
+  updateCatalogEntry: (id, payload) => api.request('PUT', `/api/catalog/${encodeURIComponent(id)}`, payload),
+  deleteCatalogEntry: (id) => api.request('DELETE', `/api/catalog/${encodeURIComponent(id)}`),
+  reviewCatalogRequest: (id, status) => api.request('PUT', `/api/catalog/admin/requests/${encodeURIComponent(id)}`, { status }),
+  deployCatalogRequest: (id) => api.request('POST', `/api/catalog/admin/requests/${encodeURIComponent(id)}/deploy`, {}),
   getTemplateLibraryTree: () => api.request('GET', '/api/template-library/tree'),
   createTemplateLibraryFolder: (payload) => api.request('POST', '/api/template-library/folders', payload),
   renameTemplateLibraryFolder: (id, name) => api.request('PUT', `/api/template-library/folders/${encodeURIComponent(id)}`, { name }),
@@ -338,6 +359,41 @@ const api = {
   deleteVFabric: (id, payload = null) => api.request('DELETE', `/api/vfabrics/${id}`, payload),
   saveVFabricQuota: (id, payload) => api.request('PUT', `/api/vfabrics/${encodeURIComponent(id)}/quota`, payload),
   deleteVFabricQuota: (id, payload = null) => api.request('DELETE', `/api/vfabrics/${encodeURIComponent(id)}/quota`, payload),
+  getProfile: () => api.request('GET', '/api/profile'),
+  updateProfile: (payload) => api.request('PUT', '/api/profile', payload),
+  changeProfilePassword: (payload) => api.request('POST', '/api/profile/password', payload),
+  setProfileTheme: (theme) => api.request('PUT', '/api/profile/theme', { theme }),
+  removeProfileAvatar: () => api.request('DELETE', '/api/profile/avatar'),
+  uploadProfileAvatar: async (file) => {
+    if (store.demoMode) {
+      demoProfileState.avatar_path = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Crect width="64" height="64" fill="%23091a12"/%3E%3Ccircle cx="32" cy="24" r="12" fill="%2300ff41"/%3E%3Cpath d="M10 60c2-16 12-24 22-24s20 8 22 24" fill="%2300ff41"/%3E%3C/svg%3E';
+      return { data: clone(demoProfileState) };
+    }
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const response = await fetch('/api/profile/avatar', {
+      method: 'POST',
+      body: formData,
+      headers: csrfHeaders(),
+      credentials: 'same-origin',
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.message || data.error || 'UPLOAD_FAILED');
+      error.code = data.error || 'UPLOAD_FAILED';
+      throw error;
+    }
+    return data;
+  },
+  mfaBeginEnrollment: () => api.request('POST', '/api/profile/mfa/enroll'),
+  mfaConfirmEnrollment: (token) => api.request('POST', '/api/profile/mfa/verify', { token }),
+  mfaDisable: (currentPassword) => api.request('POST', '/api/profile/mfa/disable', { currentPassword }),
+  loginMfaVerify: (token) => api.request('POST', '/api/auth/mfa/verify', { token }),
+  getPushVapidPublicKey: () => api.request('GET', '/api/profile/push/vapid-public-key'),
+  getPushSubscriptions: () => api.request('GET', '/api/profile/push'),
+  subscribePush: (payload) => api.request('POST', '/api/profile/push/subscribe', payload),
+  unsubscribePush: (endpoint) => api.request('DELETE', '/api/profile/push/subscribe', { endpoint }),
+  sendTestPushNotification: () => api.request('POST', '/api/profile/push/test'),
 };
 
 if (typeof module !== 'undefined') {

@@ -48,7 +48,11 @@ function handleDemoVmTransferRoutes(method, path, body, parsedUrl, search, targe
       operatingSystems: [
         { ref: 'OpaqueRef:os-profile-ubuntu-24', name_label: 'Ubuntu Server 24.04 LTS', name_description: 'Empty HVM installation profile for ISO or PXE installation.', disks: [] },
         { ref: 'OpaqueRef:os-profile-windows-2025', name_label: 'Windows Server 2025', name_description: 'Empty UEFI installation profile for ISO installation.', disks: [] },
-        ...templates.filter((template) => template.templateKind === 'operating-system').map((template) => ({ ...template, disks: [] })),
+        ...templates.filter((template) => template.templateKind === 'operating-system').map((template) => ({
+          ...template,
+          disks: [],
+          defaults: DEMO_BUNDLED_OS_PROFILES.find((profile) => profile.profileId === template.baseOperatingSystemProfileId)?.defaults,
+        })),
       ],
       bundledOperatingSystems: DEMO_BUNDLED_OS_PROFILES,
       deployableTemplates: templates.filter((template) => template.templateKind !== 'operating-system').map((template, index) => ({

@@ -77,12 +77,22 @@ const AppShell = {
     const route = useRoute();
     const workspaceTabs = reactive([]);
     const defaultWorkspace = '/';
+    const mobileNavigation = window.matchMedia('(max-width: 760px)');
+
+    const collapseNavigationOnMobile = (event) => {
+      if (event.matches) store.sidebarOpen = false;
+    };
+
+    collapseNavigationOnMobile(mobileNavigation);
+    mobileNavigation.addEventListener('change', collapseNavigationOnMobile);
 
     const routeIcon = (path) => ({
       '/': 'mdi-view-dashboard-outline',
       '/pools': 'mdi-server-network',
       '/templates': 'mdi-content-copy',
       '/template-library': 'mdi-folder-multiple-outline',
+      '/catalog': 'mdi-storefront-outline',
+      '/applications': 'mdi-apps',
       '/vms': 'mdi-desktop-tower',
       '/hosts': 'mdi-server',
       '/storage': 'mdi-database',
@@ -132,7 +142,10 @@ const AppShell = {
     };
     const respondToGlobalUndo = () => settleGlobalUndo(false);
 
-    onBeforeUnmount(() => removeRouteHook());
+    onBeforeUnmount(() => {
+      removeRouteHook();
+      mobileNavigation.removeEventListener('change', collapseNavigationOnMobile);
+    });
 
     return {
       globalConfirmState,

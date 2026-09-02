@@ -5550,6 +5550,14 @@ test('login shell renders the control-plane sign-in flow', async ({ page }) => {
   await expect(page.getByText('admin / admin123!')).toBeVisible();
 });
 
+test('published application catalog is available without a control-plane login', async ({ page }) => {
+  await page.goto('/catalog');
+
+  await expect(page).toHaveURL(/\/catalog$/);
+  await expect(page.getByRole('heading', { name: /Published applications/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Subscriber Sign In' })).toBeVisible();
+});
+
 test('demo button opens the dashboard with built-in mock infrastructure data', async ({ page }) => {
   await page.route('**/api/connections', async (route) => {
     await route.fulfill({

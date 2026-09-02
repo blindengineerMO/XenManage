@@ -22,6 +22,14 @@ const SideNav = {
           <span class="mdi mdi-code-json"></span>
           <span class="tree-label" v-if="!collapsed">Template Library</span>
         </div>
+        <div class="tree-item" :class="{ active: $route.path === catalogPath }" @click="$router.push(catalogPath)">
+          <span class="mdi mdi-storefront-outline"></span>
+          <span class="tree-label" v-if="!collapsed">Catalog</span>
+        </div>
+        <div class="tree-item" :class="{ active: $route.path === '/applications' }" @click="$router.push('/applications')">
+          <span class="mdi mdi-apps"></span>
+          <span class="tree-label" v-if="!collapsed">Applications</span>
+        </div>
         <div class="tree-item" :class="{ active: $route.path === '/vms' }" @click="$router.push('/vms')">
           <span class="mdi mdi-desktop-tower"></span>
           <span class="tree-label" v-if="!collapsed">Virtual Machines</span>
@@ -167,6 +175,7 @@ const SideNav = {
   `,
   data() {
     return {
+      catalogPath,
       inventoryLoading: false,
       inventory: {
         pools: [],

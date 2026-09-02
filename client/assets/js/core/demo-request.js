@@ -10,9 +10,17 @@ function demoRequest(method, url, body) {
   const targetKey = parsedUrl.searchParams.get('targetKey') || store.currentTargetKey || 'demo-fabric';
   const scope = getDemoTargetScope(targetKey);
 
+  const profileRouteResult = handleDemoProfileRoutes(method, path, body);
+  if (profileRouteResult !== undefined) return profileRouteResult;
+
   const settingsRouteResult = handleDemoSettingsRoutes(method, path, body);
   if (settingsRouteResult !== undefined) {
     return settingsRouteResult;
+  }
+
+  const catalogRouteResult = handleDemoCatalogRoutes(method, path, body);
+  if (catalogRouteResult !== undefined) {
+    return catalogRouteResult;
   }
 
   const shellRouteResult = handleDemoShellRoutes(method, path, body, range);

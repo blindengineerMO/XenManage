@@ -40,6 +40,7 @@ const CredentialVaultForm = {
           <select id="vault-credential-target-type" class="form-input" v-model="draft.targetType">
             <option value="pool">Pool</option>
             <option value="host">Host</option>
+            <option value="webhook">Webhook Integration</option>
           </select>
         </div>
 
@@ -55,7 +56,7 @@ const CredentialVaultForm = {
         </div>
 
         <div class="form-group">
-          <label for="vault-credential-username">Username</label>
+          <label for="vault-credential-username">{{ draft.targetType === 'webhook' ? 'Auth Label' : 'Username' }}</label>
           <input id="vault-credential-username"
                  class="form-input"
                  v-model="draft.username"
@@ -64,7 +65,7 @@ const CredentialVaultForm = {
         </div>
 
         <div class="form-group">
-          <label for="vault-credential-password">{{ isEditMode ? 'Rotate Secret' : 'Password' }}</label>
+          <label for="vault-credential-password">{{ isEditMode ? 'Rotate Secret' : draft.targetType === 'webhook' ? 'Bearer Token' : 'Password' }}</label>
           <input id="vault-credential-password"
                  class="form-input"
                  v-model="draft.password"
@@ -108,7 +109,7 @@ const CredentialVaultForm = {
       this.$emit('submit', {
         name: String(this.draft.name || '').trim(),
         scope: this.draft.scope === 'shared' ? 'shared' : 'private',
-        targetType: this.draft.targetType === 'host' ? 'host' : 'pool',
+        targetType: ['pool', 'host', 'webhook'].includes(this.draft.targetType) ? this.draft.targetType : 'pool',
         targetHint: String(this.draft.targetHint || '').trim(),
         username: String(this.draft.username || '').trim(),
         password: String(this.draft.password || ''),

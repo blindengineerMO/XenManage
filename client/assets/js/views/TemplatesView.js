@@ -350,7 +350,9 @@ const TemplatesView = {
       this.templateCreateError = '';
       try {
         const [sources, vms] = await Promise.all([api.getVmCreationSources(), api.getVMs()]);
-        this.templateOperatingSystems = sources.operatingSystems || [];
+        this.templateOperatingSystems = sources.bundledOperatingSystems?.length
+          ? sources.bundledOperatingSystems
+          : (sources.operatingSystems || []);
         this.templateSourceVms = vms.data || [];
       } catch (error) {
         this.templateCreateError = error.message || 'Unable to load template creation sources';

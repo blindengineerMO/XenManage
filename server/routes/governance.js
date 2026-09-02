@@ -2,6 +2,7 @@ const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const governanceService = require('../services/governance');
 const auditLogService = require('../services/audit-log');
+const webPushService = require('../services/web-push');
 const { userModel } = require('../models/security-db');
 const identityService = require('../services/identity');
 
@@ -350,6 +351,12 @@ router.post('/approvals/:id/decision', requireAdminSession, validate(schemas.gov
       after: approval,
       detail: `${approval.actionKey} request is now ${approval.status}.`,
     });
+    const requester = userModel.getByUsername(approval.requestedBy);
+    if (requester) webPushService.notifyUser(requester.id, {
+      title: 'Governance approval updated',
+      body: `${approval.entityName || approval.entityRef}: ${approval.status}`,
+      url: '/governance',
+    }, 'approvals').catch(() => {});
     res.json(approval);
   } catch (err) {
     res.status(500).json({ error: err.message });

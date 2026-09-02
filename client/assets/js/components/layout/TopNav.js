@@ -1,5 +1,5 @@
 const TopNav = {
-  components: { AddTargetWindow },
+  components: { AddTargetWindow, ProfileWindow },
   props: ['sidebarOpen'],
   emits: ['toggle-sidebar'],
   template: `
@@ -40,6 +40,9 @@ const TopNav = {
         <button class="btn btn-sm" v-if="store.authenticated" @click="router.push('/governance')">
           <span class="mdi mdi-shield-account-outline"></span>
           {{ roleLabel }}
+        </button>
+        <button class="btn btn-sm" v-if="store.authenticated" @click="openProfileWindow" title="My Profile">
+          <span class="mdi mdi-account-circle-outline"></span>
         </button>
         <div class="live-target-switcher" v-if="store.authenticated" ref="targetShell">
           <button
@@ -141,6 +144,7 @@ const TopNav = {
         </button>
       </div>
       <add-target-window :show="showAddTargetWindow" @close="showAddTargetWindow = false"></add-target-window>
+      <profile-window :show="showProfileWindow" @close="showProfileWindow = false"></profile-window>
     </nav>
   `,
   setup() {
@@ -151,6 +155,7 @@ const TopNav = {
     const pendingTargetKey = ref('');
     const targetError = ref('');
     const showAddTargetWindow = ref(false);
+    const showProfileWindow = ref(false);
     const vFabrics = ref([]);
     const scopeLoading = ref(false);
     const scopePendingId = ref(null);
@@ -286,6 +291,10 @@ const TopNav = {
       showAddTargetWindow.value = true;
     };
 
+    const openProfileWindow = () => {
+      showProfileWindow.value = true;
+    };
+
     const openVmCreate = () => {
       router.push({ path: '/vms', query: { create: '1' } });
     };
@@ -354,11 +363,13 @@ const TopNav = {
       openAddTargetWindow,
       openGlobalSearch,
       openPools,
+      openProfileWindow,
       openVmCreate,
       pendingTargetKey,
       roleLabel,
       router,
       showAddTargetWindow,
+      showProfileWindow,
       scopeLoading,
       scopePendingId,
       selectVFabricScope,

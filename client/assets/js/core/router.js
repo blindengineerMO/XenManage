@@ -9,7 +9,7 @@ function installAuthGuards(routerInstance) {
       return;
     }
 
-    if (to.path !== '/login' && !store.authenticated) {
+    if (to.path !== '/login' && !isPublicAppRoute(to.path) && !store.authenticated) {
       next('/login');
       return;
     }

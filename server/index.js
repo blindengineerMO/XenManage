@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const config = require('./config');
 const securityMiddleware = require('./middleware/security');
 const { createApiRateLimiter } = require('./middleware/rate-limit');
-const { csrfProtection } = require('./middleware/csrf');
+const { csrfProtection, getCsrfToken } = require('./middleware/csrf');
 const requestLogging = require('./middleware/request-logging');
 const logger = require('./services/logger');
 const errorTracking = require('./services/error-tracking');
@@ -30,6 +30,7 @@ const logRoutes = require('./routes/logs');
 const metricsRoutes = require('./routes/metrics');
 const credentialRoutes = require('./routes/credentials');
 const userRoutes = require('./routes/users');
+const profileRoutes = require('./routes/profile');
 const groupRoutes = require('./routes/groups');
 const apiRoutes = require('./routes/api');
 const hostTargetRoutes = require('./routes/host-targets');
@@ -43,12 +44,16 @@ const projectRoutes = require('./routes/projects');
 const healthRoutes = require('./routes/health');
 const metricsExportRoutes = require('./routes/metrics-export');
 const controlPlaneBackupRoutes = require('./routes/control-plane-backups');
+const catalogRoutes = require('./routes/catalog');
+const terraformRoutes = require('./routes/terraform');
 const governanceService = require('./services/governance');
 const metricsCollector = require('./services/metrics-collector');
 const managedTargetService = require('./services/managed-targets');
 const workflowEngine = require('./services/workflow-engine');
 const systemConfigService = require('./services/system-config');
 const retentionService = require('./services/retention');
+const catalogApprovalHooks = require('./services/catalog-approval-hooks');
+const catalogLeases = require('./services/catalog-leases');
 
 const app = express();
 systemConfigService.applyExpressSettings(app);
@@ -96,6 +101,8 @@ app.use(healthRoutes);
 app.use(metricsExportRoutes);
 app.use('/api', apiLimiter);
 app.use('/api', apiCsrfProtection);
+app.use('/api/catalog', catalogRoutes);
+app.use('/api/terraform', terraformRoutes);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/xen-login', authLimiter);
 app.use('/api/auth', authRouter);
@@ -116,6 +123,7 @@ app.use('/api/logs', requireAuth, logRoutes);
 app.use('/api/metrics', requireXenConnection, metricsRoutes);
 app.use('/api/credentials', requireAuth, credentialRoutes);
 app.use('/api/users', requireAuth, userRoutes);
+app.use('/api/profile', requireAuth, profileRoutes);
 app.use('/api/groups', requireAuth, groupRoutes);
 app.use('/api/connections', requireAuth, apiRoutes);
 app.use('/api/host-targets', requireAuth, hostTargetRoutes);
@@ -134,9 +142,10 @@ app.get('/{*splat}', (req, res) => {
     return res.status(404).json({ error: 'NOT_FOUND' });
   }
   const bootstrap = JSON.stringify(
-    req.session?.authenticated
-      ? buildStatusPayload(req)
-      : {
+    {
+      ...(req.session?.authenticated
+        ? buildStatusPayload(req)
+        : {
           authenticated: false,
           connected: false,
           authMode: 'local',
@@ -149,7 +158,10 @@ app.get('/{*splat}', (req, res) => {
             currentRole: governanceService.getSessionRole(req.session),
             policy: governanceService.getPolicy(),
           },
-        }
+          csrfToken: getCsrfToken(req),
+        }),
+      catalog: { slug: config.catalog.slug },
+    }
   ).replace(/</g, '\\u003c');
 
   res.render('app', { bootstrap });
@@ -175,6 +187,8 @@ app.use((req, res) => {
 
 function stopRuntimeServices() {
   retentionService.stopScheduler();
+  catalogApprovalHooks.stop();
+  catalogLeases.stop();
   workflowEngine.stop();
   metricsCollector.stop();
   return managedTargetService.stop();
@@ -182,6 +196,8 @@ function stopRuntimeServices() {
 
 function startServer({ port = config.port, exit = process.exit } = {}) {
   retentionService.startScheduler();
+  catalogApprovalHooks.start();
+  catalogLeases.start();
   managedTargetService.start();
   workflowEngine.start();
   metricsCollector.start();

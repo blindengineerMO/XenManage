@@ -1251,6 +1251,16 @@ const demoDb = {
       ],
     },
   ],
+  catalogEntries: [
+    {
+      id: 1, slug: 'web-service', title: 'Web Service', description: 'A curated Ubuntu web-service baseline.',
+      source_item_id: 1, source_kind: 'deployment-template', category: 'Web', tags: ['linux', 'web'],
+      image_url: '', visibility: 'published', naming_pattern: 'WEB-XXXX', next_sequence: 1,
+      fixedVariables: { vcpus: 2, memoryStaticMax: 4294967296, diskSizeGb: 40 }, subscriberFields: [{ key: 'environment', label: 'Environment', type: 'select', options: ['development', 'production'], default: 'development' }],
+      maxActivePerSubscriber: 2, leaseDurationHours: 168, costRates: { perVcpu: 12, perGiBRam: 4, perGiBDisk: 0.15 }, costBasis: { vcpus: 2, memoryGiB: 4, diskGiB: 40 }, targetPoolRefs: ['OpaqueRef:pool-demo-1', 'OpaqueRef:pool-demo-2'], requiresApproval: true, approvalPolicy: { mode: 'manual' },
+    },
+  ],
+  catalogRequests: [],
   templateLibraryFolders: [
     { id: 1, parent_id: null, name: 'Deployment Templates', owner_user_id: 1, visibility: 'shared', created_at: '2026-08-20T09:00:00.000Z' },
     { id: 2, parent_id: null, name: 'Guest Scripts', owner_user_id: 1, visibility: 'shared', created_at: '2026-08-20T09:00:00.000Z' },

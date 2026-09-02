@@ -182,6 +182,34 @@ function ensureMutable(record, userId, role = 'operator') {
 }
 
 const credentialVaultService = {
+  sealSecret(value) {
+    const dek = crypto.randomBytes(32);
+    const wrappedDek = createWrappedDek(dek);
+    try {
+      const cipher = encryptBuffer(Buffer.from(String(value || ''), 'utf8'), dek);
+      return JSON.stringify({ version: 1, dekKeyId: Number(wrappedDek.id), encrypted: cipher.encrypted.toString('base64'), iv: cipher.iv.toString('base64'), authTag: cipher.authTag.toString('base64') });
+    } catch (error) {
+      deleteWrappedDek(wrappedDek.id);
+      throw error;
+    }
+  },
+
+  openSealedSecret(payload) {
+    const sealed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    if (!sealed?.dekKeyId) throw new Error('VAULT_KEY_NOT_FOUND');
+    const wrapped = getWrappedDekRecord(sealed.dekKeyId);
+    if (!wrapped) throw new Error('VAULT_KEY_NOT_FOUND');
+    const unwrap = unwrapDekRecord(wrapped, getMasterKeys());
+    return decryptBuffer(Buffer.from(sealed.encrypted, 'base64'), Buffer.from(sealed.iv, 'base64'), Buffer.from(sealed.authTag, 'base64'), unwrap.dek).toString('utf8');
+  },
+
+  deleteSealedSecret(payload) {
+    try {
+      const sealed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      if (sealed?.dekKeyId) deleteWrappedDek(sealed.dekKeyId);
+    } catch (_error) { /* Legacy secrets have no wrapped key material. */ }
+  },
+
   listVisible(userId) {
     return credentialModel.listVisible(userId).map(toPublicRecord);
   },
@@ -319,6 +347,21 @@ const credentialVaultService = {
     const password = decryptBuffer(existing.encrypted_password, existing.enc_iv, existing.enc_auth_tag, unwrap.dek).toString('utf8');
     credentialModel.markUsed(id, userId);
     return password;
+  },
+
+  getSharedIntegrationSecret(id, targetType) {
+    const existing = credentialModel.getById(id);
+    if (!existing || existing.scope !== 'shared' || existing.target_type !== targetType) {
+      const error = new Error('INTEGRATION_CREDENTIAL_INVALID');
+      error.code = 'INTEGRATION_CREDENTIAL_INVALID';
+      throw error;
+    }
+    return this.getPassword(id, null, 'admin');
+  },
+
+  validateSharedIntegrationCredential(id, targetType) {
+    const existing = credentialModel.getById(id);
+    return Boolean(existing && existing.scope === 'shared' && existing.target_type === targetType);
   },
 
   rewrapAll(userId = null, role = 'operator') {

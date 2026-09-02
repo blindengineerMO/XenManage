@@ -2,6 +2,11 @@ require('dotenv').config();
 const path = require('path');
 
 const env = process.env.NODE_ENV || 'development';
+const catalogSlug = String(process.env.CATALOG_SLUG || 'catalog')
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9-]+/g, '-')
+  .replace(/^-+|-+$/g, '') || 'catalog';
 
 const config = {
   env,
@@ -35,6 +40,13 @@ const config = {
     defaultOriginator: 'xenmange',
     requestTimeout: 30000,
   },
+  catalog: {
+    slug: catalogSlug,
+    approvalHookAllowlist: String(process.env.CATALOG_APPROVAL_HOOK_ALLOWLIST || '')
+      .split(',').map((host) => host.trim().toLowerCase()).filter(Boolean),
+    approvalHookTimeoutMs: Math.min(Math.max(parseInt(process.env.CATALOG_APPROVAL_HOOK_TIMEOUT_MS, 10) || 5000, 1000), 30000),
+    approvalHookMaxAttempts: Math.min(Math.max(parseInt(process.env.CATALOG_APPROVAL_HOOK_MAX_ATTEMPTS, 10) || 3, 1), 10),
+  },
   storage: {
     // Root directory under which operators mount each ISO/file SR's network export
     // (e.g. an NFS mount at `${browserRoot}/<sr-uuid>/`). XenManage reads/writes files
@@ -42,6 +54,15 @@ const config = {
     // XenServer host, so the actual mount is an ops/deployment concern.
     browserRoot: process.env.STORAGE_BROWSER_ROOT || path.join(__dirname, '..', 'data', 'storage-browser'),
     maxUploadBytes: parseInt(process.env.STORAGE_BROWSER_MAX_UPLOAD_BYTES, 10) || 4 * 1024 * 1024 * 1024,
+  },
+  profile: {
+    avatarRoot: process.env.PROFILE_AVATAR_ROOT || path.join(__dirname, '..', 'data', 'avatars'),
+    maxAvatarBytes: parseInt(process.env.PROFILE_AVATAR_MAX_BYTES, 10) || 2 * 1024 * 1024,
+  },
+  webPush: {
+    publicKey: process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    subject: process.env.VAPID_SUBJECT || 'mailto:admin@xenmange.local',
   },
 };
 

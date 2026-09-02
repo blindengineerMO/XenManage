@@ -400,8 +400,13 @@ const VMsView = {
           api.getVmGpuProfiles(),
           Promise.all(this.relatedStorage.map(async (sr) => ({ sr, result: await api.getSRVDIs(sr.ref).catch(() => ({ data: [] })) }))),
         ]);
-        this.createOperatingSystems = sources.bundledOperatingSystems?.length
-          ? sources.bundledOperatingSystems
+        const bundledOperatingSystems = sources.bundledOperatingSystems || [];
+        const customOperatingSystems = (sources.operatingSystems || []).filter((source) =>
+          source.templateKind === 'operating-system'
+          || source.other_config?.['xenmange:template-kind'] === 'operating-system'
+        );
+        this.createOperatingSystems = bundledOperatingSystems.length
+          ? [...bundledOperatingSystems, ...customOperatingSystems]
           : (sources.operatingSystems || []);
         this.createDeployableTemplates = sources.deployableTemplates || [];
         this.createVmGroups = vmGroups.data || [];

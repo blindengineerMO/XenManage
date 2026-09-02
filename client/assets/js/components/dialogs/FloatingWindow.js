@@ -2,26 +2,28 @@ const FloatingWindow = {
   props: ['title', 'show', 'width', 'height', 'x', 'y'],
   emits: ['close'],
   template: `
-    <div ref="windowRoot"
-         class="floating-window"
-         v-if="show"
-         role="dialog"
-         aria-modal="false"
-         :aria-labelledby="titleId"
-         tabindex="-1"
-         :style="{ width: resolvedWidth + 'px', left: posX + 'px', top: posY + 'px', zIndex, maxHeight: maxWindowHeight + 'px' }"
-         @mousedown="bringToFront">
-      <div class="fw-header" @mousedown="startDrag">
-        <span class="mdi mdi-window-restore" style="font-size:14px;color:var(--text-muted)"></span>
-        <span :id="titleId" class="fw-title">{{ title }}</span>
-        <button class="fw-close" type="button" :aria-label="'Close ' + title" @click.stop="$emit('close')">
-          <span class="mdi mdi-close"></span>
-        </button>
+    <teleport to="body">
+      <div ref="windowRoot"
+           class="floating-window"
+           v-if="show"
+           role="dialog"
+           aria-modal="false"
+           :aria-labelledby="titleId"
+           tabindex="-1"
+           :style="{ width: resolvedWidth + 'px', left: posX + 'px', top: posY + 'px', zIndex, maxHeight: maxWindowHeight + 'px' }"
+           @mousedown="bringToFront">
+        <div class="fw-header" @mousedown="startDrag">
+          <span class="mdi mdi-window-restore" style="font-size:14px;color:var(--text-muted)"></span>
+          <span :id="titleId" class="fw-title">{{ title }}</span>
+          <button class="fw-close" type="button" :aria-label="'Close ' + title" @click.stop="$emit('close')">
+            <span class="mdi mdi-close"></span>
+          </button>
+        </div>
+        <div class="fw-body" :style="{ height: resolvedBodyHeight + 'px' }">
+          <slot></slot>
+        </div>
       </div>
-      <div class="fw-body" :style="{ height: resolvedBodyHeight + 'px' }">
-        <slot></slot>
-      </div>
-    </div>
+    </teleport>
   `,
   data() {
     return {

@@ -23,6 +23,7 @@ describe('metricsCollector', () => {
     settingsModel.set('performance.collectionEnabled', 'true');
     settingsModel.set('performance.collectionIntervalSeconds', '60');
     getPerfDb().prepare('DELETE FROM metric_samples').run();
+    getPerfDb().prepare('DELETE FROM metric_collection_cursors').run();
     clearConnections();
     metricsCollector.__resetForTests();
   });
@@ -210,5 +211,18 @@ describe('metricsCollector', () => {
       source: 'scheduler',
       sampleCount: expect.any(Number),
     }));
+  });
+
+  it('uses and advances a persisted RRD cursor for each target', async () => {
+    const api = buildFakeApi();
+    const getRrdUpdates = jest.spyOn(api, 'getRrdUpdates');
+
+    await metricsCollector.collectTarget(api, { targetKey: 'connection:1' }, { force: true });
+    await metricsCollector.collectTarget(api, { targetKey: 'connection:1' }, { force: true });
+
+    expect(getRrdUpdates.mock.calls[0][0]).toEqual(expect.objectContaining({ start: expect.any(Number) }));
+    expect(getRrdUpdates.mock.calls[1][0]).toEqual(expect.objectContaining({ start: 1724670061 }));
+    expect(getPerfDb().prepare('SELECT last_rrd_ts FROM metric_collection_cursors WHERE target_key = ?').get('connection:1'))
+      .toEqual({ last_rrd_ts: 1724670060 });
   });
 });

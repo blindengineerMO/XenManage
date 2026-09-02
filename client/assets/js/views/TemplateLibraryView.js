@@ -85,6 +85,9 @@ const TemplateLibraryView = {
         <button class="btn btn-sm" :disabled="!isComposeItem || deploying" @click="deployActive">
           <span class="mdi mdi-rocket-launch-outline"></span> Deploy
         </button>
+        <button class="btn btn-sm" @click="helpVisible = true">
+          <span class="mdi mdi-help-circle-outline"></span> Variables &amp; Options
+        </button>
       </div>
 
       <div v-if="errorMessage" class="form-error">{{ errorMessage }}</div>
@@ -122,6 +125,113 @@ const TemplateLibraryView = {
             @select="onSelectNode"
             @contextmenu="onNodeContextMenu">
           </template-library-tree-node>
+        </div>
+      </floating-window>
+
+      <floating-window
+        title="Variables &amp; Options"
+        :show="helpVisible"
+        :width="600"
+        :height="640"
+        :x="100"
+        :y="60"
+        @close="helpVisible = false">
+        <div class="tl-help">
+          <div class="tl-help-section">
+            <h4 class="tl-help-heading">Variables</h4>
+            <p class="tl-help-text">
+              Compose deployment specs can declare reusable values in a top-level
+              <code class="tl-help-code-inline">variables</code> object as key/value pairs, for example
+              <code class="tl-help-code-inline">TEST=BLAH</code>:
+            </p>
+            <pre class="tl-help-code">{
+  "variables": {
+    "TEST": "BLAH",
+    "ENV": "prod"
+  }
+}</pre>
+            <p class="tl-help-text">
+              Reference a declared variable anywhere else in the spec &mdash; VM names, descriptions, disk sizes,
+              tags, or any other string field &mdash; using
+              <code class="tl-help-code-inline">${VARIABLE_NAME}</code> syntax:
+            </p>
+            <pre class="tl-help-code">{
+  "vms": {
+    "web1": {
+      "nameLabel": "web-${ENV}-01",
+      "nameDescription": "Built with TEST=${TEST}"
+    }
+  }
+}</pre>
+            <p class="tl-help-text">
+              Variables are substituted recursively through strings, arrays, and nested objects at deploy time.
+              Referencing a name that isn't declared in <code class="tl-help-code-inline">variables</code> fails
+              the deployment before anything is created.
+            </p>
+          </div>
+          <div class="tl-help-section">
+            <h4 class="tl-help-heading">Built-in variables</h4>
+            <p class="tl-help-text">
+              These names resolve automatically and don't need to be declared in
+              <code class="tl-help-code-inline">variables</code> yourself:
+            </p>
+            <dl class="tl-help-field-list">
+              <div class="tl-help-field">
+                <dt><code class="tl-help-code-inline">${catalogName}</code></dt>
+                <dd>
+                  Available only when this compose spec is published as a self-service Catalog source. It resolves
+                  to the auto-generated instance name (e.g. <code class="tl-help-code-inline">NODE-0007</code>)
+                  produced from the catalog entry's naming pattern. A catalog compose source must reference
+                  <code class="tl-help-code-inline">${catalogName}</code> in at least one VM name to be published.
+                  A catalog admin can also attach fixed variables to the catalog entry, and a subscriber's form
+                  answers are merged in as variables too &mdash; both take effect the same way as one you declare.
+                </dd>
+              </div>
+            </dl>
+            <p class="tl-help-text">
+              Opening and deploying a spec directly from this editor (the Deploy button above) does <em>not</em>
+              go through the Catalog, so none of the above are injected there &mdash; only variables you declare
+              yourself in <code class="tl-help-code-inline">variables</code> are available.
+            </p>
+          </div>
+          <div class="tl-help-section">
+            <h4 class="tl-help-heading">Top-level fields</h4>
+            <dl class="tl-help-field-list">
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">version</code></dt><dd>Spec format version. Always <code class="tl-help-code-inline">"1"</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">name</code></dt><dd>Display name for the compose deployment as a whole.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">variables</code></dt><dd>Key/value pairs available to <code class="tl-help-code-inline">${VARIABLE_NAME}</code> interpolation, see above.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">networks</code></dt><dd>Named lookup map, e.g. <code class="tl-help-code-inline">{ "lan": { "ref": "&lt;network OpaqueRef&gt;" } }</code>, referenced from a VM's <code class="tl-help-code-inline">networkInterfaces</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">storageRepositories</code></dt><dd>Named lookup map, e.g. <code class="tl-help-code-inline">{ "local": { "ref": "&lt;SR OpaqueRef&gt;" } }</code>, referenced from a VM's <code class="tl-help-code-inline">disks</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">startAfter</code></dt><dd>Boolean. Power on every VM once created.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">vms</code></dt><dd>Object keyed by an internal VM id (e.g. <code class="tl-help-code-inline">"web1"</code>) &mdash; the fields for each entry are listed below.</dd></div>
+            </dl>
+          </div>
+          <div class="tl-help-section">
+            <h4 class="tl-help-heading">Per-VM fields (<code class="tl-help-code-inline">vms.&lt;id&gt;</code>)</h4>
+            <dl class="tl-help-field-list">
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">template</code></dt><dd>Source template ref. Required unless <code class="tl-help-code-inline">creationMode</code> is <code class="tl-help-code-inline">operating-system</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">creationMode</code></dt><dd><code class="tl-help-code-inline">"template"</code> (default) or <code class="tl-help-code-inline">"operating-system"</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">source</code></dt><dd>OS install source. Required when <code class="tl-help-code-inline">creationMode</code> is <code class="tl-help-code-inline">operating-system</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">operatingSystemProfileId</code></dt><dd>Optional OS profile id to apply during install.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">nameLabel</code></dt><dd>Required. The VM's display name.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">nameDescription</code></dt><dd>Optional description text.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">memoryStaticMax</code></dt><dd>Required. Bytes of RAM (static max).</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">memoryDynamicMin</code> / <code class="tl-help-code-inline">memoryDynamicMax</code></dt><dd>Optional dynamic memory ballooning range, in bytes.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">vcpusAtStartup</code> / <code class="tl-help-code-inline">vcpusMax</code></dt><dd>Optional vCPU counts.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">affinity</code></dt><dd>Optional preferred host ref.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">disks</code></dt><dd>Array of <code class="tl-help-code-inline">{ sr, sizeGb, bootable, mode }</code>. <code class="tl-help-code-inline">sr</code> is a key from <code class="tl-help-code-inline">storageRepositories</code>; <code class="tl-help-code-inline">mode</code> is <code class="tl-help-code-inline">"RW"</code> or <code class="tl-help-code-inline">"RO"</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">networkInterfaces</code></dt><dd>Array of <code class="tl-help-code-inline">{ network, device }</code>. <code class="tl-help-code-inline">network</code> is a key from <code class="tl-help-code-inline">networks</code>.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">otherConfig</code></dt><dd>Arbitrary key/value pairs written to the VM's <code class="tl-help-code-inline">other-config</code> (e.g. <code class="tl-help-code-inline">{ "TEST": "BLAH" }</code>).</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">xenstoreData</code></dt><dd>Arbitrary key/value pairs written to XenStore &mdash; use the <code class="tl-help-code-inline">vm-data</code> key to hand a guest-facing script (e.g. cloud-init user-data) to the VM.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">tags</code></dt><dd>Array of string tags applied to the VM.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">dependsOn</code></dt><dd>Array of other VM ids in this spec that must be created first.</dd></div>
+              <div class="tl-help-field"><dt><code class="tl-help-code-inline">startAfter</code></dt><dd>Per-VM override of the top-level <code class="tl-help-code-inline">startAfter</code>.</dd></div>
+            </dl>
+            <p class="tl-help-text">
+              Use the New button in the explorer to start a blank template, or Deploy to dry-run and apply the
+              currently open spec.
+            </p>
+          </div>
         </div>
       </floating-window>
 
@@ -187,6 +297,7 @@ const TemplateLibraryView = {
       errorMessage: '',
       deployMessage: '',
       explorerVisible: true,
+      helpVisible: false,
       contextMenu: { show: false, x: 0, y: 0, items: [], targetNode: null },
       editorInstance: null,
       monacoModule: null,

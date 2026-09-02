@@ -63,7 +63,7 @@ const RemediationTaskTemplateForm = {
   template: `
     <form @submit.prevent="handleSubmit">
       <div class="form-group">
-        <label class="checkbox-row">
+        <label class="form-toggle">
           <input type="checkbox" v-model="draft.enabled">
           <span>Template Enabled</span>
         </label>

@@ -75,7 +75,7 @@ const SettingsWorkspaceDialogs = {
               <span class="text-muted">Last Used</span><span>{{ credentialDraft?.lastUsedAt ? formatDateTime(credentialDraft.lastUsedAt) : 'Never' }}</span>
               <span class="text-muted">Updated</span><span>{{ credentialDraft?.updatedAt ? formatDateTime(credentialDraft.updatedAt) : formatDateTime(credentialDraft?.createdAt) }}</span>
               <span class="text-muted">Scope</span><span>{{ credentialDraft?.scope === 'shared' ? 'Shared' : 'Private' }}</span>
-              <span class="text-muted">Target Type</span><span>{{ credentialDraft?.targetType === 'host' ? 'Host' : 'Pool' }}</span>
+              <span class="text-muted">Target Type</span><span>{{ credentialDraft?.targetType === 'webhook' ? 'Webhook' : credentialDraft?.targetType === 'host' ? 'Host' : 'Pool' }}</span>
             </div>
           </div>
 

@@ -285,7 +285,7 @@ const SettingsView = {
             <div class="dash-card-label">Saved Credentials</div>
             <div class="inventory-toolbar" style="margin-bottom:12px">
               <div class="text-muted" style="line-height:1.6">
-                Create encrypted pool and host credentials once, then link them from the Pools and Hosts workspaces without returning secrets to the browser.
+                Create encrypted pool, host, and webhook credentials without returning secrets to the browser.
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn btn-sm" @click="loadCredentials" :disabled="credentialLoading">
@@ -317,8 +317,8 @@ const SettingsView = {
                 <span style="color:var(--text-primary);font-weight:500">{{ row.name }}</span>
               </template>
               <template #cell-targetType="{ row }">
-                <span class="badge" :class="row.targetType === 'host' ? 'badge-warning' : 'badge-info'">
-                  {{ row.targetType === 'host' ? 'Host' : 'Pool' }}
+                <span class="badge" :class="row.targetType === 'host' ? 'badge-warning' : row.targetType === 'webhook' ? 'badge-success' : 'badge-info'">
+                  {{ row.targetType === 'webhook' ? 'Webhook' : row.targetType === 'host' ? 'Host' : 'Pool' }}
                 </span>
               </template>
               <template #cell-scope="{ row }">
@@ -349,7 +349,7 @@ const SettingsView = {
               </template>
             </data-table>
             <div v-else class="empty-state" style="padding:20px 12px">
-              No saved vault credentials yet. Add one here, then bind it to a pool or host target from the operational workspaces.
+              No saved vault credentials yet. Add one for a pool, host, or approval webhook.
             </div>
             <div class="form-error" v-if="credentialError" style="margin-top:12px">{{ credentialError }}</div>
           </div>

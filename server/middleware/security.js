@@ -12,7 +12,9 @@ function securityMiddleware(app) {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.cspNonce}'`],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+        styleSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+        // Vue's existing dynamic style attributes are isolated from stylesheet execution.
+        styleSrcAttr: ["'unsafe-inline'"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: ["'self'"],
