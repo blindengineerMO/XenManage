@@ -41,6 +41,7 @@ const publicApiRoutes = require('./routes/public-api');
 const projectRoutes = require('./routes/projects');
 const healthRoutes = require('./routes/health');
 const metricsExportRoutes = require('./routes/metrics-export');
+const controlPlaneBackupRoutes = require('./routes/control-plane-backups');
 const governanceService = require('./services/governance');
 const metricsCollector = require('./services/metrics-collector');
 const managedTargetService = require('./services/managed-targets');
@@ -123,6 +124,7 @@ app.use('/api/vfabrics', requireAuth, vFabricRoutes);
 app.use('/api/managed-targets', requireAuth, managedTargetRoutes);
 app.use('/api/workflows', requireAuth, workflowRoutes);
 app.use('/api/projects', requireAuth, projectRoutes);
+app.use('/api/control-plane-backups', requireAuth, controlPlaneBackupRoutes);
 app.use('/api/v1', publicApiRoutes);
 
 // Vue SPA - serve index.html for all non-API routes

@@ -24,6 +24,7 @@ const config = {
     securityPath: process.env.SECURITY_DB_PATH || path.join(__dirname, '..', 'data', 'security.db'),
     vaultPath: process.env.VAULT_DB_PATH || path.join(__dirname, '..', 'data', 'vault.db'),
     perfPath: process.env.PERF_DB_PATH || path.join(__dirname, '..', 'data', 'perf.db'),
+    backupPath: process.env.CONTROL_PLANE_BACKUP_PATH || path.join(__dirname, '..', 'data', 'backups'),
   },
   vault: {
     encryptionKey: process.env.VAULT_ENCRYPTION_KEY || '',
