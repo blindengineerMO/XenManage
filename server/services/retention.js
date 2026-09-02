@@ -3,6 +3,7 @@ const { getSecurityDb } = require('../models/security-db');
 const { getPerfDb } = require('../models/perf-db');
 const auditLogService = require('./audit-log');
 const systemConfigService = require('./system-config');
+const logger = require('./logger');
 
 const AUDIT_SETTINGS_KEY = 'activity.audit';
 const TASK_SETTINGS_KEY = 'activity.remediationTasks';
@@ -366,7 +367,7 @@ const retentionService = {
       try {
         this.runSweep();
       } catch (error) {
-        console.error('Retention sweep failed:', error);
+        logger.error('retention_sweep_failed', { error });
       }
     }, intervalMs);
 

@@ -64,6 +64,20 @@ describe('Health Routes', () => {
     await expect(request('/healthz')).resolves.toEqual({ status: 200, body: { status: 'ok' } });
   });
 
+  it('assigns a request identifier to every response', async () => {
+    const response = await requestPage('/healthz');
+    expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('exports Prometheus-compatible operational metrics', async () => {
+    const response = await requestPage('/metrics');
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(response.body).toContain('xenmanage_http_requests_total');
+    expect(response.body).toContain('xenmanage_workflow_queue_depth');
+    expect(response.body).toContain('xenmanage_managed_targets{state="healthy"}');
+  });
+
   it('reports database and managed-target readiness', async () => {
     const response = await request('/readyz');
     expect(response.status).toBe(200);
