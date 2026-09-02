@@ -24,36 +24,39 @@
   "dependencies": {
     "@mdi/font": "^7.4.47",
     "@sentry/node": "^10.73.0",
-    "axios": "^1.19.0",
+    "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.6.2",
+    "express-rate-limit": "^8.7.0",
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
     "joi": "^18.2.5",
     "monaco-editor": "^0.56.0",
     "multer": "^2.3.0",
     "pdf-lib": "^1.17.1",
-    "pdfkit": "^0.20.1",
+    "pdfkit": "^0.20.2",
     "puppeteer-core": "^25.9.0",
     "uuid": "^14.0.2",
-    "vue": "^3.5.13",
-    "vue-router": "^4.5.0"
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
-    "@vue/compiler-dom": "^3.5.13",
-    "@vue/test-utils": "^2.4.11",
+    "@vue/compiler-dom": "^3.5.42",
+    "@vue/test-utils": "^2.5.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.9.1",
     "globals": "^17.12.0",
-    "jest": "^30.4.2",
+    "jest": "^30.5.0",
     "nodemon": "^3.1.14"
+  },
+  "overrides": {
+    "dompurify": "^3.4.14"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true
