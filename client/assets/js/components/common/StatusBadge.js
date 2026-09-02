@@ -1,7 +1,7 @@
 const StatusBadge = {
   props: ['status'],
   template: `
-    <span class="badge" :class="badgeClass">
+    <span class="badge" :class="[badgeClass, { 'badge-critical': isCritical }]">
       <span class="mdi" :class="iconClass"></span>
       {{ status }}
     </span>
@@ -13,8 +13,11 @@ const StatusBadge = {
       if (['halted', 'offline', 'disabled', 'disconnected', 'false', 'cancelled', 'canceled'].includes(state)) return 'badge-halted';
       if (['suspended', 'paused', 'warning', 'maintenance', 'review'].includes(state)) return 'badge-suspended';
       if (['pending', 'queued', 'notice'].includes(state)) return 'badge-info';
-      if (['error', 'critical', 'failed', 'failure', 'incompatible', 'blocked'].includes(state)) return 'badge-error';
+      if (['error', 'critical', 'crashed', 'down', 'host down', 'host-down', 'failed', 'failure', 'incompatible', 'blocked'].includes(state)) return 'badge-error';
       return 'badge-info';
+    },
+    isCritical() {
+      return ['critical', 'crashed', 'down', 'host down', 'host-down'].includes((this.status || '').toLowerCase());
     },
     iconClass() {
       const state = (this.status || '').toLowerCase();
@@ -22,7 +25,7 @@ const StatusBadge = {
       if (['halted', 'offline', 'disabled', 'disconnected', 'false', 'cancelled', 'canceled'].includes(state)) return 'mdi-circle-outline';
       if (['suspended', 'paused', 'warning', 'maintenance', 'review'].includes(state)) return 'mdi-pause-circle';
       if (['pending', 'queued', 'notice'].includes(state)) return 'mdi-timer-sand';
-      if (['error', 'critical', 'failed', 'failure', 'incompatible', 'blocked'].includes(state)) return 'mdi-alert-circle';
+      if (['error', 'critical', 'crashed', 'down', 'host down', 'host-down', 'failed', 'failure', 'incompatible', 'blocked'].includes(state)) return 'mdi-alert-circle';
       return 'mdi-information';
     },
   },

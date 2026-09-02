@@ -609,6 +609,11 @@ const VMsView = {
       this.actionError = null;
       this.actionBusy = buildVmActionBusyKey(action, options);
       try {
+        const execute = await requestUndoableOperation({
+          title: `${this.formatVmActionLabel(action)} VM queued`,
+          message: 'Undo within 5 seconds to prevent this power operation from reaching XenServer.',
+        });
+        if (!execute) return;
         await this.performVmAction(action, ref, options);
         await this.refreshVmDetail(ref);
       } catch (error) {
@@ -637,6 +642,11 @@ const VMsView = {
       this.bulkActionBusy = buildVmActionBusyKey(action, options);
 
       try {
+        const execute = await requestUndoableOperation({
+          title: `${this.formatVmActionLabel(action)} ${targets.length} VM${targets.length === 1 ? '' : 's'} queued`,
+          message: 'Undo within 5 seconds to prevent this batch power operation from reaching XenServer.',
+        });
+        if (!execute) return;
         await executeBulkVmPowerAction(targets, (vm) => this.performVmAction(action, vm.ref, options));
       } catch (error) {
         if (error.code === 'APPROVAL_REQUIRED') {
@@ -664,6 +674,16 @@ const VMsView = {
     },
     async resolveGovernanceApproval(action, ref, target = null) {
       return resolveVmActionApprovalId(action, ref, target, this.vms, this.selectedVM, resolveGovernanceApproval);
+    },
+    formatVmActionLabel(action) {
+      const labels = {
+        start: 'Start',
+        shutdown: 'Shutdown',
+        reboot: 'Reboot',
+        suspend: 'Suspend',
+        resume: 'Resume',
+      };
+      return labels[action] || 'VM action';
     },
     async submitVmConfig(payload) {
       if (!this.selectedVM) return;

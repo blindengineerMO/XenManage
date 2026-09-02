@@ -980,6 +980,13 @@ describe('Validation Middleware', () => {
       expect(req.body.structuredJson).toBe(false);
     });
 
+    it('should validate bounded undo delay settings', () => {
+      req.body = { undoDelaySeconds: 12 };
+      validate(schemas.systemConfigInteractionUpdate)(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.body.undoDelaySeconds).toBe(12);
+    });
+
     it('should reject invalid retention policy domains', () => {
       req.params = { domain: 'unknown-domain' };
       validate(schemas.retentionDomainParam, 'params')(req, res, next);

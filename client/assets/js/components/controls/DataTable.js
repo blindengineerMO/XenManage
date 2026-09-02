@@ -1,12 +1,14 @@
 const DataTable = {
+  components: { ContextMenu },
   props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey'],
-  emits: ['row-click', 'selection-change', 'cell-edit'],
+  emits: ['row-click', 'selection-change', 'cell-edit', 'row-context'],
   template: `
     <div class="data-table-wrap" :style="tableStickyVars">
       <div class="data-table-toolbar" v-if="searchable">
         <input class="data-table-search" placeholder="Search..." v-model="searchQuery" @input="page = 1">
         <span class="text-muted mono" style="font-size:11px">{{ filteredData.length }} records</span>
       </div>
+      <div v-if="contextCopyMessage" class="data-table-copy-notice" role="status">{{ contextCopyMessage }}</div>
       <div class="data-table-scroller">
         <table class="data-table">
           <thead>
@@ -46,6 +48,7 @@ const DataTable = {
                 class="data-table-row"
                 tabindex="0"
                 @click="$emit('row-click', row)"
+                @contextmenu.prevent="openRowContextMenu($event, row, index)"
                 @keydown="onRowKeydown($event, row, index)">
               <td v-if="selectable" class="data-table-sticky-select" @click.stop>
                 <input type="checkbox"
@@ -92,6 +95,14 @@ const DataTable = {
           </button>
         </div>
       </div>
+      <context-menu
+        :show="Boolean(contextRow)"
+        :x="contextMenuX"
+        :y="contextMenuY"
+        :items="contextMenuItems"
+        @close="closeRowContextMenu"
+        @select="handleRowContextAction">
+      </context-menu>
     </div>
   `,
   data() {
@@ -104,6 +115,12 @@ const DataTable = {
       editingKey: '',
       editingColumnKey: '',
       editingValue: '',
+      contextRow: null,
+      contextRowIndex: -1,
+      contextMenuX: 0,
+      contextMenuY: 0,
+      copiedContextRowId: false,
+      contextCopyMessage: '',
     };
   },
   computed: {
@@ -147,6 +164,13 @@ const DataTable = {
     allPageSelected() {
       if (!this.selectable || !this.paginatedData.length) return false;
       return this.paginatedData.every((row, index) => this.isSelected(row, index));
+    },
+    contextMenuItems() {
+      const identifier = this.contextRow ? this.rowIdentifier(this.contextRow, this.contextRowIndex) : '';
+      return [
+        { label: 'Open details', icon: 'mdi-open-in-new', action: 'open' },
+        { label: this.copiedContextRowId ? 'Reference copied' : `Copy reference ${identifier}`, icon: this.copiedContextRowId ? 'mdi-check' : 'mdi-content-copy', action: 'copy' },
+      ];
     },
   },
   watch: {
@@ -206,6 +230,46 @@ const DataTable = {
       } else {
         this.sortKey = key;
         this.sortDir = 'asc';
+      }
+    },
+    openRowContextMenu(event, row, index) {
+      this.contextRow = row;
+      this.contextRowIndex = index;
+      this.contextMenuX = event.clientX;
+      this.contextMenuY = event.clientY;
+      this.copiedContextRowId = false;
+      this.$emit('row-context', { row, index, x: event.clientX, y: event.clientY });
+    },
+    closeRowContextMenu() {
+      this.contextRow = null;
+      this.contextRowIndex = -1;
+      this.copiedContextRowId = false;
+    },
+    async handleRowContextAction(action) {
+      const row = this.contextRow;
+      const index = this.contextRowIndex;
+      if (!row) return;
+      if (action === 'open') {
+        this.$emit('row-click', row);
+        this.closeRowContextMenu();
+        return;
+      }
+      if (action !== 'copy') return;
+      const identifier = String(this.rowIdentifier(row, index));
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable');
+        await navigator.clipboard.writeText(identifier);
+        this.copiedContextRowId = true;
+        this.contextCopyMessage = `Copied ${identifier}`;
+        window.setTimeout(() => {
+          this.contextCopyMessage = '';
+        }, 2400);
+      } catch (_) {
+        this.copiedContextRowId = false;
+        this.contextCopyMessage = 'Unable to copy the reference in this browser.';
+        window.setTimeout(() => {
+          this.contextCopyMessage = '';
+        }, 2400);
       }
     },
     onRowKeydown(event, row, index) {

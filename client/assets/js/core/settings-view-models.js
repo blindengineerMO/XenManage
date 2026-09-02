@@ -58,6 +58,19 @@ function getSettingsPerformanceFields() {
   ];
 }
 
+function getSettingsInteractionFields() {
+  return [
+    {
+      key: 'undoDelaySeconds',
+      label: 'Undo Delay (seconds)',
+      type: 'number',
+      min: 1,
+      max: 60,
+      help: 'Delay VM power operations before they are sent to XenServer, giving operators a short cancel window.',
+    },
+  ];
+}
+
 function getSettingsRetentionRuntimeFields() {
   return [
     { key: 'sweepIntervalHours', label: 'Scheduled Sweep Interval (hours)', type: 'number', min: 1, max: 168, help: 'Changing this restarts the in-process retention scheduler immediately.' },

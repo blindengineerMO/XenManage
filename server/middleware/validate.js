@@ -1001,7 +1001,7 @@ const schemas = {
     memberUserIds: Joi.array().items(Joi.number().integer().min(1)).max(200).default([]),
   }),
   systemConfigSectionParam: Joi.object({
-    section: Joi.string().valid('general', 'network', 'security', 'logging', 'performance', 'retention').required(),
+    section: Joi.string().valid('general', 'network', 'security', 'logging', 'performance', 'interaction', 'retention').required(),
   }),
   systemConfigGeneralUpdate: Joi.object({
     appName: Joi.string().trim().required().min(1).max(120),
@@ -1023,6 +1023,9 @@ const schemas = {
   systemConfigPerformanceUpdate: Joi.object({
     collectionEnabled: Joi.boolean().default(true),
     collectionIntervalSeconds: Joi.number().integer().min(30).max(3600).default(60),
+  }),
+  systemConfigInteractionUpdate: Joi.object({
+    undoDelaySeconds: Joi.number().integer().min(1).max(60).default(5),
   }),
   systemConfigRetentionUpdate: Joi.object({
     sweepIntervalHours: Joi.number().integer().min(1).max(168).default(24),

@@ -24,6 +24,8 @@ const store = reactive({
   sidebarOpen: true,
   ready: false,
   bootMessage: 'Verifying session state',
+  undoDelaySeconds: 5,
+  undoDelayLoaded: false,
 });
 const globalConfirmState = reactive({
   show: false,
@@ -33,6 +35,15 @@ const globalConfirmState = reactive({
   danger: false,
 });
 let globalConfirmResolver = null;
+const globalUndoState = reactive({
+  show: false,
+  title: 'Action queued',
+  message: '',
+  secondsRemaining: 5,
+});
+let globalUndoResolver = null;
+let globalUndoTimeout = null;
+let globalUndoTicker = null;
 
 const GOVERNANCE_APPROVAL_STORAGE_KEY = 'xenmange.pendingGovernanceApproval';
 
@@ -224,6 +235,60 @@ function requestGlobalConfirm(options = {}) {
 
   return new Promise((resolve) => {
     globalConfirmResolver = resolve;
+  });
+}
+
+function settleGlobalUndo(execute = false) {
+  if (globalUndoTimeout) window.clearTimeout(globalUndoTimeout);
+  if (globalUndoTicker) window.clearInterval(globalUndoTicker);
+  globalUndoTimeout = null;
+  globalUndoTicker = null;
+
+  const resolver = globalUndoResolver;
+  globalUndoResolver = null;
+  globalUndoState.show = false;
+  globalUndoState.title = 'Action queued';
+  globalUndoState.message = '';
+  globalUndoState.secondsRemaining = 5;
+  if (typeof resolver === 'function') resolver(Boolean(execute));
+}
+
+function normalizeUndoDelaySeconds(value) {
+  const seconds = Number(value);
+  return Number.isInteger(seconds) && seconds >= 1 && seconds <= 60 ? seconds : 5;
+}
+
+function applyUndoDelaySeconds(value) {
+  store.undoDelaySeconds = normalizeUndoDelaySeconds(value);
+  store.undoDelayLoaded = true;
+}
+
+async function requestUndoableOperation(options = {}) {
+  if (typeof window === 'undefined') return Promise.resolve(true);
+  if (!store.undoDelayLoaded) {
+    try {
+      const settings = await api.getSystemConfig();
+      applyUndoDelaySeconds(settings?.interaction?.undoDelaySeconds);
+    } catch (_) {
+      store.undoDelayLoaded = true;
+    }
+  }
+  if (globalUndoResolver) settleGlobalUndo(true);
+
+  const durationMs = Math.max(1000, Number(options.durationMs || store.undoDelaySeconds * 1000));
+  const deadline = Date.now() + durationMs;
+  globalUndoState.title = String(options.title || 'Action queued').trim() || 'Action queued';
+  globalUndoState.message = String(options.message || 'Undo before this operation reaches XenServer.').trim();
+  globalUndoState.secondsRemaining = Math.ceil(durationMs / 1000);
+  globalUndoState.show = true;
+
+  return new Promise((resolve) => {
+    globalUndoResolver = resolve;
+    const updateRemaining = () => {
+      globalUndoState.secondsRemaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    };
+    globalUndoTicker = window.setInterval(updateRemaining, 200);
+    globalUndoTimeout = window.setTimeout(() => settleGlobalUndo(true), durationMs);
   });
 }
 

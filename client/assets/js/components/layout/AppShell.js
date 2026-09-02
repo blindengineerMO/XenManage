@@ -1,5 +1,5 @@
 const AppShell = {
-  components: { TopNav, SideNav, StatusBar, ConfirmWindow },
+  components: { TopNav, SideNav, StatusBar, ConfirmWindow, UndoBar },
   template: `
     <div>
       <div v-if="!store.ready" class="boot-shell">
@@ -61,6 +61,14 @@ const AppShell = {
         @close="respondToGlobalConfirm(false)"
         @confirm="respondToGlobalConfirm(true)">
       </confirm-window>
+
+      <undo-bar
+        :show="globalUndoState.show"
+        :title="globalUndoState.title"
+        :message="globalUndoState.message"
+        :seconds-remaining="globalUndoState.secondsRemaining"
+        @undo="respondToGlobalUndo">
+      </undo-bar>
     </div>
   `,
   setup() {
@@ -121,12 +129,15 @@ const AppShell = {
     const respondToGlobalConfirm = (confirmed) => {
       settleGlobalConfirm(confirmed);
     };
+    const respondToGlobalUndo = () => settleGlobalUndo(false);
 
     onBeforeUnmount(() => removeRouteHook());
 
     return {
       globalConfirmState,
+      globalUndoState,
       respondToGlobalConfirm,
+      respondToGlobalUndo,
       store,
       route,
       workspaceTabs,
