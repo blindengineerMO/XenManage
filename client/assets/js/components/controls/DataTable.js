@@ -1,5 +1,5 @@
 const DataTable = {
-  components: { ContextMenu },
+  components: { ContextMenu: typeof ContextMenu !== 'undefined' ? ContextMenu : undefined },
   props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey'],
   emits: ['row-click', 'selection-change', 'cell-edit', 'row-context'],
   template: `
