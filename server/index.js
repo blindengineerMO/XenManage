@@ -8,6 +8,8 @@ const config = require('./config');
 const securityMiddleware = require('./middleware/security');
 const { createApiRateLimiter } = require('./middleware/rate-limit');
 const { csrfProtection } = require('./middleware/csrf');
+const requestLogging = require('./middleware/request-logging');
+const logger = require('./services/logger');
 const sessionMiddleware = require('./middleware/session');
 const { router: authRouter, requireAuth, requireXenConnection, buildStatusPayload } = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
@@ -38,6 +40,7 @@ const workflowRoutes = require('./routes/workflows');
 const publicApiRoutes = require('./routes/public-api');
 const projectRoutes = require('./routes/projects');
 const healthRoutes = require('./routes/health');
+const metricsExportRoutes = require('./routes/metrics-export');
 const governanceService = require('./services/governance');
 const metricsCollector = require('./services/metrics-collector');
 const managedTargetService = require('./services/managed-targets');
@@ -53,6 +56,7 @@ securityMiddleware(app);
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(requestLogging);
 
 // Rate limiting
 const authLimiter = rateLimit({
@@ -87,6 +91,7 @@ app.use('/dist', express.static(path.join(__dirname, '..', 'client', 'dist'), {
 
 // API Routes
 app.use(healthRoutes);
+app.use(metricsExportRoutes);
 app.use('/api', apiLimiter);
 app.use('/api', apiCsrfProtection);
 app.use('/api/auth/login', authLimiter);
@@ -149,7 +154,7 @@ app.get('/{*splat}', (req, res) => {
 
 // Error handler
 app.use((err, req, res, _next) => {
-  console.error('Server Error:', err);
+  logger.error('request_failed', { requestId: req.requestId, method: req.method, path: req.originalUrl, error: err });
   if (req.path.startsWith('/api/')) {
     return res.status(500).json({ error: 'INTERNAL_SERVER_ERROR' });
   }
@@ -171,11 +176,11 @@ if (require.main === module) {
   workflowEngine.start();
   metricsCollector.start();
   const server = app.listen(config.port, () => {
-    console.log(`XenMange server running on port ${config.port} [${config.env}]`);
+    logger.info('server_started', { port: config.port, environment: config.env });
   });
 
   process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down...');
+    logger.info('shutdown_requested', { signal: 'SIGTERM' });
     retentionService.stopScheduler();
     managedTargetService.stop();
     workflowEngine.stop();
