@@ -63,6 +63,20 @@ describe('OpenAPI v1 document', () => {
     expect(stale).toEqual([]);
   });
 
+  it('publishes the compatibility/deprecation policy referenced by plan.md item 7', () => {
+    const policy = openApiDoc.info['x-compatibility-policy'];
+    expect(policy).toBeTruthy();
+    expect(typeof policy.stability).toBe('string');
+    expect(policy.stability.length).toBeGreaterThan(0);
+    expect(typeof policy.additiveChanges).toBe('string');
+    expect(Number.isInteger(policy.deprecationNoticeMinDays)).toBe(true);
+    expect(policy.deprecationNoticeMinDays).toBeGreaterThan(0);
+    expect(typeof policy.deprecationSignal).toBe('string');
+    expect(policy.deprecationSignal).toMatch(/Deprecation/);
+    expect(policy.deprecationSignal).toMatch(/Sunset/);
+    expect(typeof policy.changelogPolicy).toBe('string');
+  });
+
   it('gives every documented operation a 2xx response, a summary, and an operationId', () => {
     const problems = [];
     for (const [openApiPath, methods] of Object.entries(openApiDoc.paths)) {

@@ -378,6 +378,75 @@ function handleDemoGovernanceRoutes(method, path, body) {
     return { success: true };
   }
 
+  if (method === 'GET' && path.startsWith('/api/governance/api-tokens/')) {
+    const userId = Number(path.split('/')[4] || 0);
+    const data = demoDb.apiTokens
+      .filter((entry) => Number(entry.user_id) === userId && !entry.revoked_at)
+      .map((entry) => clone(entry));
+    return { data };
+  }
+
+  if (method === 'POST' && path.startsWith('/api/governance/api-tokens/')) {
+    const userId = Number(path.split('/')[4] || 0);
+    const user = demoDb.users.find((entry) => Number(entry.id) === userId);
+    if (!user) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    const raw = `xm_demo${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;
+    const record = {
+      id: `demo-token-${Date.now()}`,
+      user_id: userId,
+      name: body.name || '',
+      token_prefix: raw.slice(0, 10),
+      permissions: Array.isArray(body.permissions) ? body.permissions : [],
+      expires_at: body.expiresAt || '',
+      allowedIps: Array.isArray(body.allowedIps) ? body.allowedIps : [],
+      created_at: new Date().toISOString(),
+      last_used_at: '',
+      revoked_at: '',
+    };
+    demoDb.apiTokens.push(record);
+    recordDemoAudit({
+      category: 'governance',
+      action: 'api_token_created',
+      actionLabel: 'Created API token for',
+      entityType: 'api-token',
+      entityRef: record.id,
+      entityName: record.name,
+      route: '/governance',
+      before: null,
+      after: clone(record),
+      detail: `Issued API token "${record.name}" for ${user.username}.`,
+    });
+    return { ...clone(record), token: raw };
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/governance/api-tokens/')) {
+    const tokenId = decodeURIComponent(path.split('/')[4] || '');
+    const index = demoDb.apiTokens.findIndex((entry) => entry.id === tokenId);
+    if (index === -1) {
+      const error = new Error('API_TOKEN_NOT_FOUND');
+      error.code = 'API_TOKEN_NOT_FOUND';
+      throw error;
+    }
+    demoDb.apiTokens[index] = { ...demoDb.apiTokens[index], revoked_at: new Date().toISOString() };
+    recordDemoAudit({
+      category: 'governance',
+      action: 'api_token_revoked',
+      actionLabel: 'Revoked API token for',
+      entityType: 'api-token',
+      entityRef: tokenId,
+      entityName: demoDb.apiTokens[index].name,
+      route: '/governance',
+      before: null,
+      after: clone(demoDb.apiTokens[index]),
+      detail: `Revoked API token "${demoDb.apiTokens[index].name}".`,
+    });
+    return { success: true };
+  }
+
   if (method === 'PUT' && path.startsWith('/api/governance/quotas/')) {
     ensureDemoMutationAllowed({ actionKey: 'governance_quota_save', entityType: 'pool', entityRef: decodeURIComponent(path.split('/')[4] || '') });
     const poolRef = decodeURIComponent(path.split('/')[4] || '');

@@ -1002,6 +1002,20 @@ const demoDb = {
       memberUserIds: [2],
     },
   ],
+  apiTokens: [
+    {
+      id: 'demo-token-1',
+      user_id: 1,
+      name: 'CI Deployment Token',
+      token_prefix: 'xm_demoCI0',
+      permissions: ['vm.read', 'vm.create'],
+      expires_at: '',
+      allowedIps: [],
+      created_at: '2026-08-22T09:00:00.000Z',
+      last_used_at: '2026-08-24T07:30:00.000Z',
+      revoked_at: '',
+    },
+  ],
   resilienceRunbooks: [
     {
       poolRef: 'OpaqueRef:pool-demo-1',

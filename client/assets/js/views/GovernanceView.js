@@ -406,11 +406,13 @@ const GovernanceView = {
           :approvals="approvals" :approval-draft="approvalDraft" :approval-saving="approvalSaving" :approval-error="approvalError" :deciding-approval-id="decidingApprovalId"
           :can-manage-users="canManageUsers" :users="users" :groups="groups" :selected-user="selectedUser" :show-user-composer="showUserComposer" :user-saving="userSaving" :user-error="userError" :show-password-reset="showPasswordReset" :password-saving="passwordSaving" :password-error="passwordError"
           :selected-group="selectedGroup" :show-group-composer="showGroupComposer" :group-saving="groupSaving" :group-error="groupError"
+          :api-tokens="apiTokens" :selected-token-user="selectedTokenUser" :token-saving="tokenSaving" :token-error="tokenError" :new-token-secret="newTokenSecret"
           @close="closeGovernancePanel" @select-tab="selectGovernancePanelTab" @save-policy="savePolicy"
           @select-quota="openQuotaEditor" @save-quota="saveQuota" @delete-quota="deleteQuota"
           @save-approval="saveApprovalRequest" @decide-approval="decideApproval"
           @new-user="openUserComposer" @select-user="openUserEditor" @save-user="showUserComposer ? saveNewUser($event) : saveExistingUser($event)" @open-password-reset="openPasswordReset" @save-password="submitPasswordReset"
-          @new-group="openGroupComposer" @select-group="openGroupEditor" @save-group="showGroupComposer ? saveNewGroup($event) : saveExistingGroup($event)" @remove-group="removeGroup">
+          @new-group="openGroupComposer" @select-group="openGroupEditor" @save-group="showGroupComposer ? saveNewGroup($event) : saveExistingGroup($event)" @remove-group="removeGroup"
+          @select-token-user="selectTokenUser" @save-token="saveApiToken" @revoke-token="revokeApiToken" @dismiss-new-token-secret="newTokenSecret = ''">
         </governance-control-panel>
       </template>
     </div>
@@ -471,6 +473,11 @@ const GovernanceView = {
       selectedQuotaRow: null,
       selectedUser: null,
       selectedGroup: null,
+      apiTokens: [],
+      selectedTokenUser: null,
+      tokenSaving: false,
+      tokenError: '',
+      newTokenSecret: '',
     };
   },
   setup() {
@@ -908,6 +915,49 @@ const GovernanceView = {
         this.groupError = error.message || 'Unable to remove local group';
       } finally {
         this.groupSaving = false;
+      }
+    },
+    async loadApiTokensForUser(user) {
+      if (!user?.id) { this.apiTokens = []; return; }
+      try {
+        const response = await api.getApiTokens(user.id);
+        this.apiTokens = response?.data || [];
+      } catch (error) {
+        this.tokenError = error.message || 'Unable to load API tokens';
+      }
+    },
+    async selectTokenUser(user) {
+      this.selectedTokenUser = user;
+      this.tokenError = '';
+      this.newTokenSecret = '';
+      this.apiTokens = [];
+      await this.loadApiTokensForUser(user);
+    },
+    async saveApiToken(payload) {
+      if (!this.selectedTokenUser?.id) return;
+      this.tokenSaving = true;
+      this.tokenError = '';
+      try {
+        const response = await api.createApiToken(this.selectedTokenUser.id, payload);
+        this.newTokenSecret = response?.token || '';
+        await this.loadApiTokensForUser(this.selectedTokenUser);
+      } catch (error) {
+        this.tokenError = error.message || 'Unable to create API token';
+      } finally {
+        this.tokenSaving = false;
+      }
+    },
+    async revokeApiToken(token) {
+      if (!token?.id) return;
+      this.tokenSaving = true;
+      this.tokenError = '';
+      try {
+        await api.revokeApiToken(token.id);
+        await this.loadApiTokensForUser(this.selectedTokenUser);
+      } catch (error) {
+        this.tokenError = error.message || 'Unable to revoke API token';
+      } finally {
+        this.tokenSaving = false;
       }
     },
     async submitPasswordReset(payload) {

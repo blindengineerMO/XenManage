@@ -82,6 +82,13 @@ const document = {
     title: 'XenManage Public API',
     version: 'v1',
     description: 'Token-authenticated automation surface for XenManage managed targets and workflows. Intended as the stable base for external tooling (CLI, Terraform, Ansible). Every route requires `Authorization: Bearer <api-token>`; tokens and their permissions are issued from Settings > Governance > API Tokens.',
+    'x-compatibility-policy': {
+      stability: 'Nothing already published under /api/v1 is changed in a breaking way: no route removed or renamed, no field removed/renamed/retyped, no change to authentication or error semantics. Any change of that kind ships as /api/v2, introduced alongside v1 rather than replacing it, so existing v1 integrations keep working with no flag day.',
+      additiveChanges: 'New routes, new optional request fields, and new optional response fields may be added to v1 at any time without advance notice, the same way a semver minor release would.',
+      deprecationNoticeMinDays: 90,
+      deprecationSignal: 'A route or field being retired from v1 is first marked "deprecated": true at this same location in this document, and responses from it start carrying a Deprecation: true header plus a Sunset header (RFC 8594) naming the removal date, simultaneously, for at least deprecationNoticeMinDays before it is actually removed.',
+      changelogPolicy: 'Every deprecation and every eventual removal is recorded in CHANGELOG.md under the release it shipped in, in addition to the signals above.',
+    },
   },
   servers: [{ url: '/api/v1' }],
   security: [{ bearerApiToken: [] }],

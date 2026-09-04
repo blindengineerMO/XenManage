@@ -7,6 +7,7 @@ const GovernanceControlPanel = {
     LocalUserForm,
     LocalGroupForm,
     UserPasswordForm,
+    ApiTokenForm,
     StatusBadge,
   },
   props: {
@@ -38,8 +39,13 @@ const GovernanceControlPanel = {
     showGroupComposer: { type: Boolean, default: false },
     groupSaving: { type: Boolean, default: false },
     groupError: { type: String, default: '' },
+    apiTokens: { type: Array, default: () => [] },
+    selectedTokenUser: { type: Object, default: null },
+    tokenSaving: { type: Boolean, default: false },
+    tokenError: { type: String, default: '' },
+    newTokenSecret: { type: String, default: '' },
   },
-  emits: ['close', 'select-tab', 'save-policy', 'select-quota', 'save-quota', 'delete-quota', 'save-approval', 'decide-approval', 'new-user', 'select-user', 'save-user', 'open-password-reset', 'close-password-reset', 'save-password', 'new-group', 'select-group', 'save-group', 'remove-group'],
+  emits: ['close', 'select-tab', 'save-policy', 'select-quota', 'save-quota', 'delete-quota', 'save-approval', 'decide-approval', 'new-user', 'select-user', 'save-user', 'open-password-reset', 'close-password-reset', 'save-password', 'new-group', 'select-group', 'save-group', 'remove-group', 'select-token-user', 'save-token', 'revoke-token', 'dismiss-new-token-secret'],
   template: `
     <floating-window :show="show" title="Governance Control Panel" :width="980" :height="700" @close="$emit('close')">
       <div class="detail-section" style="margin-top:0">
@@ -88,13 +94,35 @@ const GovernanceControlPanel = {
           <div class="governance-panel-editor" v-if="canManageUsers"><div class="detail-title">{{ selectedUser && !showUserComposer ? 'Edit Local User' : 'Create Local User' }}</div><local-user-form :initial-value="showUserComposer ? emptyUserDraft : (selectedUser || {})" :saving="userSaving" :submit-label="showUserComposer ? 'Create User' : 'Save User'" :mode="showUserComposer ? 'create' : 'edit'" :group-options="groups" @submit="$emit('save-user', $event)"></local-user-form><button v-if="selectedUser && !showUserComposer" class="btn" :disabled="passwordSaving" @click="$emit('open-password-reset', selectedUser)">Reset Password</button><user-password-form v-if="showPasswordReset" :saving="passwordSaving" submit-label="Rotate Password" @submit="$emit('save-password', $event)"></user-password-form><div class="form-error" v-if="userError || passwordError">{{ userError || passwordError }}</div></div>
         </div>
 
-        <div v-else class="governance-panel-grid">
+        <div v-else-if="activeTab === 'groups'" class="governance-panel-grid">
           <div><button v-if="canManageUsers" class="btn btn-sm" style="margin-bottom:8px" @click="$emit('new-group')"><span class="mdi mdi-account-group-outline"></span>New Group</button><div class="stack-list"><button v-for="group in groups" :key="group.id" class="stack-item stack-item-button" :class="{ active: selectedGroup?.id === group.id }" @click="$emit('select-group', group)"><div><strong>{{ group.name }}</strong><div class="text-muted mono" style="font-size:11px">{{ group.member_count || 0 }} members</div></div><span class="badge badge-info">{{ group.member_count || 0 }}</span></button></div></div>
           <div class="governance-panel-editor" v-if="canManageUsers"><div class="detail-title">{{ selectedGroup && !showGroupComposer ? 'Edit Local Group' : 'Create Local Group' }}</div><local-group-form :initial-value="showGroupComposer ? emptyGroupDraft : (selectedGroup || {})" :saving="groupSaving" :submit-label="showGroupComposer ? 'Create Group' : 'Save Group'" :user-options="users" @submit="$emit('save-group', $event)"></local-group-form><button v-if="selectedGroup && !showGroupComposer" class="btn" :disabled="groupSaving" @click="$emit('remove-group', selectedGroup)">Remove Group</button><div class="form-error" v-if="groupError">{{ groupError }}</div></div>
+        </div>
+
+        <div v-else class="governance-panel-grid">
+          <div class="stack-list"><button v-for="user in users" :key="user.id" class="stack-item stack-item-button" :class="{ active: selectedTokenUser?.id === user.id }" @click="$emit('select-token-user', user)"><div><strong>{{ user.display_name || user.username }}</strong><div class="text-muted mono" style="font-size:11px">{{ user.username }} · {{ user.role }}</div></div></button></div>
+          <div class="governance-panel-editor" v-if="selectedTokenUser">
+            <div class="detail-title">API Tokens for {{ selectedTokenUser.display_name || selectedTokenUser.username }}</div>
+            <div v-if="newTokenSecret" class="form-hint" style="border:1px solid var(--accent-color, #4a90d9);padding:8px;border-radius:4px;margin-bottom:10px">
+              <div><strong>Copy this token now — it will not be shown again.</strong></div>
+              <div class="mono" style="word-break:break-all;margin:6px 0">{{ newTokenSecret }}</div>
+              <button class="btn btn-sm" @click="$emit('dismiss-new-token-secret')">Dismiss</button>
+            </div>
+            <div class="stack-list" style="margin-bottom:10px">
+              <div v-for="token in apiTokens" :key="token.id" class="stack-item">
+                <div><strong>{{ token.name }}</strong><div class="text-muted mono" style="font-size:11px">{{ token.token_prefix }}… · {{ token.permissions && token.permissions.length ? token.permissions.join(', ') : 'full account scope' }}</div><div class="text-muted" style="font-size:11px">{{ token.expires_at ? ('Expires ' + token.expires_at) : 'No expiration' }}</div></div>
+                <button class="btn btn-sm" :disabled="tokenSaving" @click="$emit('revoke-token', token)">Revoke</button>
+              </div>
+              <div v-if="!apiTokens.length" class="empty-state">No active tokens for this user.</div>
+            </div>
+            <api-token-form :saving="tokenSaving" submit-label="Create Token" @submit="$emit('save-token', $event)"></api-token-form>
+            <div class="form-error" v-if="tokenError">{{ tokenError }}</div>
+          </div>
+          <div v-else class="empty-state">Select a user to manage their API tokens.</div>
         </div>
       </div>
     </floating-window>
   `,
-  data() { return { emptyUserDraft: {}, emptyGroupDraft: {}, tabs: [{ key: 'policy', label: 'Policy', icon: 'mdi-shield-cog-outline' }, { key: 'quotas', label: 'Quotas', icon: 'mdi-gauge' }, { key: 'users', label: 'Users', icon: 'mdi-account-multiple-outline' }, { key: 'groups', label: 'Groups', icon: 'mdi-account-group-outline' }, { key: 'approvals', label: 'Approvals', icon: 'mdi-clipboard-check-outline' }] }; },
+  data() { return { emptyUserDraft: {}, emptyGroupDraft: {}, tabs: [{ key: 'policy', label: 'Policy', icon: 'mdi-shield-cog-outline' }, { key: 'quotas', label: 'Quotas', icon: 'mdi-gauge' }, { key: 'users', label: 'Users', icon: 'mdi-account-multiple-outline' }, { key: 'groups', label: 'Groups', icon: 'mdi-account-group-outline' }, { key: 'approvals', label: 'Approvals', icon: 'mdi-clipboard-check-outline' }, { key: 'tokens', label: 'API Tokens', icon: 'mdi-key-outline' }] }; },
   methods: { mapApprovalStatus: mapGovernanceApprovalStatus, formatApprovalAction: formatGovernanceApprovalAction },
 };
