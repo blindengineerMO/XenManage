@@ -6,6 +6,7 @@ const systemConfigService = require('../services/system-config');
 const metricsCollector = require('../services/metrics-collector');
 const retentionService = require('../services/retention');
 const credentialVaultService = require('../services/credential-vault');
+const backupService = require('../services/control-plane-backup');
 
 const router = express.Router();
 
@@ -17,6 +18,7 @@ function getSectionSchema(section) {
   if (section === 'performance') return schemas.systemConfigPerformanceUpdate;
   if (section === 'interaction') return schemas.systemConfigInteractionUpdate;
   if (section === 'retention') return schemas.systemConfigRetentionUpdate;
+  if (section === 'controlPlaneBackup') return schemas.systemConfigControlPlaneBackupUpdate;
   return null;
 }
 
@@ -170,6 +172,10 @@ router.put('/:section',
 
       if (req.params.section === 'retention') {
         retentionService.refreshScheduler();
+      }
+
+      if (req.params.section === 'controlPlaneBackup') {
+        backupService.refreshScheduler();
       }
 
       if (req.params.section === 'performance') {

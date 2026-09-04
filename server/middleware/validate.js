@@ -1054,7 +1054,7 @@ const schemas = {
     memberUserIds: Joi.array().items(Joi.number().integer().min(1)).max(200).default([]),
   }),
   systemConfigSectionParam: Joi.object({
-    section: Joi.string().valid('general', 'network', 'security', 'logging', 'performance', 'interaction', 'retention').required(),
+    section: Joi.string().valid('general', 'network', 'security', 'logging', 'performance', 'interaction', 'retention', 'controlPlaneBackup').required(),
   }),
   systemConfigGeneralUpdate: Joi.object({
     appName: Joi.string().trim().required().min(1).max(120),
@@ -1083,6 +1083,10 @@ const schemas = {
   systemConfigRetentionUpdate: Joi.object({
     sweepIntervalHours: Joi.number().integer().min(1).max(168).default(24),
     vacuumAfterSweep: Joi.boolean().default(true),
+  }),
+  systemConfigControlPlaneBackupUpdate: Joi.object({
+    enabled: Joi.boolean().default(false),
+    intervalHours: Joi.number().integer().min(1).max(168).default(24),
   }),
   retentionDomainParam: Joi.object({
     domain: Joi.string().valid('audit-log', 'remediation-tasks', 'auth-events', 'template-deployment-runs', 'metric-samples', 'metric-hourly-rollups').required(),

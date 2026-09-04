@@ -31,6 +31,10 @@ const SECTION_KEYS = {
     sweepIntervalHours: 'retention.sweepIntervalHours',
     vacuumAfterSweep: 'retention.vacuumAfterSweep',
   },
+  controlPlaneBackup: {
+    enabled: 'controlPlaneBackup.enabled',
+    intervalHours: 'controlPlaneBackup.intervalHours',
+  },
 };
 
 const DEFAULTS = {
@@ -61,6 +65,10 @@ const DEFAULTS = {
   retention: {
     sweepIntervalHours: 24,
     vacuumAfterSweep: true,
+  },
+  controlPlaneBackup: {
+    enabled: false,
+    intervalHours: 24,
   },
 };
 
@@ -132,6 +140,7 @@ const systemConfigService = {
       performance: getSection('performance'),
       interaction: getSection('interaction'),
       retention: getSection('retention'),
+      controlPlaneBackup: getSection('controlPlaneBackup'),
       vault: credentialVaultService.getRuntimeStatus(),
       runtime: {
         env: config.env,
@@ -151,6 +160,8 @@ const systemConfigService = {
           'interaction.undoDelaySeconds',
           'retention.sweepIntervalHours',
           'retention.vacuumAfterSweep',
+          'controlPlaneBackup.enabled',
+          'controlPlaneBackup.intervalHours',
         ],
         metricsCollector: getMetricsCollectorStatus(),
       },

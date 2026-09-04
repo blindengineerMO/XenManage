@@ -53,6 +53,7 @@ const managedTargetService = require('./services/managed-targets');
 const workflowEngine = require('./services/workflow-engine');
 const systemConfigService = require('./services/system-config');
 const retentionService = require('./services/retention');
+const controlPlaneBackupService = require('./services/control-plane-backup');
 const catalogApprovalHooks = require('./services/catalog-approval-hooks');
 const catalogLeases = require('./services/catalog-leases');
 
@@ -181,6 +182,7 @@ app.use((req, res) => {
 
 function stopRuntimeServices() {
   retentionService.stopScheduler();
+  controlPlaneBackupService.stopScheduler();
   catalogApprovalHooks.stop();
   catalogLeases.stop();
   workflowEngine.stop();
@@ -190,6 +192,7 @@ function stopRuntimeServices() {
 
 function startServer({ port = config.port, exit = process.exit } = {}) {
   retentionService.startScheduler();
+  controlPlaneBackupService.startScheduler();
   catalogApprovalHooks.start();
   catalogLeases.start();
   managedTargetService.start();

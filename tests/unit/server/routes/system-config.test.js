@@ -144,6 +144,36 @@ describe('System Config Routes', () => {
       enabled: true,
       intervalSeconds: 60,
     }));
+    expect(res.body.controlPlaneBackup).toEqual(expect.objectContaining({
+      enabled: false,
+      intervalHours: 24,
+    }));
+  });
+
+  it('should persist control-plane backup scheduling settings and refresh the scheduler', async () => {
+    const auth = await login();
+
+    const updated = await request('PUT', '/api/settings/controlPlaneBackup', {
+      enabled: true,
+      intervalHours: 6,
+    }, auth.cookie);
+    expect(updated.status).toBe(200);
+    expect(updated.body.section).toEqual(expect.objectContaining({
+      enabled: true,
+      intervalHours: 6,
+    }));
+
+    const refreshed = await request('GET', '/api/settings', null, auth.cookie);
+    expect(refreshed.body.controlPlaneBackup).toEqual(expect.objectContaining({
+      enabled: true,
+      intervalHours: 6,
+    }));
+
+    const reverted = await request('PUT', '/api/settings/controlPlaneBackup', {
+      enabled: false,
+      intervalHours: 24,
+    }, auth.cookie);
+    expect(reverted.status).toBe(200);
   });
 
   it('should persist settings updates and run retention previews and sweeps', async () => {

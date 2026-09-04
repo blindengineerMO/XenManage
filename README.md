@@ -1761,7 +1761,9 @@ curl -b cookies.txt -X POST "http://localhost:3000/api/governance/approvals/appr
 
 ### Control-plane Backups
 
-Admin-only snapshot management for XenManage's own SQLite-backed state (`xenmange.db`, `security.db`, `vault.db`, `perf.db`), stored under `CONTROL_PLANE_BACKUP_PATH` (default `data/backups`). Scheduling and an actual restore operation remain follow-on work; today this covers on-demand snapshot creation, integrity verification, and a read-only restore preview.
+Admin-only snapshot management for XenManage's own SQLite-backed state (`xenmange.db`, `security.db`, `vault.db`, `perf.db`), stored under `CONTROL_PLANE_BACKUP_PATH` (default `data/backups`). An actual restore operation remains follow-on work; today this covers on-demand and scheduled snapshot creation, integrity verification, and a read-only restore preview.
+
+Automatic scheduling is configured via the `controlPlaneBackup` settings section (`PUT /api/settings/controlPlaneBackup`, body `{ enabled, intervalHours }`; `intervalHours` is clamped to a minimum of 1 hour), alongside the existing `general`/`network`/`security`/`logging`/`performance`/`interaction`/`retention` sections. It is disabled by default. Each scheduled run creates a snapshot the same way `POST /api/control-plane-backups` does and is audit-logged as `control_plane_backup_created` with operator `system`.
 
 #### `GET /api/control-plane-backups/`
 

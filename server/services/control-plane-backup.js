@@ -7,6 +7,10 @@ const { getDb } = require('../models/connection');
 const { getSecurityDb } = require('../models/security-db');
 const { getVaultDb } = require('../models/vault-db');
 const { getPerfDb } = require('../models/perf-db');
+const auditLogService = require('./audit-log');
+const logger = require('./logger');
+
+let schedulerTimer = null;
 
 function snapshotId() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -201,4 +205,48 @@ function restorePreview(id) {
   };
 }
 
-module.exports = { createSnapshot, listSnapshots, verifySnapshot, restorePreview };
+async function runScheduledSnapshot() {
+  const snapshot = await createSnapshot();
+  auditLogService.record({
+    category: 'control-plane', action: 'control_plane_backup_created', actionLabel: 'Created control-plane backup',
+    entityType: 'control-plane-backup', entityRef: snapshot.id, entityName: snapshot.id,
+    operator: 'system', route: '/settings', status: 'success', before: null, after: snapshot,
+    detail: 'Automatically created a scheduled SQLite-consistent snapshot of xenmange.db, security.db, vault.db, and perf.db.',
+  });
+  return snapshot;
+}
+
+function startScheduler() {
+  stopScheduler();
+
+  const systemConfigService = require('./system-config');
+  const { enabled, intervalHours } = systemConfigService.getSection('controlPlaneBackup');
+  if (!enabled) return;
+
+  const intervalMs = Math.max(1, Number(intervalHours || 24)) * 3600000;
+  schedulerTimer = setInterval(() => {
+    runScheduledSnapshot().catch((error) => {
+      logger.error('control_plane_backup_scheduled_snapshot_failed', { error });
+    });
+  }, intervalMs);
+
+  if (typeof schedulerTimer.unref === 'function') {
+    schedulerTimer.unref();
+  }
+}
+
+function stopScheduler() {
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
+}
+
+function refreshScheduler() {
+  startScheduler();
+}
+
+module.exports = {
+  createSnapshot, listSnapshots, verifySnapshot, restorePreview,
+  startScheduler, stopScheduler, refreshScheduler, runScheduledSnapshot,
+};
