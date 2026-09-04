@@ -1759,6 +1759,47 @@ curl -b cookies.txt -X POST "http://localhost:3000/api/governance/approvals/appr
   -d '{"decision": "approved", "notes": "Confirmed with on-call lead"}'
 ```
 
+### Control-plane Backups
+
+Admin-only snapshot management for XenManage's own SQLite-backed state (`xenmange.db`, `security.db`, `vault.db`, `perf.db`), stored under `CONTROL_PLANE_BACKUP_PATH` (default `data/backups`). Scheduling and an actual restore operation remain follow-on work; today this covers on-demand snapshot creation, integrity verification, and a read-only restore preview.
+
+#### `GET /api/control-plane-backups/`
+
+- **Auth:** Authenticated control-plane session, real account role `admin` and governance role `admin` required (`requireAdmin`).
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/control-plane-backups"
+```
+
+#### `POST /api/control-plane-backups/`
+
+- **Auth:** Same as above.
+- **Behavior:** Takes a SQLite-consistent backup of all four databases into a new timestamped directory and records a `manifest.json` with a SHA-256 checksum per database file.
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/control-plane-backups"
+```
+
+#### `POST /api/control-plane-backups/:id/verify`
+
+- **Auth:** Same as above.
+- **Path params:** `id` — snapshot id (the timestamped directory name returned by create/list)
+- **Behavior:** Re-hashes each backed-up database file and compares it against the checksum recorded in the manifest, then runs SQLite's `PRAGMA integrity_check` against a readonly connection to each file. Returns `{ id, checkedAt, overallStatus, databases: [{ name, status, ... }] }`, where each database's `status` is one of `ok`, `missing`, `checksum_mismatch`, `integrity_check_failed`, `open_failed`, or `unverified_no_checksum` (snapshots taken before this endpoint existed have no recorded checksum to compare against). `overallStatus` is `ok` only if every database is `ok`. Returns `404 SNAPSHOT_NOT_FOUND` for an unknown id. Every check is audit-logged (`control_plane_backup_verified`, `warning` status when issues are found).
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/control-plane-backups/2026-09-04T12-00-00-000Z/verify"
+```
+
+#### `GET /api/control-plane-backups/:id/restore-preview`
+
+- **Auth:** Same as above.
+- **Path params:** `id` — snapshot id
+- **Behavior:** Read-only comparison between the snapshot and the currently live databases. For each database, opens both readonly and compares table lists and row counts, reporting `tablesAddedSinceSnapshot`, `tablesRemovedSinceSnapshot`, and per-table `rowCountChanges` (`{ table, currentCount, snapshotCount, delta }`) for tables whose count differs. Each database's `status` is `no_changes_detected`, `would_change`, `live_database_missing`, `snapshot_file_missing`, or `preview_failed`. No data is modified — an actual restore is not yet implemented. Returns `404 SNAPSHOT_NOT_FOUND` for an unknown id.
+- **curl:**
+```bash
+curl -b cookies.txt -X GET "http://localhost:3000/api/control-plane-backups/2026-09-04T12-00-00-000Z/restore-preview"
+```
+
 ### Audit
 
 #### `GET /api/audit/`
