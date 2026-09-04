@@ -280,6 +280,7 @@ function initializeSchema() {
       token_prefix TEXT NOT NULL,
       token_hash TEXT NOT NULL UNIQUE,
       permissions_json TEXT NOT NULL DEFAULT '[]',
+      allowed_ips_json TEXT NOT NULL DEFAULT '[]',
       expires_at DATETIME,
       last_used_at DATETIME,
       revoked_at DATETIME,
@@ -325,6 +326,12 @@ function initializeSchema() {
     db.exec('ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT');
   }
 
+  const apiTokenColumns = new Set(
+    db.prepare('PRAGMA table_info(api_tokens)').all().map((column) => column.name)
+  );
+  if (!apiTokenColumns.has('allowed_ips_json')) {
+    db.exec(`ALTER TABLE api_tokens ADD COLUMN allowed_ips_json TEXT NOT NULL DEFAULT '[]'`);
+  }
 }
 
 function ensureBootstrapUser() {
@@ -440,37 +447,54 @@ const permissionGrantModel = {
   },
 };
 
+function parseJsonArray(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function decorateToken(record) {
+  return record ? {
+    ...record,
+    permissions: parseJsonArray(record.permissions_json),
+    allowedIps: parseJsonArray(record.allowed_ips_json),
+  } : null;
+}
+
 const apiTokenModel = {
-  create({ id, userId, name, tokenPrefix, tokenHash, permissions = [], expiresAt = null }) {
+  create({ id, userId, name, tokenPrefix, tokenHash, permissions = [], expiresAt = null, allowedIps = [] }) {
     getSecurityDb().prepare(`
-      INSERT INTO api_tokens (id, user_id, name, token_prefix, token_hash, permissions_json, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, Number(userId), name, tokenPrefix, tokenHash, JSON.stringify(permissions), expiresAt || null);
+      INSERT INTO api_tokens (id, user_id, name, token_prefix, token_hash, permissions_json, allowed_ips_json, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, Number(userId), name, tokenPrefix, tokenHash, JSON.stringify(permissions), JSON.stringify(allowedIps), expiresAt || null);
     return this.getById(id);
   },
 
   getById(id) {
     const record = getSecurityDb().prepare(`
-      SELECT id, user_id, name, token_prefix, token_hash, permissions_json, expires_at, last_used_at, revoked_at, created_at
+      SELECT id, user_id, name, token_prefix, token_hash, permissions_json, allowed_ips_json, expires_at, last_used_at, revoked_at, created_at
       FROM api_tokens WHERE id = ?
     `).get(id);
-    return record ? { ...record, permissions: (() => { try { return JSON.parse(record.permissions_json || '[]'); } catch (_) { return []; } })() } : null;
+    return decorateToken(record);
   },
 
   listForUser(userId) {
     return getSecurityDb().prepare(`
-      SELECT id, user_id, name, token_prefix, permissions_json, expires_at, last_used_at, revoked_at, created_at
+      SELECT id, user_id, name, token_prefix, permissions_json, allowed_ips_json, expires_at, last_used_at, revoked_at, created_at
       FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC
-    `).all(Number(userId)).map((record) => ({ ...record, permissions: (() => { try { return JSON.parse(record.permissions_json || '[]'); } catch (_) { return []; } })() }));
+    `).all(Number(userId)).map(decorateToken);
   },
 
   findActiveByHash(tokenHash) {
     const record = getSecurityDb().prepare(`
-      SELECT id, user_id, name, token_prefix, token_hash, permissions_json, expires_at, last_used_at, revoked_at, created_at
+      SELECT id, user_id, name, token_prefix, token_hash, permissions_json, allowed_ips_json, expires_at, last_used_at, revoked_at, created_at
       FROM api_tokens
       WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at = '' OR expires_at > CURRENT_TIMESTAMP)
     `).get(tokenHash);
-    return record ? { ...record, permissions: (() => { try { return JSON.parse(record.permissions_json || '[]'); } catch (_) { return []; } })() } : null;
+    return decorateToken(record);
   },
 
   touch(id) {

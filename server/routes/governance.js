@@ -5,6 +5,7 @@ const auditLogService = require('../services/audit-log');
 const webPushService = require('../services/web-push');
 const { userModel } = require('../models/security-db');
 const identityService = require('../services/identity');
+const profileService = require('../services/profile');
 
 const router = express.Router();
 
@@ -20,6 +21,14 @@ function getSessionAccount(req) {
 function requireAdminSession(req, res, next) {
   const account = getSessionAccount(req);
   const sessionRole = governanceService.getSessionRole(req.session);
+
+  // Break-glass elevation deliberately bypasses the account's real role - that's
+  // the point of an emergency escalation. See governanceService.activateBreakGlass.
+  if (governanceService.getBreakGlassState(req.session).active) {
+    req.localAccount = account;
+    req.breakGlassElevated = true;
+    return next();
+  }
 
   if (account && account.active && account.role !== 'admin') {
     return res.status(403).json({ error: 'ADMIN_ROLE_REQUIRED' });
@@ -119,6 +128,7 @@ router.get('/', async (req, res) => {
     const approvals = governanceService.listApprovals();
     const policy = governanceService.getPolicy();
     const currentRole = governanceService.getSessionRole(req.session);
+    const breakGlass = governanceService.getBreakGlassState(req.session);
     const quotaRows = buildQuotaRows(pools, hosts, vms, quotas);
     const userSummary = userModel.getSummary();
 
@@ -126,6 +136,7 @@ router.get('/', async (req, res) => {
       generatedAt: new Date().toISOString(),
       policy,
       currentRole,
+      breakGlass,
       quotas,
       approvals,
       quotaRows,
@@ -199,6 +210,68 @@ router.put('/role', validate(schemas.governanceRoleUpdate), (req, res) => {
       detail: `Session role changed from ${previousRole} to ${nextRole}.`,
     });
     res.json({ role: nextRole });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/break-glass/activate', validate(schemas.breakGlassActivate), (req, res) => {
+  try {
+    const account = getSessionAccount(req);
+
+    if (account?.mfa_enabled) {
+      if (!req.body.mfaToken || !profileService.verifyMfaToken(account.id, req.body.mfaToken)) {
+        return res.status(403).json({ error: 'MFA_REQUIRED', message: 'This account has MFA enabled. A valid MFA token is required to activate break-glass elevation.' });
+      }
+    }
+
+    const previous = governanceService.getBreakGlassState(req.session);
+    const state = governanceService.activateBreakGlass(req.session, { ...req.body, mfaVerified: Boolean(account?.mfa_enabled) }, currentOperator(req));
+    if (state.error === 'JUSTIFICATION_REQUIRED') {
+      return res.status(400).json({ error: 'JUSTIFICATION_REQUIRED', message: 'A justification of at least 10 characters is required to activate break-glass elevation.' });
+    }
+
+    auditLogService.record({
+      category: 'governance',
+      action: 'break_glass_activated',
+      actionLabel: 'Activated break-glass elevation for',
+      entityType: 'session',
+      entityRef: req.session?.id || 'session',
+      entityName: currentOperator(req),
+      operator: currentOperator(req),
+      route: '/governance',
+      status: 'warning',
+      before: previous,
+      after: state,
+      detail: `Emergency admin elevation activated until ${state.expiresAt}. Justification: ${state.justification}`,
+    });
+    res.status(201).json(state);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/break-glass/deactivate', (req, res) => {
+  try {
+    const previous = governanceService.getBreakGlassState(req.session);
+    const state = governanceService.deactivateBreakGlass(req.session);
+    if (previous.active) {
+      auditLogService.record({
+        category: 'governance',
+        action: 'break_glass_deactivated',
+        actionLabel: 'Deactivated break-glass elevation for',
+        entityType: 'session',
+        entityRef: req.session?.id || 'session',
+        entityName: currentOperator(req),
+        operator: currentOperator(req),
+        route: '/governance',
+        status: 'warning',
+        before: previous,
+        after: state,
+        detail: 'Emergency admin elevation ended before its 30 minute window expired.',
+      });
+    }
+    res.json(state);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -337,10 +410,35 @@ router.post('/approvals/:id/decision', requireAdminSession, validate(schemas.gov
     if (!approval) {
       return res.status(404).json({ error: 'APPROVAL_NOT_FOUND' });
     }
+    if (approval.error === 'SELF_APPROVAL_NOT_ALLOWED') {
+      return res.status(403).json({
+        error: 'SELF_APPROVAL_NOT_ALLOWED',
+        message: 'You requested this approval, so you cannot also approve it. A different administrator must decide it.',
+      });
+    }
+    if (approval.error === 'SECOND_APPROVER_MUST_DIFFER') {
+      return res.status(403).json({
+        error: 'SECOND_APPROVER_MUST_DIFFER',
+        message: 'This request already has a first approval from you. A different administrator must give the second approval.',
+      });
+    }
+    if (approval.error === 'OUTSIDE_APPROVAL_WINDOW') {
+      return res.status(403).json({
+        error: 'OUTSIDE_APPROVAL_WINDOW',
+        message: 'Approvals are only accepted during the configured scheduled approval window. Try again once the window opens, or reject the request.',
+      });
+    }
+    if (approval.error === 'DOMAIN_APPROVER_REQUIRED') {
+      return res.status(403).json({
+        error: 'DOMAIN_APPROVER_REQUIRED',
+        message: `This request falls under the ${approval.domain} domain, which requires an approver from the configured ${approval.domain} approver group.`,
+      });
+    }
+    const staged = approval.status === 'awaiting_second_approval';
     auditLogService.record({
       category: 'governance',
-      action: req.body.decision === 'rejected' ? 'governance_approval_rejected' : 'governance_approval_approved',
-      actionLabel: req.body.decision === 'rejected' ? 'Rejected governance approval for' : 'Approved governance approval for',
+      action: req.body.decision === 'rejected' ? 'governance_approval_rejected' : (staged ? 'governance_approval_first_approved' : 'governance_approval_approved'),
+      actionLabel: req.body.decision === 'rejected' ? 'Rejected governance approval for' : (staged ? 'Recorded first approval for' : 'Approved governance approval for'),
       entityType: approval.entityType,
       entityRef: approval.entityRef,
       entityName: approval.entityName || approval.entityRef,
@@ -349,7 +447,9 @@ router.post('/approvals/:id/decision', requireAdminSession, validate(schemas.gov
       status: req.body.decision === 'rejected' ? 'warning' : 'success',
       before: previous,
       after: approval,
-      detail: `${approval.actionKey} request is now ${approval.status}.`,
+      detail: staged
+        ? `${approval.actionKey} request has one of two required approvals; awaiting a second, different approver.`
+        : `${approval.actionKey} request is now ${approval.status}.`,
     });
     const requester = userModel.getByUsername(approval.requestedBy);
     if (requester) webPushService.notifyUser(requester.id, {

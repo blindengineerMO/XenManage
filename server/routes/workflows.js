@@ -35,6 +35,7 @@ router.post('/', validate(schemas.workflowCreate), async (req, res) => {
 });
 
 router.post('/:id/approve', validate(schemas.workflowId, 'params'), validate(schemas.workflowApproval), async (req, res) => {
+  if (!ensureMutationAllowed(req, res, { actionKey: 'workflow_approve', entityType: 'workflow', entityRef: req.params.id })) return;
   const workflow = workflowEngine.approve(req.params.id, req.body.approvalId);
   if (!workflow) return res.status(404).json({ error: 'WORKFLOW_NOT_FOUND' });
   await workflowEngine.execute(workflow.id);

@@ -3,8 +3,16 @@ const { validate, schemas } = require('../middleware/validate');
 const { requireApiToken, requireApiPermission } = require('../middleware/api-token');
 const managedTargetService = require('../services/managed-targets');
 const workflowEngine = require('../services/workflow-engine');
+const openApiV1Document = require('../openapi/v1');
 
 const router = express.Router();
+
+// Published before the token gate: the contract itself should be readable
+// without an API token, same as any public API's docs endpoint.
+router.get('/openapi.json', (_req, res) => {
+  res.json(openApiV1Document);
+});
+
 router.use(requireApiToken);
 
 router.get('/', (_req, res) => {
@@ -12,6 +20,7 @@ router.get('/', (_req, res) => {
     version: 'v1',
     resources: ['managed-targets', 'workflows'],
     authentication: 'Bearer API token',
+    openApiDocument: '/api/v1/openapi.json',
   });
 });
 

@@ -331,6 +331,7 @@ const ResilienceView = {
     '$route.query': {
       deep: true,
       async handler() {
+        await this.loadResilience();
         await this.syncRouteFocus();
       },
     },

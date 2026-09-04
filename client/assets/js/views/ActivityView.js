@@ -352,7 +352,7 @@ const ActivityView = {
     '$route.query': {
       deep: true,
       async handler() {
-        await this.syncRouteFocus();
+        await this.loadActivity();
       },
     },
   },

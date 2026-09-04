@@ -129,6 +129,21 @@ function getDemoGovernanceState() {
   };
 }
 
+function getDemoBreakGlassState() {
+  const state = store.governance?.breakGlass;
+  if (!state || !state.active) return { active: false };
+  if (new Date(state.expiresAt).getTime() < Date.now()) {
+    const expired = { ...state, active: false, expiredAt: state.expiresAt };
+    store.governance = {
+      ...store.governance,
+      currentRole: state.priorRole || store.governance.currentRole,
+      breakGlass: expired,
+    };
+    return expired;
+  }
+  return state;
+}
+
 function listDemoGovernanceApprovals() {
   return clone([...demoDb.governanceApprovals].sort((left, right) => new Date(right.requestedAt || 0) - new Date(left.requestedAt || 0)));
 }

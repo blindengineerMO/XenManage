@@ -53,7 +53,7 @@ const GovernanceControlPanel = {
         <div v-if="activeTab === 'policy'" class="governance-panel-section">
           <div class="detail-title">Governance Policy</div>
           <p class="text-muted">Set default operator scope and the approval guardrail applied to protected mutations.</p>
-          <governance-policy-form :initial-value="policy" :saving="policySaving" submit-label="Save Governance Policy" @submit="$emit('save-policy', $event)"></governance-policy-form>
+          <governance-policy-form :initial-value="policy" :saving="policySaving" :groups="groups" submit-label="Save Governance Policy" @submit="$emit('save-policy', $event)"></governance-policy-form>
           <div class="form-error" v-if="policyError">{{ policyError }}</div>
         </div>
 

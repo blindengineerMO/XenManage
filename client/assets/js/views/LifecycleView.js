@@ -425,6 +425,7 @@ const LifecycleView = {
     '$route.query': {
       deep: true,
       async handler() {
+        await this.loadLifecycle();
         await this.syncRouteFocus();
       },
     },

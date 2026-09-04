@@ -203,6 +203,9 @@ const schemas = {
     name: Joi.string().trim().required().min(1).max(120),
     permissions: Joi.array().items(Joi.string().trim().pattern(/^[a-z*][a-z0-9.*-]*$/)).max(100).default([]),
     expiresAt: Joi.string().isoDate().allow('').default(''),
+    allowedIps: Joi.array().items(
+      Joi.string().trim().pattern(/^(\d{1,3}\.){3}\d{1,3}(\/(3[0-2]|[12]?\d))?$|^[0-9a-fA-F:]+$/)
+    ).max(50).default([]),
   }),
   organizationCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
@@ -940,9 +943,22 @@ const schemas = {
     defaultRole: Joi.string().valid('read-only', 'operator', 'admin').default('admin'),
     requireDestructiveApproval: Joi.boolean().default(true),
     approvalTtlMinutes: Joi.number().integer().min(5).max(10080).default(240),
+    requireApproverDifferentFromRequester: Joi.boolean().default(false),
+    requireTwoPersonApproval: Joi.boolean().default(false),
+    requireScheduledApprovalWindow: Joi.boolean().default(false),
+    approvalWindowDays: Joi.array().items(Joi.number().integer().min(0).max(6)).max(7).default([1, 2, 3, 4, 5]),
+    approvalWindowStartMinute: Joi.number().integer().min(0).max(1440).default(0),
+    approvalWindowEndMinute: Joi.number().integer().min(0).max(1440).default(1440),
+    requireDomainApproverGroup: Joi.boolean().default(false),
+    securityApproverGroupId: Joi.number().integer().min(1).allow(null).default(null),
+    infrastructureApproverGroupId: Joi.number().integer().min(1).allow(null).default(null),
   }),
   governanceRoleUpdate: Joi.object({
     role: Joi.string().valid('read-only', 'operator', 'admin').required(),
+  }),
+  breakGlassActivate: Joi.object({
+    justification: Joi.string().trim().min(10).max(2000).required(),
+    mfaToken: Joi.string().trim().allow('').max(20).default(''),
   }),
   governanceQuotaUpdate: Joi.object({
     enabled: Joi.boolean().default(true),

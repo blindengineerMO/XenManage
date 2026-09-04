@@ -211,4 +211,360 @@ describe('Governance Routes', () => {
     expect(audit.status).toBe(200);
     expect(audit.body.data.some((entry) => entry.category === 'governance')).toBe(true);
   });
+
+  it('blocks a requester from approving their own request when separation-of-duties is enabled, but still allows self-rejection', async () => {
+    const auth = await login();
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireApproverDifferentFromRequester: true,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+    expect(policy.body.requireApproverDifferentFromRequester).toBe(true);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Separation-of-duties regression coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const selfApprove = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Should be blocked - same requester and approver.',
+    }, auth.cookie);
+    expect(selfApprove.status).toBe(403);
+    expect(selfApprove.body.error).toBe('SELF_APPROVAL_NOT_ALLOWED');
+
+    const selfReject = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'rejected',
+      notes: 'Withdrawing my own request is fine.',
+    }, auth.cookie);
+    expect(selfReject.status).toBe(200);
+    expect(selfReject.body.status).toBe('rejected');
+  });
+
+  it('requires two distinct approvers when two-person approval is enabled, but allows immediate rejection', async () => {
+    const auth = await login();
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireTwoPersonApproval: true,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+    expect(policy.body.requireTwoPersonApproval).toBe(true);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Two-person approval regression coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const firstApproval = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'First approval.',
+    }, auth.cookie);
+    expect(firstApproval.status).toBe(200);
+    expect(firstApproval.body.status).toBe('awaiting_second_approval');
+    expect(firstApproval.body.firstApprovedBy).toBeTruthy();
+
+    const sameApproverAgain = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Trying to approve my own first approval a second time.',
+    }, auth.cookie);
+    expect(sameApproverAgain.status).toBe(403);
+    expect(sameApproverAgain.body.error).toBe('SECOND_APPROVER_MUST_DIFFER');
+  });
+
+  it('finalizes a two-person approval once a second, different approver decides it', async () => {
+    const auth = await login();
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireTwoPersonApproval: true,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+
+    const secondApproverUsername = `second-approver-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const secondAdmin = await request('POST', '/api/users', {
+      username: secondApproverUsername,
+      password: 'SecondApprover123!',
+      displayName: 'Second Approver',
+      role: 'admin',
+      active: true,
+    }, auth.cookie);
+    expect(secondAdmin.status).toBe(201);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Two-person approval finalization coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const firstApproval = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'First approval.',
+    }, auth.cookie);
+    expect(firstApproval.status).toBe(200);
+    expect(firstApproval.body.status).toBe('awaiting_second_approval');
+
+    const secondAuth = await request('POST', '/api/auth/login', {
+      username: secondApproverUsername,
+      password: 'SecondApprover123!',
+    });
+    const secondApproval = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Second, distinct approval.',
+    }, secondAuth.cookie);
+    expect(secondApproval.status).toBe(200);
+    expect(secondApproval.body.status).toBe('approved');
+  });
+
+  it('blocks approval decisions outside the scheduled approval window, but still allows rejection', async () => {
+    const auth = await login();
+    const now = new Date();
+    const todayUtcDay = now.getUTCDay();
+    const otherUtcDay = (todayUtcDay + 1) % 7;
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireScheduledApprovalWindow: true,
+      approvalWindowDays: [otherUtcDay],
+      approvalWindowStartMinute: 0,
+      approvalWindowEndMinute: 1440,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+    expect(policy.body.requireScheduledApprovalWindow).toBe(true);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Scheduled approval window regression coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const blockedDecision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Should be blocked - outside the configured window.',
+    }, auth.cookie);
+    expect(blockedDecision.status).toBe(403);
+    expect(blockedDecision.body.error).toBe('OUTSIDE_APPROVAL_WINDOW');
+
+    const rejection = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'rejected',
+      notes: 'Rejection is allowed outside the window.',
+    }, auth.cookie);
+    expect(rejection.status).toBe(200);
+    expect(rejection.body.status).toBe('rejected');
+  });
+
+  it('allows approval decisions inside the scheduled approval window', async () => {
+    const auth = await login();
+    const now = new Date();
+    const todayUtcDay = now.getUTCDay();
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireScheduledApprovalWindow: true,
+      approvalWindowDays: [todayUtcDay],
+      approvalWindowStartMinute: 0,
+      approvalWindowEndMinute: 1440,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Scheduled approval window in-window coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Should succeed - inside the configured window.',
+    }, auth.cookie);
+    expect(decision.status).toBe(200);
+    expect(decision.body.status).toBe('approved');
+  });
+
+  it('blocks an infrastructure-domain approval decision from an approver outside the configured approver group, but still allows rejection', async () => {
+    const auth = await login();
+
+    const group = await request('POST', '/api/groups', {
+      name: `Infra Approvers ${Date.now()}`,
+      memberUserIds: [],
+    }, auth.cookie);
+    expect(group.status).toBe(201);
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireDomainApproverGroup: true,
+      infrastructureApproverGroupId: group.body.id,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+    expect(policy.body.requireDomainApproverGroup).toBe(true);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Domain approver group regression coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const blockedDecision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Should be blocked - not a member of the infrastructure approver group.',
+    }, auth.cookie);
+    expect(blockedDecision.status).toBe(403);
+    expect(blockedDecision.body.error).toBe('DOMAIN_APPROVER_REQUIRED');
+
+    const rejection = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'rejected',
+      notes: 'Rejection is allowed regardless of approver group membership.',
+    }, auth.cookie);
+    expect(rejection.status).toBe(200);
+    expect(rejection.body.status).toBe('rejected');
+  });
+
+  it('allows an infrastructure-domain approval decision from a member of the configured approver group', async () => {
+    const auth = await login();
+    const loginResult = await request('POST', '/api/auth/login', { username: 'admin', password: 'admin123!' });
+    const adminUserId = loginResult.body.user?.id;
+    expect(adminUserId).toBeTruthy();
+
+    const group = await request('POST', '/api/groups', {
+      name: `Infra Approvers ${Date.now()}`,
+      memberUserIds: [adminUserId],
+    }, auth.cookie);
+    expect(group.status).toBe(201);
+
+    const policy = await request('PUT', '/api/governance/policy', {
+      defaultRole: 'admin',
+      requireDestructiveApproval: true,
+      approvalTtlMinutes: 240,
+      requireDomainApproverGroup: true,
+      infrastructureApproverGroupId: group.body.id,
+    }, auth.cookie);
+    expect(policy.status).toBe(200);
+
+    const approval = await request('POST', '/api/governance/approvals', {
+      actionKey: 'vm_shutdown',
+      entityType: 'vm',
+      entityRef: 'OpaqueRef:vm1',
+      entityName: 'app-01',
+      justification: 'Domain approver group membership coverage.',
+      route: '/vms',
+    }, auth.cookie);
+    expect(approval.status).toBe(201);
+
+    const decision = await request('POST', `/api/governance/approvals/${encodeURIComponent(approval.body.id)}/decision`, {
+      decision: 'approved',
+      notes: 'Should succeed - approver is a member of the configured group.',
+    }, auth.cookie);
+    expect(decision.status).toBe(200);
+    expect(decision.body.status).toBe('approved');
+  });
+
+  it('rejects break-glass activation without a justification long enough to explain the emergency', async () => {
+    const auth = await login();
+
+    const activation = await request('POST', '/api/governance/break-glass/activate', {
+      justification: 'too short',
+    }, auth.cookie);
+    expect(activation.status).toBe(400);
+    expect(activation.body.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('lets a non-admin account elevate to admin via break-glass, then reverts on deactivation', async () => {
+    const auth = await login();
+
+    const operatorUsername = `break-glass-operator-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const created = await request('POST', '/api/users', {
+      username: operatorUsername,
+      password: 'BreakGlassOperator123!',
+      displayName: 'Break Glass Operator',
+      role: 'operator',
+      active: true,
+    }, auth.cookie);
+    expect(created.status).toBe(201);
+
+    const operatorAuth = await request('POST', '/api/auth/login', {
+      username: operatorUsername,
+      password: 'BreakGlassOperator123!',
+    });
+
+    const blockedQuota = await request('PUT', '/api/governance/quotas/OpaqueRef%3Apool1', {
+      enabled: true,
+      owner: 'Platform Ops',
+      maxVmCount: 5,
+    }, operatorAuth.cookie);
+    expect(blockedQuota.status).toBe(403);
+    expect(blockedQuota.body.error).toBe('ADMIN_ROLE_REQUIRED');
+
+    const activation = await request('POST', '/api/governance/break-glass/activate', {
+      justification: 'Production incident INC-4821 requires emergency quota changes.',
+    }, operatorAuth.cookie);
+    expect(activation.status).toBe(201);
+    expect(activation.body.active).toBe(true);
+    expect(activation.body.priorRole).toBe('operator');
+
+    const overview = await request('GET', '/api/governance', null, operatorAuth.cookie);
+    expect(overview.status).toBe(200);
+    expect(overview.body.currentRole).toBe('admin');
+    expect(overview.body.breakGlass.active).toBe(true);
+
+    const elevatedQuota = await request('PUT', '/api/governance/quotas/OpaqueRef%3Apool1', {
+      enabled: true,
+      owner: 'Platform Ops',
+      maxVmCount: 5,
+    }, operatorAuth.cookie);
+    expect(elevatedQuota.status).toBe(200);
+
+    const deactivation = await request('POST', '/api/governance/break-glass/deactivate', null, operatorAuth.cookie);
+    expect(deactivation.status).toBe(200);
+    expect(deactivation.body.active).toBe(false);
+
+    const revertedOverview = await request('GET', '/api/governance', null, operatorAuth.cookie);
+    expect(revertedOverview.body.currentRole).toBe('operator');
+
+    const blockedAgain = await request('PUT', '/api/governance/quotas/OpaqueRef%3Apool1', {
+      enabled: true,
+      owner: 'Platform Ops',
+      maxVmCount: 5,
+    }, operatorAuth.cookie);
+    expect(blockedAgain.status).toBe(403);
+    expect(blockedAgain.body.error).toBe('ADMIN_ROLE_REQUIRED');
+  });
 });

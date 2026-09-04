@@ -914,6 +914,15 @@ const demoDb = {
     defaultRole: 'admin',
     requireDestructiveApproval: true,
     approvalTtlMinutes: 240,
+    requireApproverDifferentFromRequester: false,
+    requireTwoPersonApproval: false,
+    requireScheduledApprovalWindow: false,
+    approvalWindowDays: [1, 2, 3, 4, 5],
+    approvalWindowStartMinute: 0,
+    approvalWindowEndMinute: 1440,
+    requireDomainApproverGroup: false,
+    securityApproverGroupId: null,
+    infrastructureApproverGroupId: null,
   },
   governanceQuotas: [
     {

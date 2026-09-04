@@ -12,6 +12,13 @@ async function confirmAppAction(page, title, confirmLabel) {
   await confirmWindow.getByRole('button', { name: confirmLabel, exact: true }).click();
 }
 
+async function closeAllFloatingWindows(page) {
+  const windows = page.locator('.floating-window:visible');
+  while (await windows.count()) {
+    await windows.last().locator('.fw-close').click();
+  }
+}
+
 async function openDataTableRecord(page, name) {
   const row = page.locator('.data-table tbody tr').filter({ hasText: name }).first();
   await row.locator('td').last().click();
@@ -6641,7 +6648,7 @@ test('storage workspace can create a new nfs storage repository from the top-lev
       response.request().method() === 'POST'
       && response.url().endsWith('/api/storage')
     ),
-    createStorageWindow.getByRole('button', { name: 'Create Storage Repository' }).click(),
+    createStorageWindow.locator('button[type="submit"]').click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect.poll(async () => (await createResponse.json())?.name_label || '').toBe('Tier 2 NFS');
@@ -7016,7 +7023,7 @@ test('networking workspace can create a vlan mapping on an existing uplink path'
       response.request().method() === 'POST'
       && response.url().includes('/api/networks/vlans')
     ),
-    createVlanWindow.getByRole('button', { name: 'Create VLAN' }).click(),
+    createVlanWindow.locator('button[type="submit"]').click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect(page.getByText('VLAN 330 was created on alpha-xen · uplink 2 · OpaqueRef:pif2 for Backup Network.')).toBeVisible();
@@ -7042,7 +7049,7 @@ test('networking workspace can create a bond mapping on selected uplinks', async
       response.request().method() === 'POST'
       && response.url().includes('/api/networks/bonds')
     ),
-    createBondWindow.getByRole('button', { name: 'Create Bond' }).click(),
+    createBondWindow.locator('button[type="submit"]').click(),
   ]);
   expect(createResponse.status()).toBe(201);
   await expect(page.getByText('Bond lacp was created across 2 uplinks for Backup Network.')).toBeVisible();
@@ -7827,14 +7834,15 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(alertSeededRunbookWindow.getByText('Seeded from remediation task')).toBeVisible();
   await expect(alertSeededRunbookWindow.getByText('Log Recovery Drill')).toBeVisible();
   await page.locator('.floating-window .fw-close').last().click();
-  await page.getByText('Capacity').first().click();
+  await page.getByRole('link', { name: 'Capacity', exact: true }).click();
   await expect(page).toHaveURL(/\/capacity$/);
   await expect(page.getByText('Telemetry Window', { exact: true })).toBeVisible();
   await expect(page.getByText('Cluster Memory Trend', { exact: true })).toBeVisible();
   await expect(page.getByText('Staged Automation Queue')).toBeVisible();
-  await expect(page.getByText('Due in 2d')).toBeVisible();
-  await expect(page.getByText('2 evidence · 2 completion')).toBeVisible();
-  await page.getByText('Alerts').first().click();
+  await expect(page.getByRole('main').getByText('Due in 2d')).toBeVisible();
+  await expect(page.getByRole('main').getByText('2 evidence · 2 completion')).toBeVisible();
+  await closeAllFloatingWindows(page);
+  await page.getByRole('link', { name: 'Alerts', exact: true }).click();
   await expect(page).toHaveURL(/\/alerts$/);
   await page.getByLabel('Select Storage nearing threshold').click();
   await page.getByLabel('Select Host maintenance scheduled').click();
@@ -7842,7 +7850,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect.poll(() => Boolean(fixtures.alertStates['OpaqueRef:msg1']?.suppressionUntil)).toBe(true);
   await expect.poll(() => Boolean(fixtures.alertStates['OpaqueRef:msg2']?.suppressionUntil)).toBe(true);
 
-  await page.getByText('Activity').first().click();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page).toHaveURL(/\/activity/);
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
   await page.getByRole('button', { name: 'Tasks' }).click();
@@ -7872,9 +7880,10 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByRole('button', { name: 'Open Affected Record' })).toBeVisible();
   await page.getByRole('button', { name: 'Open Affected Record' }).click();
   await expect(page).toHaveURL(/\/vms\?/);
-  await expect(page.getByText('VM Details')).toBeVisible();
-  await expect(page.locator('.floating-window').getByText('ubuntu-prod-01', { exact: true })).toBeVisible();
-  await page.locator('.floating-window .fw-close').first().click();
+  const vmDetailsWindow = getFloatingWindowByTitle(page, 'VM Details');
+  await expect(vmDetailsWindow).toBeVisible();
+  await expect(vmDetailsWindow.getByText('ubuntu-prod-01', { exact: true })).toBeVisible();
+  await closeAllFloatingWindows(page);
 
   await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
   await expect(page).toHaveURL(/\/inventory$/);
@@ -7893,7 +7902,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.stack-item').filter({ hasText: 'focused attachment' }).getByRole('button', { name: 'Open Host' }).click();
   await expect(page).toHaveURL(/\/hosts\?/);
   await expect(page.getByText('Related Host Inventory')).toBeVisible();
-  await page.locator('.floating-window .fw-close').first().click();
+  await closeAllFloatingWindows(page);
 
   await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
   await expect(page).toHaveURL(/\/inventory$/);
@@ -7906,7 +7915,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.locator('.floating-window').getByText('Attachment Topology', { exact: true })).toBeVisible();
   await expect(page.getByText('Focused VDI Handoff')).toBeVisible();
   await expect(page.getByText('OpaqueRef:vdi1 · 2 disks · 2 attachment paths · 2 workloads · 2 hosts')).toBeVisible();
-  await page.locator('.floating-window .fw-close').first().click();
+  await closeAllFloatingWindows(page);
 
   await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
   await expect(page).toHaveURL(/\/inventory$/);
@@ -7920,7 +7929,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.stack-item').filter({ hasText: 'focused interface' }).getByRole('button', { name: 'Open VM' }).click();
   await expect(page).toHaveURL(/\/vms\?/);
   await expect(page.getByText('VM Details')).toBeVisible();
-  await page.locator('.floating-window .fw-close').first().click();
+  await closeAllFloatingWindows(page);
 
   await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
   await expect(page).toHaveURL(/\/inventory$/);
@@ -7944,7 +7953,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/hosts\?/);
   await expect(page.locator('.floating-window .fw-title').first()).toHaveText('Host Properties');
   await expect(page.locator('.floating-window .property-grid').getByText('10.0.0.11').first()).toBeVisible();
-  await page.locator('.floating-window .fw-close').first().click();
+  await closeAllFloatingWindows(page);
   await page.locator('.tree-item').filter({ hasText: 'Inventory' }).first().click();
   await expect(page).toHaveURL(/\/inventory$/);
   await page.locator('.section-head').getByRole('button', { name: /Connection Atlas/ }).click();
@@ -7982,6 +7991,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect.poll(() => fixtures.governanceQuotas.find((entry) => entry.poolRef === 'OpaqueRef:pool1')?.maxVmCount || 0).toBe(9);
   await page.locator('.dash-card').filter({ hasText: 'Approval Queue' }).getByRole('button', { name: 'Approve' }).first().click();
   await expect.poll(() => fixtures.governanceApprovals[0]?.status || '').toBe('approved');
+  await closeAllFloatingWindows(page);
 
   await page.getByText('Lifecycle').first().click();
   await expect(page).toHaveURL(/\/lifecycle$/);
@@ -8007,7 +8017,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.floating-window .fw-close').last().click();
   await page.locator('.floating-window .fw-close').first().click();
 
-  await page.getByText('Capacity').first().click();
+  await page.getByRole('link', { name: 'Capacity', exact: true }).click();
   await expect(page).toHaveURL(/\/capacity/);
   await expect(page.getByRole('heading', { name: 'Capacity' })).toBeVisible();
   await expect(page.getByText('Headroom, saturation, and imbalance before they become incidents.')).toBeVisible();
@@ -8027,11 +8037,13 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page).toHaveURL(/\/capacity/);
   await expect(page.getByText('Capacity Host Detail')).toBeVisible();
   await expect(page.getByText('Telemetry Guidance')).toBeVisible();
-  await page.locator('.floating-window .fw-close').last().click();
+  await getFloatingWindowByTitle(page, 'Host Properties').locator('.fw-close').click();
+  await getFloatingWindowByTitle(page, 'Capacity Host Detail').locator('.fw-close').click();
   await page.getByRole('button', { name: 'Launch Maintenance Handoff' }).click();
   await expect(page).toHaveURL(/\/lifecycle/);
-  const maintenanceHandoffWindow = page.locator('.floating-window').last();
-  await expect(maintenanceHandoffWindow.locator('.fw-title')).toHaveText('Maintenance Handoff');
+  await getFloatingWindowByTitle(page, 'Task Detail').locator('.fw-close').click();
+  const maintenanceHandoffWindow = getFloatingWindowByTitle(page, 'Maintenance Handoff');
+  await expect(maintenanceHandoffWindow).toBeVisible();
   await expect(maintenanceHandoffWindow.getByText('Execution-first handoff active')).toBeVisible();
   await expect(maintenanceHandoffWindow.getByText('Seeded from remediation task')).toBeVisible();
   await expect(maintenanceHandoffWindow.getByRole('button', { name: 'Save Lifecycle Plan Before Maintenance' })).toBeVisible();
@@ -8041,14 +8053,14 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(maintenanceHandoffWindow.getByText('Host is already in maintenance mode')).toBeVisible();
   await maintenanceHandoffWindow.getByRole('button', { name: 'Exit Maintenance Mode' }).click();
   await expect.poll(() => fixtures.hostInventory.find((host) => host.ref === 'OpaqueRef:host1')?.maintenance_mode || false).toBe(false);
-  await page.locator('.floating-window .fw-close').last().click();
-  await page.getByText('Capacity').first().click();
+  await closeAllFloatingWindows(page);
+  await page.getByRole('link', { name: 'Capacity', exact: true }).click();
   await expect(page).toHaveURL(/\/capacity/);
   await page.getByRole('button', { name: /db-01/ }).click();
   await expect(page.getByText('Placement Guidance')).toBeVisible();
-  await page.locator('.floating-window .fw-close').last().click();
+  await closeAllFloatingWindows(page);
 
-  await page.getByText('Resilience').first().click();
+  await page.getByRole('link', { name: 'Resilience', exact: true }).click();
   await expect(page).toHaveURL(/\/resilience$/);
   await expect(page.getByRole('heading', { name: 'Resilience' })).toBeVisible();
   await expect(page.getByText('Protection coverage, failover posture, recovery runbooks, and drill evidence in one operator workspace.')).toBeVisible();
@@ -8080,6 +8092,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await page.locator('.floating-window').last().locator('form').getByRole('button', { name: 'Log Drill' }).click();
   await expect.poll(() => fixtures.resilienceDrills[0]?.drillType || '').toBe('failover');
   await expect.poll(() => fixtures.resilienceDrills[0]?.summary || '').toBe('Failover run completed within the target envelope.');
+  await closeAllFloatingWindows(page);
 
   fixtures.tasks.unshift({
     ref: 'OpaqueRef:remediation-seed-resilience',
@@ -8136,7 +8149,7 @@ test('pool and host registration flows live alongside the broader operator workb
     updated_at: '2026-08-25T13:05:00.000Z',
   });
 
-  await page.getByText('Activity').first().click();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page).toHaveURL(/\/activity/);
   await page.getByRole('button', { name: 'Tasks' }).click();
   await page.locator('.data-table').getByText('Capacity Recovery Drill: Production Pool', { exact: true }).click();
@@ -8144,8 +8157,9 @@ test('pool and host registration flows live alongside the broader operator workb
   await expect(page.getByRole('button', { name: 'Draft Recovery Runbook' })).toBeVisible();
   await page.getByRole('button', { name: 'Launch Recovery Drill Handoff' }).click();
   await expect(page).toHaveURL(/\/resilience/);
-  const seededRunbookWindow = page.locator('.floating-window').last();
-  await expect(seededRunbookWindow.locator('.fw-title')).toHaveText('Recovery Drill Handoff');
+  await getFloatingWindowByTitle(page, 'Task Detail').locator('.fw-close').click();
+  const seededRunbookWindow = getFloatingWindowByTitle(page, 'Recovery Drill Handoff');
+  await expect(seededRunbookWindow).toBeVisible();
   await expect(seededRunbookWindow.getByText('Execution-first handoff active')).toBeVisible();
   await expect(seededRunbookWindow.getByText('Seeded from remediation task')).toBeVisible();
   await seededRunbookWindow.getByLabel('Drill Type').selectOption('failover');
@@ -8159,6 +8173,7 @@ test('pool and host registration flows live alongside the broader operator workb
   await seededRunbookWindow.getByRole('button', { name: 'Log Recovery Drill' }).click();
   await expect.poll(() => fixtures.resilienceDrills[0]?.summary || '').toBe('Seeded recovery drill completed cleanly.');
   await expect.poll(() => fixtures.tasks.find((task) => task.ref === 'OpaqueRef:remediation-seed-resilience')?.status || '').toBe('success');
+  await closeAllFloatingWindows(page);
 
   fixtures.tasks.unshift({
     ref: 'OpaqueRef:remediation-seed-vm-migration',
@@ -8212,14 +8227,14 @@ test('pool and host registration flows live alongside the broader operator workb
     updated_at: '2026-08-25T13:20:00.000Z',
   });
 
-  await page.getByText('Activity').first().click();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page).toHaveURL(/\/activity/);
   await page.getByRole('button', { name: 'Tasks' }).click();
   await page.locator('.data-table').getByText('Pressure Relief Migration: app-01', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Draft VM Migration' })).toBeVisible();
   await page.getByRole('button', { name: 'Draft VM Migration' }).click();
   await expect(page).toHaveURL(/\/vms/);
-  await expect(page.locator('.floating-window .fw-title').first()).toHaveText('VM Details');
+  await expect(getFloatingWindowByTitle(page, 'VM Details')).toBeVisible();
   await expect(page.locator('.vm-tab-button.active')).toContainText('Migration');
   await expect(page.getByLabel('Destination Host', { exact: true })).toHaveValue('OpaqueRef:host1');
   await page.getByRole('button', { name: 'Migrate VM' }).click();

@@ -668,6 +668,7 @@ router.get('/:ref/export', validate(schemas.opaqueRefParam, 'params'), validate(
 
 router.put('/import', validate(schemas.vmImportQuery, 'query'), async (req, res) => {
   try {
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_import', entityType: 'vm', entityRef: 'new' })) return;
     const contentLength = req.headers['content-length'] || '';
     const fileName = String(req.headers['x-xenmange-filename'] || 'package.xva').trim() || 'package.xva';
     if (!contentLength && !req.headers['transfer-encoding']) {

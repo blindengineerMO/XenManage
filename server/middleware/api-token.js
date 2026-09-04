@@ -3,7 +3,7 @@ const identityService = require('../services/identity');
 function requireApiToken(req, res, next) {
   const authorization = String(req.headers.authorization || '');
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
-  const principal = identityService.authenticateApiToken(token);
+  const principal = identityService.authenticateApiToken(token, req.ip);
   if (!principal) return res.status(401).json({ error: 'API_TOKEN_INVALID' });
   req.principal = principal;
   next();

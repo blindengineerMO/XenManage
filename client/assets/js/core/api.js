@@ -121,6 +121,8 @@ const api = {
   saveRetentionPolicy: (domain, payload) => api.request('PUT', `/api/settings/retention/policies/${encodeURIComponent(domain)}`, payload),
   saveGovernancePolicy: (payload) => api.request('PUT', '/api/governance/policy', payload),
   setGovernanceRole: (role) => api.request('PUT', '/api/governance/role', { role }),
+  activateBreakGlass: (payload) => api.request('POST', '/api/governance/break-glass/activate', payload),
+  deactivateBreakGlass: () => api.request('POST', '/api/governance/break-glass/deactivate', {}),
   saveGovernanceQuota: (ref, payload) => api.request('PUT', `/api/governance/quotas/${encodeURIComponent(ref)}`, payload),
   deleteGovernanceQuota: (ref, payload = null) => api.request('DELETE', `/api/governance/quotas/${encodeURIComponent(ref)}`, payload),
   requestGovernanceApproval: (payload) => api.request('POST', '/api/governance/approvals', payload),

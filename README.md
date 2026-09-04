@@ -583,7 +583,7 @@ curl -b cookies.txt -X GET "http://localhost:3000/api/vms/OpaqueRef:abcd1234-ef5
 
 ##### `PUT /api/vms/import`
 
-- **Auth:** Session + attached live target (`requireXenConnection`) — no governance mutation gate is applied to this route
+- **Auth:** Session + attached live target (`requireXenConnection`) — governance-gated (`vm.import`, non-destructive)
 - **Query params:** `srRef` — OpaqueRef, optional, default `''` — destination storage repository; `restore` — boolean, default `false`; `force` — boolean, default `false`; `metadataOnly` — boolean, default `false`
 - **Body:** raw binary XVA package streamed as the request body (not JSON); requires either a `Content-Length` header or `Transfer-Encoding: chunked`, otherwise `400 VM_IMPORT_BODY_REQUIRED`. The optional `X-XenMange-Filename` header names the uploaded file (defaults to `package.xva`).
 - **curl:**
@@ -1679,7 +1679,7 @@ curl -b cookies.txt -X GET "http://localhost:3000/api/governance"
 #### `PUT /api/governance/policy`
 
 - **Auth:** Authenticated control-plane session (`requireAuth`), admin governance role required (`requireAdminSession` — checked against both the session's governance role and, when the session is bound to a local account, that account's fixed `role`).
-- **Body params:** `defaultRole` — one of `read-only`, `operator`, `admin`, default `admin`; `requireDestructiveApproval` — boolean, default `true`; `approvalTtlMinutes` — integer 5-10080, default `240`
+- **Body params:** `defaultRole` — one of `read-only`, `operator`, `admin`, default `admin`; `requireDestructiveApproval` — boolean, default `true`; `approvalTtlMinutes` — integer 5-10080, default `240`; `requireApproverDifferentFromRequester` — boolean, default `false` — when `true`, the admin who requested an approval cannot also approve it (self-rejection is still allowed); `requireTwoPersonApproval` — boolean, default `false` — when `true`, an `approved` decision on a `pending` request only stages it as `awaiting_second_approval` (with `firstApprovedBy`/`firstApprovedAt`/`firstApprovalNotes` recorded) instead of finalizing it; a second, distinct admin must approve it again to reach `approved` — the same admin trying again gets `403 SECOND_APPROVER_MUST_DIFFER`. Rejection by either approver is immediate; `requireScheduledApprovalWindow` — boolean, default `false` — when `true`, an `approved` (or staged first/second) decision is only accepted while the current UTC time falls inside the recurring window defined by `approvalWindowDays` (array of `0`-`6`, Sunday-Saturday, default `[1,2,3,4,5]`), `approvalWindowStartMinute`, and `approvalWindowEndMinute` (minutes since UTC midnight, `0`-`1440`, default `0`/`1440` — i.e. all day; a window where start > end wraps past midnight); outside the window a decision returns `403 OUTSIDE_APPROVAL_WINDOW`. Rejection is never blocked by the window; `requireDomainApproverGroup` — boolean, default `false` — when `true`, an approving decision on a request whose `entityType` falls in the "security" domain (`user`, `group`, `policy`, `credential`, `vault`, `session`, `control-plane-backup`, `settings-section`, `catalog_role`) or "infrastructure" domain (`vm`, `vm-snapshot`, `host`, `host-target`, `pool`, `network`, `sr`, `vdi`, `vif`, `vlan`, `bond`, `managed-target`, `connection`, `template`, `template-library-folder`, `template-library-item`, `workflow`, `compose`) must come from an operator who is a member of that domain's configured local group (`securityApproverGroupId`, `infrastructureApproverGroupId` — nullable group IDs from `/api/groups`); a domain left without a configured group is not gated. Otherwise a decision returns `403 DOMAIN_APPROVER_REQUIRED`. Rejection is never blocked. All four opt-in flags can be combined.
 - **curl:**
 ```bash
 curl -b cookies.txt -X PUT "http://localhost:3000/api/governance/policy" \
@@ -1697,6 +1697,23 @@ curl -b cookies.txt -X PUT "http://localhost:3000/api/governance/role" \
   -H "Content-Type: application/json" \
   -d '{"role": "operator"}'
 ```
+
+#### `POST /api/governance/break-glass/activate`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`). Deliberately has no admin gate — the whole point is letting a non-admin account reach the admin session role for a short, audited window.
+- **Body params:** `justification` — required string, 10-2000 characters; `mfaToken` — optional string, required (and verified via `profileService.verifyMfaToken`) if the account has MFA enabled, otherwise the request is rejected with `403 MFA_REQUIRED`.
+- **Behavior:** Sets the session's governance role to `admin` for 30 minutes (`governanceService.activateBreakGlass`), recording `activatedBy`/`activatedAt`/`expiresAt`/`justification`/`priorRole` on the session. `GET /api/governance` reports the current state as `breakGlass`, auto-reverting the session role back to `priorRole` once `expiresAt` passes. The activation itself is recorded as a distinct `break_glass_activated` audit entry with `warning` status.
+- **curl:**
+```bash
+curl -b cookies.txt -X POST "http://localhost:3000/api/governance/break-glass/activate" \
+  -H "Content-Type: application/json" \
+  -d '{"justification": "Production incident INC-4821 requires emergency access."}'
+```
+
+#### `POST /api/governance/break-glass/deactivate`
+
+- **Auth:** Authenticated control-plane session (`requireAuth`).
+- **Behavior:** Ends an active break-glass elevation early, reverting the session's governance role to `priorRole` and recording a `break_glass_deactivated` audit entry. A no-op (`{ "active": false }`) if no elevation is active.
 
 #### `PUT /api/governance/quotas/:ref`
 
@@ -2307,7 +2324,7 @@ curl -b cookies.txt -X DELETE "http://localhost:3000/api/template-library/items/
 - **Session-based auth** with an `xenmange.sid` cookie and session regeneration on login.
 - **Durable sessions**: SQLite-backed session store with live Xen session rehydration after process restarts.
 - **Managed targets**: shared, vault-backed pool connections can be registered as control-plane targets. XenManage owns their XenAPI session lifecycle, health state, retry backoff, and telemetry collection independently of an operator browser session.
-- **Scoped automation access**: API tokens are hashed at rest, shown once at creation, can be permission-restricted and expired/revoked, and are accepted only by the versioned `/api/v1` surface.
+- **Scoped automation access**: API tokens are hashed at rest, shown once at creation, can be permission-restricted, IP-restricted (an optional `allowedIps` list of exact IPv4/IPv6 addresses and/or IPv4 CIDR ranges; an empty list means unrestricted), and expired/revoked, and are accepted only by the versioned `/api/v1` surface. The surface's contract is published as an OpenAPI 3.0 document at `GET /api/v1/openapi.json` (no token required to read the document itself) and is kept in sync with the routes by `tests/unit/server/openapi-v1.test.js`.
 - **Encrypted credential vault**: `vault.db` stores encrypted pool/host secrets; `security.db` stores the wrapped data-encryption keys. Plaintext secrets are never returned to the browser after creation.
 - **Governed, auditable cleanup**: retention sweeps and destructive operations route through governance approvals and are logged (see [Governance & Compliance](#governance--compliance)).
 - **Parameterized SQL** via `better-sqlite3` — no string-built queries.

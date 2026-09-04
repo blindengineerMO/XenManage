@@ -6,6 +6,7 @@ function handleDemoGovernanceRoutes(method, path, body) {
       generatedAt: '2026-08-21T15:20:00.000Z',
       policy: clone(demoDb.governancePolicy),
       currentRole: getDemoGovernanceState().currentRole,
+      breakGlass: getDemoBreakGlassState(),
       quotas: clone(demoDb.governanceQuotas),
       approvals,
       quotaRows,
@@ -26,6 +27,17 @@ function handleDemoGovernanceRoutes(method, path, body) {
       defaultRole: body.defaultRole || 'admin',
       requireDestructiveApproval: body.requireDestructiveApproval !== false,
       approvalTtlMinutes: Number(body.approvalTtlMinutes || 240),
+      requireApproverDifferentFromRequester: Boolean(body.requireApproverDifferentFromRequester),
+      requireTwoPersonApproval: Boolean(body.requireTwoPersonApproval),
+      requireScheduledApprovalWindow: Boolean(body.requireScheduledApprovalWindow),
+      approvalWindowDays: Array.isArray(body.approvalWindowDays) && body.approvalWindowDays.length
+        ? body.approvalWindowDays.map(Number)
+        : [1, 2, 3, 4, 5],
+      approvalWindowStartMinute: Number.isInteger(body.approvalWindowStartMinute) ? body.approvalWindowStartMinute : 0,
+      approvalWindowEndMinute: Number.isInteger(body.approvalWindowEndMinute) ? body.approvalWindowEndMinute : 1440,
+      requireDomainApproverGroup: Boolean(body.requireDomainApproverGroup),
+      securityApproverGroupId: Number.isInteger(body.securityApproverGroupId) ? body.securityApproverGroupId : null,
+      infrastructureApproverGroupId: Number.isInteger(body.infrastructureApproverGroupId) ? body.infrastructureApproverGroupId : null,
     };
     recordDemoAudit({
       category: 'governance',
@@ -70,6 +82,62 @@ function handleDemoGovernanceRoutes(method, path, body) {
       detail: `Session role changed from ${previousRole} to ${store.governance.currentRole}.`,
     });
     return { role: store.governance.currentRole };
+  }
+
+  if (method === 'POST' && path === '/api/governance/break-glass/activate') {
+    const justification = String(body?.justification || '').trim();
+    if (justification.length < 10) {
+      const error = new Error('VALIDATION_ERROR');
+      error.code = 'VALIDATION_ERROR';
+      throw error;
+    }
+
+    const priorRole = store.governance?.currentRole || demoDb.governancePolicy.defaultRole || 'admin';
+    const activatedAt = new Date();
+    const state = {
+      active: true,
+      activatedBy: store.username || 'demo',
+      activatedAt: activatedAt.toISOString(),
+      expiresAt: new Date(activatedAt.getTime() + 30 * 60000).toISOString(),
+      justification,
+      priorRole,
+      mfaVerified: false,
+    };
+    store.governance = { ...store.governance, currentRole: 'admin', breakGlass: state };
+    recordDemoAudit({
+      category: 'governance',
+      action: 'break_glass_activated',
+      actionLabel: 'Activated break-glass elevation for',
+      entityType: 'session',
+      entityRef: 'demo-session',
+      entityName: store.username || 'demo',
+      route: '/governance',
+      before: { active: false },
+      after: state,
+      detail: `Emergency admin elevation activated until ${state.expiresAt}. Justification: ${state.justification}`,
+    });
+    return clone(state);
+  }
+
+  if (method === 'POST' && path === '/api/governance/break-glass/deactivate') {
+    const previous = getDemoBreakGlassState();
+    if (!previous.active) return { active: false };
+
+    const state = { ...previous, active: false, deactivatedAt: new Date().toISOString() };
+    store.governance = { ...store.governance, currentRole: previous.priorRole || store.governance.currentRole, breakGlass: state };
+    recordDemoAudit({
+      category: 'governance',
+      action: 'break_glass_deactivated',
+      actionLabel: 'Deactivated break-glass elevation for',
+      entityType: 'session',
+      entityRef: 'demo-session',
+      entityName: store.username || 'demo',
+      route: '/governance',
+      before: previous,
+      after: state,
+      detail: 'Emergency admin elevation ended before its 30 minute window expired.',
+    });
+    return clone(state);
   }
 
   if (method === 'GET' && path === '/api/users') {

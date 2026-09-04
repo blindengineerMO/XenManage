@@ -978,4 +978,20 @@ describe('VM Routes', () => {
     }));
     expect(mockState.vmRecords.some((entry) => entry.name_label === 'imported-app-01')).toBe(true);
   });
+
+  it('blocks VM import in read-only governance mode', async () => {
+    const auth = await login();
+    await request('PUT', '/api/governance/role', { role: 'read-only' }, auth.cookie);
+
+    const res = await request(
+      'PUT',
+      '/api/vms/import?srRef=OpaqueRef%3Asr1&restore=true&force=true',
+      Buffer.from('demo-xva-package'),
+      auth.cookie,
+      { 'X-Xenmange-Filename': 'blocked-import.xva' }
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('READ_ONLY_MODE');
+  });
 });

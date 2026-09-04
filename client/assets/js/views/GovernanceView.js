@@ -180,6 +180,41 @@ const GovernanceView = {
                   {{ store.governance.currentRole === role.value ? 'Active' : 'Switch' }}
                 </span>
               </button>
+
+              <div class="stack-item" v-if="breakGlass.active" style="align-items:flex-start">
+                <div>
+                  <strong class="text-red">Break-glass elevation active</strong>
+                  <div class="text-muted mono" style="font-size:11px">Expires {{ formatDateTime(breakGlass.expiresAt) }} · activated by {{ breakGlass.activatedBy }}</div>
+                  <div class="text-muted" style="font-size:12px;margin-top:6px">{{ breakGlass.justification }}</div>
+                </div>
+                <button class="btn btn-sm" @click="deactivateBreakGlass" :disabled="breakGlassSaving">End Now</button>
+              </div>
+
+              <div class="stack-item" v-else-if="!showBreakGlassForm">
+                <div>
+                  <strong>Emergency access</strong>
+                  <div class="text-muted" style="font-size:12px">Elevate to admin for 30 minutes with a recorded justification.</div>
+                </div>
+                <button class="btn btn-sm" @click="openBreakGlassForm">Break Glass</button>
+              </div>
+
+              <div class="stack-item" v-else style="flex-direction:column;align-items:stretch;gap:8px">
+                <div class="form-group" style="margin:0">
+                  <label for="break-glass-justification">Justification (min 10 characters)</label>
+                  <textarea id="break-glass-justification" class="form-input" rows="2" v-model="breakGlassJustification" placeholder="Why does this session need emergency admin access?"></textarea>
+                </div>
+                <div class="form-group" style="margin:0" v-if="accountHasMfa">
+                  <label for="break-glass-mfa">MFA Token</label>
+                  <input id="break-glass-mfa" class="form-input" v-model="breakGlassMfaToken" placeholder="6-digit code">
+                </div>
+                <p class="text-red" style="margin:0;font-size:12px" v-if="breakGlassError">{{ breakGlassError }}</p>
+                <div style="display:flex;gap:8px">
+                  <button class="btn btn-sm btn-primary" @click="activateBreakGlass" :disabled="breakGlassSaving">
+                    {{ breakGlassSaving ? 'Activating...' : 'Activate' }}
+                  </button>
+                  <button class="btn btn-sm" @click="closeBreakGlassForm" :disabled="breakGlassSaving">Cancel</button>
+                </div>
+              </div>
             </div>
             <div v-else class="empty-state" style="padding:20px 12px">
               Session-role changes are unavailable while reviewing an aggregated vFabric scope.
@@ -390,6 +425,11 @@ const GovernanceView = {
       groupSaving: false,
       passwordSaving: false,
       decidingApprovalId: '',
+      showBreakGlassForm: false,
+      breakGlassJustification: '',
+      breakGlassMfaToken: '',
+      breakGlassSaving: false,
+      breakGlassError: '',
       policyError: '',
       quotaError: '',
       approvalError: '',
@@ -464,6 +504,12 @@ const GovernanceView = {
     isVFabricScopeReadOnly() {
       return hasVFabricScope();
     },
+    breakGlass() {
+      return store.governance.breakGlass || { active: false };
+    },
+    accountHasMfa() {
+      return Boolean(store.user?.mfaEnabled);
+    },
   },
   async mounted() {
     if (!store.authenticated) {
@@ -521,6 +567,7 @@ const GovernanceView = {
         store.governance = {
           currentRole: result.currentRole || store.governance.currentRole,
           policy: result.policy || store.governance.policy,
+          breakGlass: result.breakGlass || { active: false },
         };
       } catch (error) {
         console.error(error);
@@ -544,6 +591,51 @@ const GovernanceView = {
         this.policyError = error.code === 'ROLE_ESCALATION_NOT_ALLOWED'
           ? 'This session cannot elevate beyond the account role assigned to the current operator.'
           : (error.message || 'Unable to switch governance role');
+      }
+    },
+    openBreakGlassForm() {
+      this.breakGlassJustification = '';
+      this.breakGlassMfaToken = '';
+      this.breakGlassError = '';
+      this.showBreakGlassForm = true;
+    },
+    closeBreakGlassForm() {
+      this.showBreakGlassForm = false;
+      this.breakGlassError = '';
+    },
+    async activateBreakGlass() {
+      if (this.breakGlassJustification.trim().length < 10) {
+        this.breakGlassError = 'Justification must be at least 10 characters.';
+        return;
+      }
+      this.breakGlassSaving = true;
+      this.breakGlassError = '';
+      try {
+        const state = await api.activateBreakGlass({
+          justification: this.breakGlassJustification.trim(),
+          mfaToken: this.breakGlassMfaToken.trim(),
+        });
+        store.governance = { ...store.governance, currentRole: 'admin', breakGlass: state };
+        this.showBreakGlassForm = false;
+        await this.loadGovernance();
+      } catch (error) {
+        this.breakGlassError = error.code === 'MFA_REQUIRED'
+          ? 'A valid MFA token is required to activate emergency access.'
+          : (error.message || 'Unable to activate break-glass elevation');
+      } finally {
+        this.breakGlassSaving = false;
+      }
+    },
+    async deactivateBreakGlass() {
+      this.breakGlassSaving = true;
+      try {
+        const state = await api.deactivateBreakGlass();
+        store.governance = { ...store.governance, breakGlass: state };
+        await this.loadGovernance();
+      } catch (error) {
+        this.breakGlassError = error.message || 'Unable to end break-glass elevation';
+      } finally {
+        this.breakGlassSaving = false;
       }
     },
     async savePolicy(payload) {
