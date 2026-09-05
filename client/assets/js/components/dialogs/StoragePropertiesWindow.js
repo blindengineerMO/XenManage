@@ -24,6 +24,7 @@ const StoragePropertiesWindow = {
       type: Object,
       default: () => ({
         attachmentPathCount: 0,
+        pathHealthSummary: '',
         workloadCount: 0,
         topologyLabel: '',
         otherConfigSummary: '',
@@ -94,6 +95,7 @@ const StoragePropertiesWindow = {
           <span class="text-muted">Local Cache</span><span>{{ selectedSr.local_cache_enabled ? 'Enabled' : 'Disabled' }}</span>
           <span class="text-muted">Mapped VDIs</span><span>{{ summarizeCount('disks', vdis.length) }}</span>
           <span class="text-muted">Attachment Paths</span><span>{{ summarizeCount('attachment paths', storageDetailProfile.attachmentPathCount) }}</span>
+          <span class="text-muted">Path Health</span><span>{{ storageDetailProfile.pathHealthSummary || '-' }}</span>
           <span class="text-muted">Attached Workloads</span><span>{{ summarizeCount('workloads', storageDetailProfile.workloadCount) }}</span>
           <span class="text-muted">Topology</span><span>{{ storageDetailProfile.topologyLabel }}</span>
           <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedSr.uuid || '-' }}</span>

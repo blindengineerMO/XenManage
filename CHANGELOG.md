@@ -29,6 +29,8 @@ All notable changes to XenManage are documented here.
 - Host Uplinks rows now also show each PIF's live link state (up/down), negotiated speed/duplex, and current throughput (io_read_kbs/io_write_kbs), sourced from a single batched PIF_metrics read alongside the existing uplinks fetch.
 - The Inventory workspace's Connection Atlas now shows a live pool/host/VM/alert count rollup for every currently-connected saved target, so operators can compare cluster health at a glance without switching the active connection.
 - The Connection Atlas now also shows managed-target poller connectivity status (Healthy/Offline/Authentication Failed/etc.) for saved-but-not-connected targets that are registered as managed targets, instead of a generic "connect to view live status" prompt.
+- Storage attachment rows now show each VBD's real device name, mode, bootable/plug state instead of inferring attachment from VM/VDI ref-list overlap, and correctly flag VDIs with no VBD attachment record at all rather than guessing a match. Focused VBD arrivals from Inventory now resolve by UUID as well as by opaque reference.
+- Storage Repository properties now show a "Path Health" summary derived from each repository's real PBD attachment records, naming any host where the storage path is currently unplugged, instead of a bare attachment-path count with no health signal.
 
 ### Security
 

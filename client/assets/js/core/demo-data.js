@@ -77,7 +77,7 @@ const demoDb = {
       ssl_legacy: false,
       bios_strings: { 'system-manufacturer': 'Dell Inc.', 'system-product-name': 'PowerEdge R750', 'bios-version': '1.12.2' },
       PIFs: ['OpaqueRef:pif-demo-1', 'OpaqueRef:pif-demo-2'],
-      PBDs: ['OpaqueRef:pbd-demo-1'],
+      PBDs: ['OpaqueRef:pbd-demo-h1-sr1', 'OpaqueRef:pbd-demo-h1-sr3', 'OpaqueRef:pbd-demo-h1-iso'],
       resident_VMs: ['OpaqueRef:vm-demo-1', 'OpaqueRef:vm-demo-2'],
       cpu_info: { cpu_count: '32', socket_count: '2', cores_per_socket: '8', threads_per_core: '2', modelname: 'AMD EPYC 7543P', vendor: 'AMD' },
       logging: { syslog_destination: '10.42.0.50', syslog_level: 'warning' },
@@ -106,7 +106,7 @@ const demoDb = {
       ssl_legacy: false,
       bios_strings: { 'system-manufacturer': 'Dell Inc.', 'system-product-name': 'PowerEdge R750', 'bios-version': '1.11.0' },
       PIFs: ['OpaqueRef:pif-demo-3', 'OpaqueRef:pif-demo-4'],
-      PBDs: ['OpaqueRef:pbd-demo-1'],
+      PBDs: ['OpaqueRef:pbd-demo-h2-sr3', 'OpaqueRef:pbd-demo-h2-iso'],
       resident_VMs: ['OpaqueRef:vm-demo-3'],
       cpu_info: { cpu_count: '32', socket_count: '2', cores_per_socket: '8', threads_per_core: '2', modelname: 'AMD EPYC 7543P', vendor: 'AMD' },
       logging: {},
@@ -135,7 +135,7 @@ const demoDb = {
       ssl_legacy: true,
       bios_strings: { 'system-manufacturer': 'Supermicro', 'system-product-name': 'SYS-621C-TN12R', 'bios-version': '2.5' },
       PIFs: ['OpaqueRef:pif-demo-5', 'OpaqueRef:pif-demo-6'],
-      PBDs: ['OpaqueRef:pbd-demo-2'],
+      PBDs: ['OpaqueRef:pbd-demo-h3-sr2'],
       resident_VMs: ['OpaqueRef:vm-demo-4'],
       cpu_info: { cpu_count: '16', socket_count: '1', cores_per_socket: '8', threads_per_core: '2', modelname: 'Intel Xeon Silver 4310', vendor: 'Intel' },
       logging: { syslog_destination: '10.43.0.60' },
@@ -478,7 +478,7 @@ const demoDb = {
       physical_size: 1374389534720,
       virtual_allocation: 901943132160,
       uuid: 'sr-demo-uuid-1',
-      PBDs: ['OpaqueRef:pbd-demo-1'],
+      PBDs: ['OpaqueRef:pbd-demo-h1-sr1'],
       shared: false,
       local_cache_enabled: false,
       tags: ['flash', 'performance'],
@@ -490,7 +490,7 @@ const demoDb = {
       physical_size: 824633720832,
       virtual_allocation: 263882790666,
       uuid: 'sr-demo-uuid-3',
-      PBDs: ['OpaqueRef:pbd-demo-1'],
+      PBDs: ['OpaqueRef:pbd-demo-h1-sr3', 'OpaqueRef:pbd-demo-h2-sr3'],
       shared: true,
       local_cache_enabled: false,
       tags: ['archive', 'shared'],
@@ -502,7 +502,7 @@ const demoDb = {
       physical_size: 549755813888,
       virtual_allocation: 188978561024,
       uuid: 'sr-demo-uuid-2',
-      PBDs: ['OpaqueRef:pbd-demo-2'],
+      PBDs: ['OpaqueRef:pbd-demo-h3-sr2'],
       shared: true,
       local_cache_enabled: false,
       tags: ['archive', 'edge'],
@@ -515,7 +515,7 @@ const demoDb = {
       physical_size: 107374182400,
       virtual_allocation: 8858370048,
       uuid: 'sr-demo-uuid-iso-1',
-      PBDs: ['OpaqueRef:pbd-demo-3'],
+      PBDs: ['OpaqueRef:pbd-demo-h1-iso', 'OpaqueRef:pbd-demo-h2-iso'],
       shared: true,
       local_cache_enabled: false,
       tags: ['iso', 'shared'],
@@ -533,6 +533,50 @@ const demoDb = {
     ],
     'OpaqueRef:sr-demo-iso-1': [],
   },
+  vbds: [
+    {
+      ref: 'OpaqueRef:vbd-demo-1', uuid: 'vbd-demo-uuid-1', VM: 'OpaqueRef:vm-demo-1', VDI: 'OpaqueRef:vdi-demo-1',
+      device: 'xvda', userdevice: '0', mode: 'RW', type: 'Disk', bootable: true, currently_attached: true,
+    },
+    {
+      ref: 'OpaqueRef:vbd-demo-2', uuid: 'vbd-demo-uuid-2', VM: 'OpaqueRef:vm-demo-2', VDI: 'OpaqueRef:vdi-demo-2',
+      device: 'xvda', userdevice: '0', mode: 'RW', type: 'Disk', bootable: true, currently_attached: true,
+    },
+    {
+      ref: 'OpaqueRef:vbd-demo-3', uuid: 'vbd-demo-uuid-3', VM: 'OpaqueRef:vm-demo-3', VDI: 'OpaqueRef:vdi-demo-3',
+      device: 'xvda', userdevice: '0', mode: 'RW', type: 'Disk', bootable: true, currently_attached: false,
+    },
+    {
+      ref: 'OpaqueRef:vbd-demo-4', uuid: 'vbd-demo-uuid-4', VM: 'OpaqueRef:vm-demo-4', VDI: 'OpaqueRef:vdi-demo-4',
+      device: 'xvda', userdevice: '0', mode: 'RW', type: 'Disk', bootable: true, currently_attached: false,
+    },
+  ],
+  pbds: [
+    {
+      ref: 'OpaqueRef:pbd-demo-h1-sr1', uuid: 'pbd-demo-uuid-h1-sr1', host: 'OpaqueRef:host-demo-1', SR: 'OpaqueRef:sr-demo-1',
+      currently_attached: true, device_config: { device: '/dev/sdb' },
+    },
+    {
+      ref: 'OpaqueRef:pbd-demo-h1-sr3', uuid: 'pbd-demo-uuid-h1-sr3', host: 'OpaqueRef:host-demo-1', SR: 'OpaqueRef:sr-demo-3',
+      currently_attached: true, device_config: { server: '10.42.0.60', serverpath: '/export/ops-archive' },
+    },
+    {
+      ref: 'OpaqueRef:pbd-demo-h2-sr3', uuid: 'pbd-demo-uuid-h2-sr3', host: 'OpaqueRef:host-demo-2', SR: 'OpaqueRef:sr-demo-3',
+      currently_attached: true, device_config: { server: '10.42.0.60', serverpath: '/export/ops-archive' },
+    },
+    {
+      ref: 'OpaqueRef:pbd-demo-h1-iso', uuid: 'pbd-demo-uuid-h1-iso', host: 'OpaqueRef:host-demo-1', SR: 'OpaqueRef:sr-demo-iso-1',
+      currently_attached: true, device_config: { location: '10.42.0.70:/export/iso' },
+    },
+    {
+      ref: 'OpaqueRef:pbd-demo-h2-iso', uuid: 'pbd-demo-uuid-h2-iso', host: 'OpaqueRef:host-demo-2', SR: 'OpaqueRef:sr-demo-iso-1',
+      currently_attached: true, device_config: { location: '10.42.0.70:/export/iso' },
+    },
+    {
+      ref: 'OpaqueRef:pbd-demo-h3-sr2', uuid: 'pbd-demo-uuid-h3-sr2', host: 'OpaqueRef:host-demo-3', SR: 'OpaqueRef:sr-demo-2',
+      currently_attached: false, device_config: { server: '10.99.0.10', serverpath: '/export/edge-archive' },
+    },
+  ],
   isoFiles: {
     'OpaqueRef:sr-demo-iso-1': [
       { path: 'windows-server-2022.iso', type: 'file', sizeBytes: 5368709120, modifiedAt: '2026-08-01T12:00:00.000Z' },

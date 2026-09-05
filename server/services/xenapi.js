@@ -982,6 +982,14 @@ class XenAPI {
     return this.getClassRecords('VLAN');
   }
 
+  async getVBDs() {
+    return this.getClassRecords('VBD');
+  }
+
+  async getPBDs() {
+    return this.getClassRecords('PBD');
+  }
+
   async updateVifConfig(ref, {
     qosAlgorithmType = '',
     qosAlgorithmParams = {},

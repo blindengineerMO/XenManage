@@ -128,6 +128,26 @@ router.post('/import',
     }
   });
 
+router.get('/vbds', async (req, res) => {
+  try {
+    const { records } = await req.xenApi.getVBDs();
+    const vbds = Object.entries(records).map(([ref, record]) => ({ ref, ...record }));
+    res.json({ total: vbds.length, data: vbds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/pbds', async (req, res) => {
+  try {
+    const { records } = await req.xenApi.getPBDs();
+    const pbds = Object.entries(records).map(([ref, record]) => ({ ref, ...record }));
+    res.json({ total: pbds.length, data: pbds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:ref', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
   try {
     const record = await req.xenApi.getRecord('SR', req.params.ref);

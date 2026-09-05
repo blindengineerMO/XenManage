@@ -212,6 +212,8 @@ const StorageView = {
         vdis: this.vdis,
         relatedVMs: this.relatedVMs,
         relatedHosts: this.relatedHosts,
+        relatedVbds: this.relatedVbds,
+        relatedPbds: this.relatedPbds,
         detailLoading: this.detailLoading,
         localCacheHostRef: this.localCacheHostRef,
         focusedVdiRef: this.focusedVdiRef,
@@ -1031,6 +1033,7 @@ const StorageView = {
         srs: this.srs,
         lastAppliedFocusKey: this.lastAppliedFocusKey,
         loadSrVdis: (ref) => api.getSRVDIs(ref),
+        loadVbds: () => api.getStorageVbds(),
         openProperties: async (row, options = {}) => {
           await this.openProperties(row, options);
         },

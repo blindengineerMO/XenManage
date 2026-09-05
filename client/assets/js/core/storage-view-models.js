@@ -47,55 +47,73 @@ function buildStorageSelectionProfile(srs = [], selectedSrRefs = []) {
   };
 }
 
-function buildStorageAttachmentRows(vdis = [], relatedVMs = [], relatedHosts = []) {
+function formatVbdAttachmentSummary(vbd = null) {
+  if (!vbd) return '';
+  const device = vbd.device || vbd.userdevice || '';
+  const mode = vbd.mode || '';
+  const role = vbd.type === 'CD' ? 'CD' : (vbd.bootable ? 'boot disk' : 'disk');
+  const plugState = vbd.currently_attached ? 'plugged in' : 'unplugged';
+  return [device, mode, role, plugState].filter(Boolean).join(' · ');
+}
+
+function buildStorageAttachmentRows(vdis = [], relatedVMs = [], relatedHosts = [], relatedVbds = []) {
   const diskList = Array.isArray(vdis) ? vdis : [];
   const vmList = Array.isArray(relatedVMs) ? relatedVMs : [];
   const hostList = Array.isArray(relatedHosts) ? relatedHosts : [];
+  const vbdList = Array.isArray(relatedVbds) ? relatedVbds : [];
+  const vbdsByVdiRef = vbdList.reduce((map, vbd) => {
+    if (!vbd.VDI) return map;
+    (map[vbd.VDI] = map[vbd.VDI] || []).push(vbd);
+    return map;
+  }, {});
 
   return diskList.flatMap((vdi) => {
     const vbdRefs = Array.isArray(vdi.VBDs) ? vdi.VBDs : [];
-    const attachedVms = vmList.filter((vm) =>
-      Array.isArray(vm.VBDs) && vm.VBDs.some((ref) => vbdRefs.includes(ref))
-    );
+    const vbdRecords = vbdsByVdiRef[vdi.ref] || [];
+    const attachments = vbdRecords.length
+      ? vbdRecords.map((vbd) => ({ vbd, vm: vmList.find((vm) => vm.ref === vbd.VM) || null }))
+      : [];
 
-    if (!attachedVms.length) {
+    if (!attachments.length) {
       return [{
         id: `${vdi.ref || vdi.uuid || 'vdi'}-unattached`,
         vdiRef: vdi.ref || '',
         vdiUuid: vdi.uuid || '',
         vdiName: vdi.name_label || vdi.ref || 'Unnamed VDI',
         vbdRef: vbdRefs[0] || '',
+        vbdUuid: '',
         vmRef: '',
         vmUuid: '',
         vmName: 'No mapped workload',
         hostRef: '',
         hostUuid: '',
         hostName: 'Unplaced / not discovered',
-        detail: `${formatBytes(vdi.virtual_size)} · ${vdi.type || 'disk'} · no VM attachment match`,
+        detail: `${formatBytes(vdi.virtual_size)} · ${vdi.type || 'disk'} · no VBD attachment record`,
         status: 'warning',
       }];
     }
 
-    return attachedVms.map((vm) => {
-      const matchedVbdRef = (vm.VBDs || []).find((ref) => vbdRefs.includes(ref)) || '';
+    return attachments.map(({ vbd, vm }) => {
       const host = hostList.find((candidate) =>
-        candidate.ref === vm.resident_on || candidate.uuid === vm.resident_on
+        candidate.ref === vm?.resident_on || candidate.uuid === vm?.resident_on
       ) || null;
+      const vbdSummary = formatVbdAttachmentSummary(vbd);
 
       return {
-        id: `${vdi.ref || vdi.uuid || 'vdi'}-${vm.ref || vm.uuid || 'vm'}-${matchedVbdRef || 'vbd'}`,
+        id: `${vdi.ref || vdi.uuid || 'vdi'}-${vm?.ref || vbd.VM || 'vm'}-${vbd.ref || 'vbd'}`,
         vdiRef: vdi.ref || '',
         vdiUuid: vdi.uuid || '',
         vdiName: vdi.name_label || vdi.ref || 'Unnamed VDI',
-        vbdRef: matchedVbdRef,
-        vmRef: vm.ref || '',
-        vmUuid: vm.uuid || '',
-        vmName: vm.name_label || vm.ref || 'Virtual Machine',
+        vbdRef: vbd.ref || '',
+        vbdUuid: vbd.uuid || '',
+        vmRef: vm?.ref || vbd.VM || '',
+        vmUuid: vm?.uuid || '',
+        vmName: vm ? (vm.name_label || vm.ref || 'Virtual Machine') : 'Workload not discovered',
         hostRef: host?.ref || '',
         hostUuid: host?.uuid || '',
         hostName: host ? (host.name_label || host.address || host.ref || 'Host') : 'Host not mapped',
-        detail: `${formatBytes(vdi.virtual_size)} · ${vm.power_state || 'Unknown'} · ${host?.address || host?.uuid || vm.resident_on || 'no host ref'}`,
-        status: vm.power_state || 'info',
+        detail: `${formatBytes(vdi.virtual_size)} · ${vm?.power_state || 'Unknown'} · ${vbdSummary || (host?.address || host?.uuid || vm?.resident_on || 'no host ref')}`,
+        status: vbd.currently_attached === false ? 'notice' : (vm?.power_state || 'info'),
       };
     });
   });
@@ -117,6 +135,39 @@ function buildSelectedSrAccessHosts(selectedSR = null, relatedHosts = []) {
   return relatedHosts.filter((host) =>
     Array.isArray(host.PBDs) && host.PBDs.some((pbdRef) => pbdRefs.has(pbdRef))
   );
+}
+
+function buildSrPathHealthRows(selectedSR = null, relatedHosts = [], relatedPbds = []) {
+  if (!selectedSR?.PBDs?.length) return [];
+  const pbdRefs = new Set(selectedSR.PBDs || []);
+  const hostsByRef = new Map((Array.isArray(relatedHosts) ? relatedHosts : []).map((host) => [host.ref, host]));
+
+  return (Array.isArray(relatedPbds) ? relatedPbds : [])
+    .filter((pbd) => pbdRefs.has(pbd.ref))
+    .map((pbd) => {
+      const host = hostsByRef.get(pbd.host) || null;
+      return {
+        pbdRef: pbd.ref || '',
+        pbdUuid: pbd.uuid || '',
+        hostRef: pbd.host || '',
+        hostName: host ? (host.name_label || host.address || host.ref) : (pbd.host || 'Host not discovered'),
+        currentlyAttached: pbd.currently_attached !== false,
+      };
+    });
+}
+
+function buildSrPathHealthSummary(selectedSR = null, pathHealthRows = []) {
+  if (!selectedSR?.PBDs?.length) return '';
+  const rows = Array.isArray(pathHealthRows) ? pathHealthRows : [];
+  if (!rows.length) return 'No attachment path telemetry was discovered for this repository.';
+
+  const degraded = rows.filter((row) => !row.currentlyAttached);
+  if (!degraded.length) {
+    return `${rows.length} of ${rows.length} attachment ${rows.length === 1 ? 'path is' : 'paths are'} healthy.`;
+  }
+
+  const degradedHosts = degraded.map((row) => row.hostName).join(', ');
+  return `${degraded.length} of ${rows.length} attachment ${rows.length === 1 ? 'path is' : 'paths are'} degraded (unplugged on ${degradedHosts}).`;
 }
 
 function buildSelectedSrLocalCacheBlockedReason(selectedSR = null, detailLoading = false, accessHosts = [], localCacheHostRef = '') {
@@ -223,6 +274,8 @@ function buildStorageDetailProfile({
   vdis = [],
   relatedVMs = [],
   relatedHosts = [],
+  relatedVbds = [],
+  relatedPbds = [],
   detailLoading = false,
   localCacheHostRef = '',
   focusedVdiRef = '',
@@ -230,15 +283,18 @@ function buildStorageDetailProfile({
   focusedVbdRef = '',
   focusedStorageClass = '',
 } = {}) {
-  const attachmentRows = buildStorageAttachmentRows(vdis, relatedVMs, relatedHosts);
+  const attachmentRows = buildStorageAttachmentRows(vdis, relatedVMs, relatedHosts, relatedVbds);
   const attachmentCounts = buildStorageVdiAttachmentCounts(vdis, attachmentRows);
   const accessHosts = buildSelectedSrAccessHosts(selectedSR, relatedHosts);
   const topologyProfile = buildSelectedSrTopologyProfile(selectedSR, vdis, attachmentRows);
+  const pathHealthRows = buildSrPathHealthRows(selectedSR, relatedHosts, relatedPbds);
 
   return {
     attachmentRows,
     attachmentCounts,
     accessHosts,
+    pathHealthRows,
+    pathHealthSummary: buildSrPathHealthSummary(selectedSR, pathHealthRows),
     localCacheBlockedReason: buildSelectedSrLocalCacheBlockedReason(
       selectedSR,
       detailLoading,
@@ -288,5 +344,10 @@ if (typeof module !== 'undefined') {
     buildStorageSelectionProfile,
     buildBulkStorageForgetMessage,
     buildBulkStorageDestroyMessage,
+    buildStorageAttachmentRows,
+    buildStorageDetailProfile,
+    formatVbdAttachmentSummary,
+    buildSrPathHealthRows,
+    buildSrPathHealthSummary,
   };
 }

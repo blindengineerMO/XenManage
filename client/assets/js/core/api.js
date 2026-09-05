@@ -290,6 +290,8 @@ const api = {
   updateSRConfig: (ref, payload) => api.request('PUT', `/api/storage/${encodeURIComponent(ref)}/config`, payload),
   setSRLocalCache: (ref, payload) => api.request('POST', `/api/storage/${encodeURIComponent(ref)}/local-cache`, payload),
   getSRVDIs: (ref) => api.request('GET', `/api/storage/${encodeURIComponent(ref)}/vdis`),
+  getStorageVbds: (targetKey = '') => api.request('GET', appendTargetKey('/api/storage/vbds', targetKey)),
+  getStoragePbds: (targetKey = '') => api.request('GET', appendTargetKey('/api/storage/pbds', targetKey)),
   repairSR: (ref, payload = {}) => api.request('POST', `/api/storage/${encodeURIComponent(ref)}/repair`, payload),
   rescanSR: (ref, payload = {}) => api.request('POST', `/api/storage/${encodeURIComponent(ref)}/rescan`, payload),
   forgetSR: (ref, payload = {}) => api.request('POST', `/api/storage/${encodeURIComponent(ref)}/forget`, payload),

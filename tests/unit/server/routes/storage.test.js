@@ -12,6 +12,7 @@ const mockState = {
   hosts: [],
   pbds: [],
   vdisBySr: {},
+  vbds: [],
 };
 
 jest.mock('../../../../server/services/xenapi', () => {
@@ -30,6 +31,20 @@ jest.mock('../../../../server/services/xenapi', () => {
     return {
       refs: mockState.srs.map((sr) => sr.ref),
       records: Object.fromEntries(mockState.srs.map((sr) => [sr.ref, { ...sr }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getVBDs = jest.fn(async function () {
+    return {
+      refs: mockState.vbds.map((vbd) => vbd.ref),
+      records: Object.fromEntries(mockState.vbds.map((vbd) => [vbd.ref, { ...vbd }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getPBDs = jest.fn(async function () {
+    return {
+      refs: mockState.pbds.map((pbd) => pbd.ref),
+      records: Object.fromEntries(mockState.pbds.map((pbd) => [pbd.ref, { ...pbd }])),
     };
   });
 
@@ -397,6 +412,7 @@ describe('Storage Routes', () => {
     mockState.pbds = [
       {
         ref: 'OpaqueRef:pbd1',
+        uuid: 'pbd-uuid-1',
         SR: 'OpaqueRef:sr1',
         host: 'OpaqueRef:host1',
         currently_attached: false,
@@ -438,6 +454,20 @@ describe('Storage Routes', () => {
       ],
       'OpaqueRef:sr2': [],
     };
+    mockState.vbds = [
+      {
+        ref: 'OpaqueRef:vbd1',
+        uuid: 'vbd-uuid-1',
+        VM: 'OpaqueRef:vm1',
+        VDI: 'OpaqueRef:vdi1',
+        device: 'xvda',
+        userdevice: '0',
+        mode: 'RW',
+        type: 'Disk',
+        bootable: true,
+        currently_attached: true,
+      },
+    ];
   });
 
   function request(method, pathName, body, cookie) {
@@ -509,6 +539,39 @@ describe('Storage Routes', () => {
     expect(vdis.body.data[0]).toEqual(expect.objectContaining({
       ref: 'OpaqueRef:vdi1',
       name_label: 'disk-01',
+    }));
+  });
+
+  it('lists VBD attachment records through the dedicated endpoint', async () => {
+    const auth = await login();
+
+    const vbds = await request('GET', '/api/storage/vbds', null, auth.cookie);
+    expect(vbds.status).toBe(200);
+    expect(vbds.body.total).toBe(1);
+    expect(vbds.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:vbd1',
+      uuid: 'vbd-uuid-1',
+      VM: 'OpaqueRef:vm1',
+      VDI: 'OpaqueRef:vdi1',
+      device: 'xvda',
+      mode: 'RW',
+      bootable: true,
+      currently_attached: true,
+    }));
+  });
+
+  it('lists PBD attachment path records through the dedicated endpoint', async () => {
+    const auth = await login();
+
+    const pbds = await request('GET', '/api/storage/pbds', null, auth.cookie);
+    expect(pbds.status).toBe(200);
+    expect(pbds.body.total).toBe(1);
+    expect(pbds.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:pbd1',
+      uuid: 'pbd-uuid-1',
+      SR: 'OpaqueRef:sr1',
+      host: 'OpaqueRef:host1',
+      currently_attached: false,
     }));
   });
 

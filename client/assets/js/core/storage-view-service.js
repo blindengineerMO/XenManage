@@ -13,16 +13,20 @@ async function loadStorageRecords(apiClient) {
 }
 
 async function loadStorageDetailContext(apiClient, row = {}, options = {}) {
-  const [vdisResult, vmsResult, hostsResult] = await Promise.allSettled([
+  const [vdisResult, vmsResult, hostsResult, vbdsResult, pbdsResult] = await Promise.allSettled([
     options.vdis ? Promise.resolve({ data: options.vdis }) : apiClient.getSRVDIs(row.ref),
     options.vms ? Promise.resolve({ data: options.vms }) : apiClient.getVMs(),
     options.hosts ? Promise.resolve({ data: options.hosts }) : apiClient.getHosts(),
+    options.vbds ? Promise.resolve({ data: options.vbds }) : apiClient.getStorageVbds(),
+    options.pbds ? Promise.resolve({ data: options.pbds }) : apiClient.getStoragePbds(),
   ]);
 
   return {
     vdis: vdisResult.status === 'fulfilled' ? (vdisResult.value.data || []) : [],
     relatedVMs: vmsResult.status === 'fulfilled' ? (vmsResult.value.data || []) : [],
     relatedHosts: hostsResult.status === 'fulfilled' ? (hostsResult.value.data || []) : [],
+    relatedVbds: vbdsResult.status === 'fulfilled' ? (vbdsResult.value.data || []) : [],
+    relatedPbds: pbdsResult.status === 'fulfilled' ? (pbdsResult.value.data || []) : [],
     detailError: vdisResult.status === 'rejected' && vmsResult.status === 'rejected' && hostsResult.status === 'rejected'
       ? 'Unable to load VDI, VM, and host relationship data.'
       : '',

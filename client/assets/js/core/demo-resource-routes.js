@@ -13,6 +13,20 @@ function handleDemoResourceRoutes(method, path, body, scope, parsedUrl) {
     return { total: scope.srs.length, data: clone(scope.srs) };
   }
 
+  if (method === 'GET' && path === '/api/storage/vbds') {
+    const scopedVdiRefs = new Set(
+      scope.srs.flatMap((sr) => (demoDb.vdis[sr.ref] || []).map((vdi) => vdi.ref))
+    );
+    const vbds = (demoDb.vbds || []).filter((vbd) => scopedVdiRefs.has(vbd.VDI));
+    return { total: vbds.length, data: clone(vbds) };
+  }
+
+  if (method === 'GET' && path === '/api/storage/pbds') {
+    const scopedSrRefs = new Set(scope.srs.map((sr) => sr.ref));
+    const pbds = (demoDb.pbds || []).filter((pbd) => scopedSrRefs.has(pbd.SR));
+    return { total: pbds.length, data: clone(pbds) };
+  }
+
   if (method === 'GET' && path === '/api/networks/interfaces') {
     const vifs = buildDemoVifInventory();
     return { total: vifs.length, data: clone(vifs) };

@@ -38,27 +38,44 @@ async function resolveFocusedStorageTarget({
   srs = [],
   focus = null,
   loadSrVdis,
+  loadVbds,
 } = {}) {
   const direct = findStorageByFocus(srs, focus);
   if (direct) {
-    return { sr: direct, vdis: null, focusedVdi: null };
+    return { sr: direct, vdis: null, focusedVdi: null, focusedVbd: null, vbds: null };
+  }
+
+  let targetVdiRef = '';
+  let focusedVbdRecord = null;
+  let vbds = null;
+  if (focus?.cls === 'vbd' && typeof loadVbds === 'function') {
+    try {
+      const vbdResult = await loadVbds();
+      vbds = vbdResult.data || [];
+      focusedVbdRecord = vbds.find((vbd) => recordMatchesRouteFocus(vbd, focus, ['ref', 'uuid'])) || null;
+      if (focusedVbdRecord?.VDI) targetVdiRef = focusedVbdRecord.VDI;
+    } catch (_error) {
+      // Fall back to ref-only VDI-list matching below when the batched VBD fetch fails.
+    }
   }
 
   for (const sr of Array.isArray(srs) ? srs : []) {
     try {
       const result = await loadSrVdis(sr.ref);
       const vdis = result.data || [];
-      const match = vdis.find((vdi) =>
-        recordMatchesRouteFocus(
-          vdi,
-          focus,
-          ['ref', 'uuid', 'name_label'],
-          focus.ref && focus.cls === 'vbd' ? (vdi.VBDs || []) : []
-        )
-      );
+      const match = targetVdiRef
+        ? vdis.find((vdi) => vdi.ref === targetVdiRef)
+        : vdis.find((vdi) =>
+            recordMatchesRouteFocus(
+              vdi,
+              focus,
+              ['ref', 'uuid', 'name_label'],
+              focus.ref && focus.cls === 'vbd' ? (vdi.VBDs || []) : []
+            )
+          );
 
       if (match) {
-        return { sr, vdis, focusedVdi: match };
+        return { sr, vdis, focusedVdi: match, focusedVbd: focusedVbdRecord, vbds };
       }
     } catch (_error) {
       // Keep searching other repositories when one VDI inventory call fails.
@@ -74,6 +91,7 @@ async function syncStorageRouteFocusWorkflow({
   srs = [],
   lastAppliedFocusKey = '',
   loadSrVdis,
+  loadVbds,
   openProperties,
 } = {}) {
   const focus = getRouteFocus(routeQuery);
@@ -92,6 +110,7 @@ async function syncStorageRouteFocusWorkflow({
     srs,
     focus,
     loadSrVdis,
+    loadVbds,
   });
   if (!target?.sr) {
     return { lastAppliedFocusKey };
@@ -99,11 +118,20 @@ async function syncStorageRouteFocusWorkflow({
 
   await openProperties(target.sr, {
     vdis: target.vdis,
+    vbds: target.vbds || undefined,
     focusedVdiRef: target.focusedVdi?.ref || '',
     focusedVdiUuid: target.focusedVdi?.uuid || focus.uuid || '',
-    focusedVbdRef: focus.cls === 'vbd' ? (focus.ref || '') : '',
+    focusedVbdRef: focus.cls === 'vbd' ? (target.focusedVbd?.ref || focus.ref || '') : '',
     focusedStorageClass: ['vdi', 'vbd'].includes(focus.cls) ? focus.cls : '',
   });
 
   return { lastAppliedFocusKey: syncState.key };
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    findStorageByFocus,
+    resolveFocusedStorageTarget,
+    syncStorageRouteFocusWorkflow,
+  };
 }
