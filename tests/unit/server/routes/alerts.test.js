@@ -54,6 +54,14 @@ jest.mock('../../../../server/services/xenapi', () => {
         uuid: 'msg-uuid-4',
         obj_uuid: 'vlan-uuid-1',
       },
+      'OpaqueRef:msg5': {
+        name: 'Host patch pending apply',
+        cls: 'host_patch',
+        body: 'A queued patch has not yet been applied to alpha-xen.',
+        timestamp: '2026-08-19T11:20:00.000Z',
+        uuid: 'msg-uuid-5',
+        obj_uuid: 'patch-uuid-1',
+      },
     };
   });
 
@@ -70,6 +78,14 @@ jest.mock('../../../../server/services/xenapi', () => {
         'OpaqueRef:vlan1': {
           uuid: 'vlan-uuid-1',
           tagged_PIF: 'OpaqueRef:pif2',
+        },
+      };
+    }
+    if (className === 'Host_patch') {
+      return {
+        'OpaqueRef:patch1': {
+          uuid: 'patch-uuid-1',
+          host: 'OpaqueRef:host1',
         },
       };
     }
@@ -210,7 +226,7 @@ describe('Alerts Routes', () => {
     const auth = await login();
     const res = await request('GET', '/api/alerts', null, auth.cookie);
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(6);
+    expect(res.body.total).toBe(7);
     const xenAlert = res.body.data.find((entry) => entry.ref === 'OpaqueRef:msg1');
     expect(xenAlert).toEqual(expect.objectContaining({
       ref: 'OpaqueRef:msg1',
@@ -231,6 +247,13 @@ describe('Alerts Routes', () => {
       targetRoute: '/networking',
       object_ref: 'OpaqueRef:pif2',
       summary: 'Recovery VLAN drift detected',
+    }));
+    const hostPatchAlert = res.body.data.find((entry) => entry.ref === 'OpaqueRef:msg5');
+    expect(hostPatchAlert).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:msg5',
+      targetRoute: '/hosts',
+      object_ref: 'OpaqueRef:host1',
+      summary: 'Host patch pending apply',
     }));
     const telemetryAlert = res.body.data.find((entry) => entry.ref === buildSyntheticRef('host', 'memory_used_percent', 'OpaqueRef:host1'));
     expect(telemetryAlert).toEqual(expect.objectContaining({

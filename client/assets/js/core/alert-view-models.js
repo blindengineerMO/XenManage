@@ -27,6 +27,10 @@ function formatAlertClassLabel(value) {
     pif: 'PIF',
     bond: 'Bond',
     vlan: 'VLAN',
+    vmss: 'VM Snapshot Schedule',
+    host_patch: 'Host Patch',
+    certificate: 'Certificate',
+    pvs_proxy: 'PVS Proxy',
     task: 'Task',
   };
   return map[value] || 'Any Class';
@@ -154,9 +158,9 @@ function resolveAlertWorkflowRoute(message = {}) {
   }
 
   const cls = String(message.cls || '').toLowerCase();
-  if (cls === 'host') return { route: '/lifecycle', label: 'Lifecycle Review' };
+  if (cls === 'host' || cls === 'host_patch' || cls === 'certificate') return { route: '/lifecycle', label: 'Lifecycle Review' };
   if (cls === 'sr' || cls === 'vdi' || cls === 'vbd') return { route: '/capacity', label: 'Capacity Review' };
-  if (cls === 'vm') return { route: '/governance', label: 'Governance Review' };
+  if (cls === 'vm' || cls === 'vmss') return { route: '/governance', label: 'Governance Review' };
   if (cls === 'pool') return { route: '/resilience', label: 'Resilience Review' };
   return { route: '', label: '' };
 }
@@ -181,16 +185,16 @@ function buildAlertFollowThroughLinks(message = null) {
   }
 
   const cls = String(message.cls || '').toLowerCase();
-  if (cls === 'host') {
+  if (cls === 'host' || cls === 'host_patch' || cls === 'certificate') {
     addLink('/capacity', 'Capacity Review', 'Check host pressure, imbalance, and noisy-neighbor impact before maintenance.');
     addLink('/resilience', 'Resilience Review', 'Review failover posture and evacuation readiness for the affected host.');
   } else if (cls === 'sr' || cls === 'vdi' || cls === 'vbd') {
     addLink('/storage', 'Storage View', 'Inspect the affected repository, VDI, or attachment topology.');
     addLink('/resilience', 'Resilience Review', 'Confirm restore-point safety if storage degradation could impact protection posture.');
-  } else if (cls === 'vm') {
+  } else if (cls === 'vm' || cls === 'vmss') {
     addLink('/vms', 'VM View', 'Open the VM detail workspace to inspect config, devices, and lifecycle state.');
     addLink('/resilience', 'Resilience Review', 'Check protection coverage and recovery posture for the affected workload.');
-  } else if (cls === 'network' || cls === 'pif' || cls === 'vif' || cls === 'bond' || cls === 'vlan') {
+  } else if (cls === 'network' || cls === 'pif' || cls === 'vif' || cls === 'bond' || cls === 'vlan' || cls === 'pvs_proxy') {
     addLink('/networking', 'Network View', 'Inspect the affected bridge, uplink, or workload interface path in the relationship pane.');
   } else if (cls === 'pool') {
     addLink('/pools', 'Pool View', 'Inspect pool membership and control-plane settings for the affected cluster.');
@@ -216,6 +220,10 @@ function buildAlertFocusLocation(message = {}) {
     pif: 'network',
     bond: 'network',
     vlan: 'network',
+    pvs_proxy: 'network',
+    vmss: 'vm',
+    host_patch: 'host',
+    certificate: 'host',
     task: 'task',
     alert: 'alert',
   };

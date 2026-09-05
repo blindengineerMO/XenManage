@@ -12,6 +12,17 @@ const ALERT_SUBOBJECT_CLASS_MAP = {
   pif: 'PIF',
   bond: 'Bond',
   vlan: 'VLAN',
+  vmss: 'VMSS',
+  host_patch: 'Host_patch',
+  certificate: 'Certificate',
+  pvs_proxy: 'PVS_proxy',
+};
+
+const ALERT_SUBOBJECT_REPRESENTATIVE_FIELD = {
+  vmss: 'VMs',
+  host_patch: 'host',
+  certificate: 'host',
+  pvs_proxy: 'VIF',
 };
 
 function getMessageHeadline(message) {
@@ -43,9 +54,10 @@ function getMessageSeverity(message) {
 
 function getTargetRoute(cls = '') {
   const value = String(cls).toLowerCase();
-  if (value === 'host') return '/hosts';
+  if (value === 'host' || value === 'host_patch' || value === 'certificate') return '/hosts';
   if (value === 'sr' || value === 'vdi' || value === 'vbd') return '/storage';
-  if (value === 'vm') return '/vms';
+  if (value === 'vm' || value === 'vmss') return '/vms';
+  if (value === 'pvs_proxy') return '/networking';
   if (value === 'pool') return '/pools';
   if (value === 'network' || value === 'vif' || value === 'pif' || value === 'bond' || value === 'vlan') return '/networking';
   if (value === 'task') return '/activity';
@@ -323,6 +335,15 @@ async function enrichAlertRecords(messageRecords = {}, xenApi = null) {
 
             if (cls === 'vlan') {
               const representativeRef = String(record?.tagged_PIF || record?.untagged_PIF || ref).trim();
+              return representativeRef ? [uuid, representativeRef] : null;
+            }
+
+            const representativeField = ALERT_SUBOBJECT_REPRESENTATIVE_FIELD[cls];
+            if (representativeField) {
+              const fieldValue = record?.[representativeField];
+              const representativeRef = String(
+                (Array.isArray(fieldValue) ? fieldValue.find(Boolean) : fieldValue) || ref
+              ).trim();
               return representativeRef ? [uuid, representativeRef] : null;
             }
 
