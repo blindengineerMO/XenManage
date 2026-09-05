@@ -108,7 +108,6 @@ const StorageView = {
         :show="showProps"
         :selected-sr="selectedSR"
         :vdis="vdis"
-        :related-vms="relatedVMs"
         :storage-detail-profile="storageDetailProfile"
         :detail-loading="detailLoading"
         :detail-error="detailError"

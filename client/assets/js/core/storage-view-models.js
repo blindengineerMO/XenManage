@@ -129,6 +129,30 @@ function buildStorageVdiAttachmentCounts(vdis = [], attachmentRows = []) {
   );
 }
 
+function buildVdiSnapshotLineage(vdi = null, vdis = []) {
+  if (!vdi) return { parentName: '', childCount: 0 };
+  const byRef = new Map((Array.isArray(vdis) ? vdis : []).map((entry) => [entry.ref, entry]));
+  const parent = vdi.is_a_snapshot && vdi.snapshot_of ? byRef.get(vdi.snapshot_of) : null;
+  const childCount = Array.isArray(vdi.snapshots) ? vdi.snapshots.length : 0;
+
+  return {
+    parentName: parent ? (parent.name_label || parent.ref) : (vdi.is_a_snapshot ? (vdi.snapshot_of || '') : ''),
+    childCount,
+  };
+}
+
+function formatVdiSnapshotLineage(vdi = null, vdis = []) {
+  const lineage = buildVdiSnapshotLineage(vdi, vdis);
+  const parts = [];
+  if (vdi?.is_a_snapshot) {
+    parts.push(`Snapshot of ${lineage.parentName || 'unknown source disk'}`);
+  }
+  if (lineage.childCount) {
+    parts.push(`${lineage.childCount} snapshot${lineage.childCount === 1 ? '' : 's'} ${lineage.childCount === 1 ? 'exists' : 'exist'} for this disk`);
+  }
+  return parts.join(' · ');
+}
+
 function buildSelectedSrAccessHosts(selectedSR = null, relatedHosts = []) {
   if (!selectedSR?.PBDs?.length || !Array.isArray(relatedHosts) || !relatedHosts.length) return [];
   const pbdRefs = new Set(selectedSR.PBDs || []);
@@ -349,5 +373,7 @@ if (typeof module !== 'undefined') {
     formatVbdAttachmentSummary,
     buildSrPathHealthRows,
     buildSrPathHealthSummary,
+    buildVdiSnapshotLineage,
+    formatVdiSnapshotLineage,
   };
 }

@@ -16,10 +16,6 @@ const StoragePropertiesWindow = {
       type: Array,
       default: () => [],
     },
-    relatedVms: {
-      type: Array,
-      default: () => [],
-    },
     storageDetailProfile: {
       type: Object,
       default: () => ({
@@ -30,6 +26,7 @@ const StoragePropertiesWindow = {
         otherConfigSummary: '',
         focusedContext: null,
         attachmentRows: [],
+        attachmentCounts: {},
       }),
     },
     detailLoading: {
@@ -166,8 +163,8 @@ const StoragePropertiesWindow = {
                 <div class="text-muted mono" style="font-size:11px">
                   {{ formatBytes(vdi.virtual_size) }}<template v-if="vdi.physical_utilisation != null"> · {{ formatBytes(vdi.physical_utilisation) }} used</template> · {{ vdi.type || 'disk' }} · {{ summarizeCount('attachments', getVdiAttachmentCount(vdi)) }}
                 </div>
-                <div class="text-muted mono" v-if="vdi.is_a_snapshot" style="font-size:11px">
-                  Snapshot of {{ vdi.snapshot_of || 'unknown source disk' }}
+                <div class="text-muted mono" v-if="formatVdiSnapshotLineage(vdi)" style="font-size:11px">
+                  {{ formatVdiSnapshotLineage(vdi) }}
                 </div>
                 <div class="text-muted mono" v-if="getVdiDeleteBlockedReason(vdi)" style="font-size:11px">
                   {{ getVdiDeleteBlockedReason(vdi) }}
@@ -255,12 +252,10 @@ const StoragePropertiesWindow = {
     summarizeCount,
     truncateList,
     getVdiAttachmentCount(vdi) {
-      const refs = new Set(Array.isArray(vdi?.VBDs) ? vdi.VBDs : []);
-      if (!refs.size) return 0;
-
-      return this.relatedVms.filter((vm) =>
-        Array.isArray(vm.VBDs) && vm.VBDs.some((ref) => refs.has(ref))
-      ).length;
+      return this.storageDetailProfile.attachmentCounts?.[vdi?.ref] || 0;
+    },
+    formatVdiSnapshotLineage(vdi) {
+      return formatVdiSnapshotLineage(vdi, this.vdis);
     },
     getVdiDeleteBlockedReason(vdi) {
       const attachmentCount = this.getVdiAttachmentCount(vdi);

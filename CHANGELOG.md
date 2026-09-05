@@ -31,6 +31,7 @@ All notable changes to XenManage are documented here.
 - The Connection Atlas now also shows managed-target poller connectivity status (Healthy/Offline/Authentication Failed/etc.) for saved-but-not-connected targets that are registered as managed targets, instead of a generic "connect to view live status" prompt.
 - Storage attachment rows now show each VBD's real device name, mode, bootable/plug state instead of inferring attachment from VM/VDI ref-list overlap, and correctly flag VDIs with no VBD attachment record at all rather than guessing a match. Focused VBD arrivals from Inventory now resolve by UUID as well as by opaque reference.
 - Storage Repository properties now show a "Path Health" summary derived from each repository's real PBD attachment records, naming any host where the storage path is currently unplugged, instead of a bare attachment-path count with no health signal.
+- The Attached VDIs list now resolves snapshot/clone lineage: a snapshot disk shows "Snapshot of <parent disk name>" (resolved from the real parent VDI record instead of a raw opaque ref), and a parent disk with existing snapshots shows how many. The per-disk attachment-count badge and delete-blocked reason also now read from the same real VBD-backed attachment data as the Attachment Topology section below them, instead of an inconsistent ref-list guess.
 
 ### Security
 

@@ -6,6 +6,8 @@ const {
   formatVbdAttachmentSummary,
   buildSrPathHealthRows,
   buildSrPathHealthSummary,
+  buildVdiSnapshotLineage,
+  formatVdiSnapshotLineage,
 } = require('../../../../client/assets/js/core/storage-view-models');
 
 describe('storage-view-models selection helpers', () => {
@@ -146,5 +148,22 @@ describe('storage-view-models selection helpers', () => {
 
     const rows = buildSrPathHealthRows(selectedSR, relatedHosts, relatedPbds);
     expect(buildSrPathHealthSummary(selectedSR, rows)).toBe('1 of 1 attachment path is healthy.');
+  });
+
+  it('resolves VDI snapshot lineage from real parent/child VDI records', () => {
+    const parent = { ref: 'OpaqueRef:vdi1', name_label: 'root-disk', snapshots: ['OpaqueRef:vdi2'] };
+    const snapshot = { ref: 'OpaqueRef:vdi2', name_label: 'root-disk (snapshot)', is_a_snapshot: true, snapshot_of: 'OpaqueRef:vdi1' };
+    const vdis = [parent, snapshot];
+
+    expect(buildVdiSnapshotLineage(snapshot, vdis)).toEqual({ parentName: 'root-disk', childCount: 0 });
+    expect(buildVdiSnapshotLineage(parent, vdis)).toEqual({ parentName: '', childCount: 1 });
+    expect(formatVdiSnapshotLineage(snapshot, vdis)).toBe('Snapshot of root-disk');
+    expect(formatVdiSnapshotLineage(parent, vdis)).toBe('1 snapshot exists for this disk');
+    expect(formatVdiSnapshotLineage(null, vdis)).toBe('');
+  });
+
+  it('falls back to the raw ref when a snapshot parent VDI has not loaded', () => {
+    const snapshot = { ref: 'OpaqueRef:vdi3', is_a_snapshot: true, snapshot_of: 'OpaqueRef:vdi-missing' };
+    expect(formatVdiSnapshotLineage(snapshot, [])).toBe('Snapshot of OpaqueRef:vdi-missing');
   });
 });

@@ -523,9 +523,10 @@ const demoDb = {
   ],
   vdis: {
     'OpaqueRef:sr-demo-1': [
-      { ref: 'OpaqueRef:vdi-demo-1', uuid: 'vdi-demo-uuid-1', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-api-root', virtual_size: 68719476736, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-1'] },
+      { ref: 'OpaqueRef:vdi-demo-1', uuid: 'vdi-demo-uuid-1', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-api-root', virtual_size: 68719476736, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-1'], snapshots: ['OpaqueRef:vdi-demo-1-snap1'] },
       { ref: 'OpaqueRef:vdi-demo-2', uuid: 'vdi-demo-uuid-2', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-worker-root', virtual_size: 42949672960, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-2'] },
       { ref: 'OpaqueRef:vdi-demo-3', uuid: 'vdi-demo-uuid-3', SR: 'OpaqueRef:sr-demo-1', name_label: 'analytics-data', virtual_size: 274877906944, type: 'user', managed: true, VBDs: ['OpaqueRef:vbd-demo-3'] },
+      { ref: 'OpaqueRef:vdi-demo-1-snap1', uuid: 'vdi-demo-uuid-1-snap1', SR: 'OpaqueRef:sr-demo-1', name_label: 'billing-api-root (snapshot 2026-08-30)', virtual_size: 68719476736, type: 'user', managed: false, is_a_snapshot: true, snapshot_of: 'OpaqueRef:vdi-demo-1', snapshot_time: '2026-08-30T02:00:00Z', VBDs: [] },
     ],
     'OpaqueRef:sr-demo-3': [],
     'OpaqueRef:sr-demo-2': [
