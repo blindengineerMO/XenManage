@@ -76,9 +76,14 @@ const NetworkingView = {
                   :selectable="true"
                   :selected-keys="selectedNetworkRefs"
                   row-key="ref"
+                  empty-message="No networks connected. Connect to a XenServer pool to get started."
+                  empty-icon="mdi-lan"
                   @selection-change="handleNetworkSelectionChange"
                   @cell-edit="saveInlineNetworkEdit"
                   @row-click="openProperties">
+        <template #empty-action>
+          <button class="btn btn-sm btn-primary" @click="$router.push('/pools')">Go to Pools</button>
+        </template>
         <template #cell-bridge="{ row }">
           <span class="mono text-cyan">{{ row.bridge || '-' }}</span>
         </template>
@@ -207,10 +212,11 @@ const NetworkingView = {
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Network' },
+        { key: 'name_description', label: 'Description', editable: true, emptyLabel: '—', truncate: true },
         { key: 'bridge', label: 'Bridge' },
         { key: 'vlan', label: 'VLAN' },
         { key: 'managed', label: 'Managed' },
-        { key: 'uuid', label: 'UUID' },
+        { key: 'uuid', label: 'UUID', truncate: true },
       ],
     };
   },
@@ -558,13 +564,13 @@ const NetworkingView = {
       }
     },
     async saveInlineNetworkEdit({ row, key, value }) {
-      if (key !== 'name_label' || !row?.ref) return;
+      if (!['name_label', 'name_description'].includes(key) || !row?.ref) return;
       this.workspaceMessage = '';
       this.detailActionError = '';
       try {
         const record = await api.updateNetworkConfig(row.ref, {
-          nameLabel: value,
-          nameDescription: row.name_description || '',
+          nameLabel: key === 'name_label' ? value : (row.name_label || ''),
+          nameDescription: key === 'name_description' ? value : (row.name_description || ''),
           mtu: Number(row.MTU || row.mtu || 1500),
           defaultLockingMode: row.default_locking_mode || row.defaultLockingMode || 'unlocked',
           purpose: Array.isArray(row.purpose) ? row.purpose : [],
@@ -572,9 +578,9 @@ const NetworkingView = {
           otherConfig: row.other_config || row.otherConfig || {},
         });
         this.networks = this.networks.map((entry) => entry.ref === row.ref ? { ...entry, ...record } : entry);
-        this.workspaceMessage = `${value} was renamed.`;
+        this.workspaceMessage = key === 'name_label' ? `${value} was renamed.` : 'Description was updated.';
       } catch (error) {
-        this.detailActionError = error.message || 'Unable to rename the network inline.';
+        this.detailActionError = error.message || 'Unable to update the network inline.';
       }
     },
     async resolveNetworkGovernanceApproval(action, target) {

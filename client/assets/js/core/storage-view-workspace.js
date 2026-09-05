@@ -51,10 +51,11 @@ function createStorageViewState() {
     lastAppliedFocusKey: '',
     columns: [
       { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Repository' },
+      { key: 'name_description', label: 'Description', editable: true, emptyLabel: '—', truncate: true },
       { key: 'type', label: 'Type' },
       { key: 'physical_size', label: 'Physical Size' },
       { key: 'virtual_allocation', label: 'Virtual Allocation' },
-      { key: 'uuid', label: 'UUID' },
+      { key: 'uuid', label: 'UUID', truncate: true },
     ],
   };
 }

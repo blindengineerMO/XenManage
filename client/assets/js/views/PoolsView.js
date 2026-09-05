@@ -231,7 +231,8 @@ const PoolsView = {
       lastAppliedFocusKey: '',
       columns: [
         { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Pool' },
-        { key: 'uuid', label: 'UUID' },
+        { key: 'name_description', label: 'Description', editable: true, emptyLabel: '—', truncate: true },
+        { key: 'uuid', label: 'UUID', truncate: true },
         { key: 'default_SR', label: 'Default SR' },
         { key: 'tags', label: 'Tags' },
       ],
@@ -468,14 +469,14 @@ const PoolsView = {
       }
     },
     async saveInlinePoolEdit({ row, key, value }) {
-      if (key !== 'name_label' || !row?.ref) return;
+      if (!['name_label', 'name_description'].includes(key) || !row?.ref) return;
 
       this.poolActionMessage = '';
       this.poolActionError = null;
       try {
         const payload = {
-          nameLabel: value,
-          nameDescription: row.name_description || '',
+          nameLabel: key === 'name_label' ? value : (row.name_label || ''),
+          nameDescription: key === 'name_description' ? value : (row.name_description || ''),
           defaultSrRef: row.default_SR || '',
           vswitchController: row.vswitch_controller || '',
           igmpSnoopingEnabled: Boolean(row.IGMP_snooping_enabled),
@@ -487,9 +488,9 @@ const PoolsView = {
         const record = await api.updatePoolConfig(row.ref, payload);
         this.pools = this.pools.map((entry) => (entry.ref === row.ref ? { ...entry, ...record } : entry));
         if (this.selectedPool?.ref === row.ref) this.selectedPool = { ...this.selectedPool, ...record };
-        this.poolActionMessage = `${record?.name_label || value} was renamed.`;
+        this.poolActionMessage = key === 'name_label' ? `${record?.name_label || value} was renamed.` : 'Description was updated.';
       } catch (error) {
-        this.poolActionError = error.message || 'Unable to rename the pool inline.';
+        this.poolActionError = error.message || 'Unable to update the pool inline.';
       }
     },
     async submitSelectedPoolHaState(payload) {

@@ -50,9 +50,10 @@ function createHostsViewState() {
     relatedNetworks: [],
     columns: [
       { key: 'name_label', label: 'Name', editable: true, emptyLabel: 'Unnamed Host' },
+      { key: 'name_description', label: 'Description', editable: true, emptyLabel: '—', truncate: true },
       { key: 'enabled', label: 'Status' },
       { key: 'address', label: 'Address' },
-      { key: 'uuid', label: 'UUID' },
+      { key: 'uuid', label: 'UUID', truncate: true },
     ],
     inventoryColumns: [
       { key: 'kind', label: 'Kind' },

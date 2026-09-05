@@ -70,9 +70,14 @@ const HostsView = {
                   :selectable="true"
                   :selected-keys="selectedHostRefs"
                   row-key="ref"
+                  empty-message="No hosts connected. Connect to a XenServer pool to get started."
+                  empty-icon="mdi-server"
                   @selection-change="handleHostSelectionChange"
                   @cell-edit="saveInlineHostEdit"
                   @row-click="openProperties">
+        <template #empty-action>
+          <button class="btn btn-sm btn-primary" @click="$router.push('/pools')">Go to Pools</button>
+        </template>
         <template #cell-enabled="{ row }">
           <status-badge :status="row.enabled ? 'enabled' : 'disabled'"></status-badge>
         </template>
@@ -311,14 +316,14 @@ const HostsView = {
       this.hosts = this.hosts.map((entry) => (entry.ref === this.selectedHost.ref ? { ...entry, ...(record || {}) } : entry));
     },
     async saveInlineHostEdit({ row, key, value }) {
-      if (key !== 'name_label' || !row?.ref) return;
+      if (!['name_label', 'name_description'].includes(key) || !row?.ref) return;
 
       this.actionError = null;
       this.hostActionMessage = '';
       try {
         const record = await api.updateHostConfig(row.ref, {
-          nameLabel: value,
-          nameDescription: row.name_description || '',
+          nameLabel: key === 'name_label' ? value : (row.name_label || ''),
+          nameDescription: key === 'name_description' ? value : (row.name_description || ''),
           tags: Array.isArray(row.tags) ? row.tags : [],
           guestVcpusParams: row.guest_VCPUs_params || {},
           schedGran: row.sched_gran || undefined,
@@ -326,9 +331,9 @@ const HostsView = {
         });
         this.hosts = this.hosts.map((entry) => (entry.ref === row.ref ? { ...entry, ...record } : entry));
         if (this.selectedHost?.ref === row.ref) this.selectedHost = { ...this.selectedHost, ...record };
-        this.hostActionMessage = `${record?.name_label || value} was renamed.`;
+        this.hostActionMessage = key === 'name_label' ? `${record?.name_label || value} was renamed.` : 'Description was updated.';
       } catch (error) {
-        this.actionError = error.message || 'Unable to rename the host inline.';
+        this.actionError = error.message || 'Unable to update the host inline.';
       }
     },
     async submitSelectedHostConfig(payload) {

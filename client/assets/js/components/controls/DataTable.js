@@ -1,6 +1,6 @@
 const DataTable = {
   components: { ContextMenu: typeof ContextMenu !== 'undefined' ? ContextMenu : undefined },
-  props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey'],
+  props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey', 'emptyMessage', 'emptyIcon'],
   emits: ['row-click', 'selection-change', 'cell-edit', 'row-context'],
   template: `
     <div class="data-table-wrap" :style="tableStickyVars">
@@ -33,14 +33,17 @@ const DataTable = {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading">
-              <td :colspan="columnCount" style="text-align:center;padding:24px">
-                <span class="loading-spinner"></span>
-              </td>
-            </tr>
+            <template v-if="loading">
+              <tr v-for="n in skeletonRowCount" :key="'skeleton-' + n" class="data-table-skeleton-row">
+                <td v-if="selectable" class="data-table-sticky-select"><span class="skeleton-bar skeleton-bar-checkbox"></span></td>
+                <td v-for="column in columns" :key="column.key"><span class="skeleton-bar"></span></td>
+              </tr>
+            </template>
             <tr v-else-if="filteredData.length === 0">
               <td :colspan="columnCount" class="empty-state">
-                <p>No data available</p>
+                <span v-if="emptyIcon" class="mdi" :class="emptyIcon"></span>
+                <p>{{ emptyMessage || 'No data available' }}</p>
+                <slot name="empty-action"></slot>
               </td>
             </tr>
             <tr v-for="(row, index) in paginatedData"
@@ -56,7 +59,7 @@ const DataTable = {
                        :aria-label="'Select ' + String(row.name_label || row.name || row.summary || row.ref || index)"
                        @click.stop="toggleRowSelection(row, index)">
               </td>
-              <td v-for="column in columns" :key="column.key" :class="cellClass(column)">
+              <td v-for="column in columns" :key="column.key" :class="cellClass(column)" :title="cellTitle(row, column)">
                 <input v-if="column.editable && isEditingCell(row, column, index)"
                        ref="inlineEditor"
                        class="data-table-inline-input"
@@ -126,6 +129,9 @@ const DataTable = {
   computed: {
     columnCount() {
       return (this.columns?.length || 0) + (this.selectable ? 1 : 0);
+    },
+    skeletonRowCount() {
+      return Math.min(this.pageSize || 5, 5);
     },
     hasStickyActionColumn() {
       const columns = Array.isArray(this.columns) ? this.columns : [];
@@ -198,7 +204,13 @@ const DataTable = {
       return {
         'data-table-sticky-start': this.isStickyFirstColumn(column),
         'data-table-sticky-end': this.isStickyActionColumn(column),
+        'data-table-cell-truncate': Boolean(column.truncate),
       };
+    },
+    cellTitle(row, column) {
+      if (!column.truncate) return undefined;
+      const value = row[column.key];
+      return value === undefined || value === null || value === '' ? undefined : String(value);
     },
     rowIdentifier(row, index) {
       const key = this.rowKey || 'ref';

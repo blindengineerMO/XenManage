@@ -85,9 +85,14 @@ const StorageView = {
                   :selectable="true"
                   :selected-keys="selectedSrRefs"
                   row-key="ref"
+                  empty-message="No storage repositories connected. Connect to a XenServer pool to get started."
+                  empty-icon="mdi-database"
                   @selection-change="handleSrSelectionChange"
                   @cell-edit="saveInlineStorageEdit"
                   @row-click="openProperties">
+        <template #empty-action>
+          <button class="btn btn-sm btn-primary" @click="$router.push('/pools')">Go to Pools</button>
+        </template>
         <template #cell-type="{ row }">
           <span class="badge badge-info">{{ row.type || 'unknown' }}</span>
         </template>
@@ -394,22 +399,22 @@ const StorageView = {
       }
     },
     async saveInlineStorageEdit({ row, key, value }) {
-      if (key !== 'name_label' || !row?.ref) return;
+      if (!['name_label', 'name_description'].includes(key) || !row?.ref) return;
 
       this.workspaceMessage = '';
       this.detailActionError = '';
       try {
         const record = await api.updateSRConfig(row.ref, {
-          nameLabel: value,
-          nameDescription: row.name_description || '',
+          nameLabel: key === 'name_label' ? value : (row.name_label || ''),
+          nameDescription: key === 'name_description' ? value : (row.name_description || ''),
           tags: Array.isArray(row.tags) ? row.tags : [],
           otherConfig: row.other_config || {},
         });
         this.srs = this.srs.map((entry) => (entry.ref === row.ref ? { ...entry, ...record } : entry));
         if (this.selectedSR?.ref === row.ref) this.selectedSR = { ...this.selectedSR, ...record };
-        this.workspaceMessage = `${record?.name_label || value} was renamed.`;
+        this.workspaceMessage = key === 'name_label' ? `${record?.name_label || value} was renamed.` : 'Description was updated.';
       } catch (error) {
-        this.detailActionError = error.message || 'Unable to rename the storage repository inline.';
+        this.detailActionError = error.message || 'Unable to update the storage repository inline.';
       }
     },
     syncSelectedSrLocalCacheHost() {

@@ -87,8 +87,13 @@ const VMsView = {
                   :selectable="true"
                   :selected-keys="selectedVmRefs"
                   row-key="ref"
+                  empty-message="No VMs connected. Connect to a XenServer pool to get started."
+                  empty-icon="mdi-desktop-tower"
                   @selection-change="handleVmSelectionChange"
                   @row-click="openProperties">
+        <template #empty-action>
+          <button class="btn btn-sm btn-primary" @click="$router.push('/pools')">Go to Pools</button>
+        </template>
         <template #cell-name_label="{ row }">
           <span style="color:var(--text-primary);font-weight:500">{{ row.name_label || 'Unnamed' }}</span>
         </template>
@@ -100,6 +105,18 @@ const VMsView = {
         </template>
         <template #cell-memory_static_max="{ row }">
           <span class="mono">{{ formatBytes(row.memory_static_max) }}</span>
+        </template>
+        <template #cell-actions="{ row }">
+          <div class="row-quick-actions" @click.stop>
+            <button v-if="row.power_state === 'Halted'" type="button" class="btn btn-sm btn-icon-sm" title="Start" :disabled="Boolean(actionBusy)" @click="vmAction('start', row.ref)"><span class="mdi mdi-play"></span></button>
+            <button v-if="row.power_state === 'Running'" type="button" class="btn btn-sm btn-icon-sm" title="Shutdown" :disabled="Boolean(actionBusy)" @click="vmAction('shutdown', row.ref)"><span class="mdi mdi-stop"></span></button>
+            <button v-if="row.power_state === 'Running'" type="button" class="btn btn-sm btn-icon-sm" title="Reboot" :disabled="Boolean(actionBusy)" @click="vmAction('reboot', row.ref)"><span class="mdi mdi-restart"></span></button>
+            <button v-if="row.power_state === 'Running'" type="button" class="btn btn-sm btn-icon-sm" title="Suspend" :disabled="Boolean(actionBusy)" @click="vmAction('suspend', row.ref)"><span class="mdi mdi-pause"></span></button>
+            <button v-if="row.power_state === 'Suspended'" type="button" class="btn btn-sm btn-icon-sm" title="Resume" :disabled="Boolean(actionBusy)" @click="vmAction('resume', row.ref)"><span class="mdi mdi-play-circle-outline"></span></button>
+            <button type="button" class="btn btn-sm btn-icon-sm" title="Console" @click="openProperties(row, { activeTab: 'console' })"><span class="mdi mdi-monitor-dashboard"></span></button>
+            <button type="button" class="btn btn-sm btn-icon-sm" title="Migrate" @click="openProperties(row, { activeTab: 'migration' })"><span class="mdi mdi-swap-horizontal-bold"></span></button>
+            <button type="button" class="btn btn-sm btn-icon-sm" title="Snapshot" @click="openProperties(row, { activeTab: 'protection' })"><span class="mdi mdi-camera-timer"></span></button>
+          </div>
         </template>
       </data-table>
 
@@ -217,7 +234,8 @@ const VMsView = {
         { key: 'power_state', label: 'State' },
         { key: 'VCPUs_at_startup', label: 'vCPUs' },
         { key: 'memory_static_max', label: 'Memory' },
-        { key: 'uuid', label: 'UUID' },
+        { key: 'uuid', label: 'UUID', truncate: true },
+        { key: 'actions', label: '' },
       ],
       diskColumns: [
         { key: 'name_label', label: 'Disk' },

@@ -36,6 +36,7 @@ describe('DataTable sticky column helpers', () => {
     expect(vm.cellClass(vm.columns[2])).toEqual({
       'data-table-sticky-start': false,
       'data-table-sticky-end': true,
+      'data-table-cell-truncate': false,
     });
   });
 
@@ -51,5 +52,21 @@ describe('DataTable sticky column helpers', () => {
     expect(vm.tableStickyVars).toEqual({ '--data-table-sticky-first-left': '0px' });
     expect(vm.isStickyFirstColumn(vm.columns[0])).toBe(true);
     expect(vm.isStickyActionColumn(vm.columns[1])).toBe(false);
+  });
+
+  it('exposes the full cell value as a title only for truncated columns', () => {
+    const column = { key: 'uuid', label: 'UUID', truncate: true };
+    const plainColumn = { key: 'name', label: 'Name' };
+    const row = { uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: 'Example' };
+
+    expect(DataTable.methods.cellTitle.call({}, row, column)).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+    expect(DataTable.methods.cellTitle.call({}, row, plainColumn)).toBeUndefined();
+    expect(DataTable.methods.cellTitle.call({}, { uuid: '' }, column)).toBeUndefined();
+  });
+
+  it('caps the skeleton loading row count at the page size', () => {
+    expect(DataTable.computed.skeletonRowCount.call({ pageSize: 25 })).toBe(5);
+    expect(DataTable.computed.skeletonRowCount.call({ pageSize: 3 })).toBe(3);
+    expect(DataTable.computed.skeletonRowCount.call({ pageSize: 0 })).toBe(5);
   });
 });

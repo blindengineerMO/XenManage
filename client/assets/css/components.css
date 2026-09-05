@@ -984,6 +984,25 @@
 .btn .mdi {
   font-size: 14px;
 }
+.btn-icon-sm {
+  padding: 4px 6px;
+  font-size: 13px;
+  line-height: 1;
+}
+.btn-icon-sm .mdi {
+  font-size: 14px;
+}
+.row-quick-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.data-table-row:hover .row-quick-actions,
+.data-table-row:focus-within .row-quick-actions {
+  opacity: 1;
+}
 
 .profile-avatar-preview {
   width: 64px;
@@ -2436,6 +2455,40 @@ select.form-input option,
   display: inline-block;
 }
 
+.data-table-cell-truncate {
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.data-table-skeleton-row td {
+  padding: 10px 12px;
+}
+
+.skeleton-bar {
+  display: block;
+  height: 12px;
+  width: 100%;
+  max-width: 140px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--glass-border) 25%, rgba(255, 255, 255, 0.08) 50%, var(--glass-border) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-bar-checkbox {
+  width: 16px;
+  height: 16px;
+  max-width: 16px;
+  border-radius: 3px;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .empty-state {
   text-align: center;
   padding: 48px 24px;
@@ -2449,6 +2502,9 @@ select.form-input option,
 .empty-state p {
   font-family: var(--font-mono);
   font-size: 12px;
+}
+.empty-state .btn {
+  margin-top: 12px;
 }
 
 @media (max-width: 980px) {
