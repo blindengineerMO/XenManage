@@ -986,6 +986,10 @@ class XenAPI {
     return this.getClassRecords('VBD');
   }
 
+  async getVBDMetrics() {
+    return this.getClassRecords('VBD_metrics');
+  }
+
   async getPBDs() {
     return this.getClassRecords('PBD');
   }

@@ -13,6 +13,7 @@ const mockState = {
   pbds: [],
   vdisBySr: {},
   vbds: [],
+  vbdMetrics: [],
 };
 
 jest.mock('../../../../server/services/xenapi', () => {
@@ -38,6 +39,13 @@ jest.mock('../../../../server/services/xenapi', () => {
     return {
       refs: mockState.vbds.map((vbd) => vbd.ref),
       records: Object.fromEntries(mockState.vbds.map((vbd) => [vbd.ref, { ...vbd }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getVBDMetrics = jest.fn(async function () {
+    return {
+      refs: mockState.vbdMetrics.map((metrics) => metrics.ref),
+      records: Object.fromEntries(mockState.vbdMetrics.map((metrics) => [metrics.ref, { ...metrics }])),
     };
   });
 
@@ -466,7 +474,11 @@ describe('Storage Routes', () => {
         type: 'Disk',
         bootable: true,
         currently_attached: true,
+        metrics: 'OpaqueRef:vbd-metrics1',
       },
+    ];
+    mockState.vbdMetrics = [
+      { ref: 'OpaqueRef:vbd-metrics1', io_read_kbs: 12.5, io_write_kbs: 4.25 },
     ];
   });
 
@@ -557,6 +569,8 @@ describe('Storage Routes', () => {
       mode: 'RW',
       bootable: true,
       currently_attached: true,
+      ioReadKbs: 12.5,
+      ioWriteKbs: 4.25,
     }));
   });
 

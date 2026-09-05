@@ -47,13 +47,22 @@ function buildStorageSelectionProfile(srs = [], selectedSrRefs = []) {
   };
 }
 
+function formatVbdIoThroughput(vbd = null) {
+  if (vbd?.ioReadKbs == null || vbd?.ioWriteKbs == null) return '';
+  const read = Number(vbd.ioReadKbs);
+  const write = Number(vbd.ioWriteKbs);
+  if (!Number.isFinite(read) || !Number.isFinite(write)) return '';
+  return `${read.toFixed(1)} KB/s read · ${write.toFixed(1)} KB/s write`;
+}
+
 function formatVbdAttachmentSummary(vbd = null) {
   if (!vbd) return '';
   const device = vbd.device || vbd.userdevice || '';
   const mode = vbd.mode || '';
   const role = vbd.type === 'CD' ? 'CD' : (vbd.bootable ? 'boot disk' : 'disk');
   const plugState = vbd.currently_attached ? 'plugged in' : 'unplugged';
-  return [device, mode, role, plugState].filter(Boolean).join(' · ');
+  const throughput = vbd.currently_attached ? formatVbdIoThroughput(vbd) : '';
+  return [device, mode, role, plugState, throughput].filter(Boolean).join(' · ');
 }
 
 function buildStorageAttachmentRows(vdis = [], relatedVMs = [], relatedHosts = [], relatedVbds = []) {
@@ -371,6 +380,7 @@ if (typeof module !== 'undefined') {
     buildStorageAttachmentRows,
     buildStorageDetailProfile,
     formatVbdAttachmentSummary,
+    formatVbdIoThroughput,
     buildSrPathHealthRows,
     buildSrPathHealthSummary,
     buildVdiSnapshotLineage,

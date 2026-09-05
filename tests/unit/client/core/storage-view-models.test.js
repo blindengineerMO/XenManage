@@ -4,6 +4,7 @@ const {
   buildBulkStorageDestroyMessage,
   buildStorageAttachmentRows,
   formatVbdAttachmentSummary,
+  formatVbdIoThroughput,
   buildSrPathHealthRows,
   buildSrPathHealthSummary,
   buildVdiSnapshotLineage,
@@ -70,6 +71,17 @@ describe('storage-view-models selection helpers', () => {
     expect(formatVbdAttachmentSummary({
       userdevice: '1', mode: 'RO', bootable: false, currently_attached: false, type: 'CD',
     })).toBe('1 · RO · CD · unplugged');
+  });
+
+  it('appends live read/write throughput to a plugged-in VBD summary, but not an unplugged one', () => {
+    expect(formatVbdAttachmentSummary({
+      device: 'xvda', mode: 'RW', bootable: true, currently_attached: true, type: 'Disk', ioReadKbs: 842.63, ioWriteKbs: 1310.2,
+    })).toBe('xvda · RW · boot disk · plugged in · 842.6 KB/s read · 1310.2 KB/s write');
+    expect(formatVbdAttachmentSummary({
+      device: 'xvda', mode: 'RW', bootable: true, currently_attached: false, type: 'Disk', ioReadKbs: 842.63, ioWriteKbs: 1310.2,
+    })).toBe('xvda · RW · boot disk · unplugged');
+    expect(formatVbdIoThroughput(null)).toBe('');
+    expect(formatVbdIoThroughput({ ioReadKbs: null, ioWriteKbs: null })).toBe('');
   });
 
   it('builds attachment rows from real VBD records instead of inferred ref-list matching', () => {

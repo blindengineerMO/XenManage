@@ -130,8 +130,19 @@ router.post('/import',
 
 router.get('/vbds', async (req, res) => {
   try {
-    const { records } = await req.xenApi.getVBDs();
-    const vbds = Object.entries(records).map(([ref, record]) => ({ ref, ...record }));
+    const [vbdResult, metricsResult] = await Promise.all([
+      req.xenApi.getVBDs(),
+      req.xenApi.getVBDMetrics(),
+    ]);
+    const vbds = Object.entries(vbdResult.records).map(([ref, record]) => {
+      const metrics = record.metrics ? metricsResult.records[record.metrics] : null;
+      return {
+        ref,
+        ...record,
+        ioReadKbs: metrics ? metrics.io_read_kbs : null,
+        ioWriteKbs: metrics ? metrics.io_write_kbs : null,
+      };
+    });
     res.json({ total: vbds.length, data: vbds });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -538,10 +538,12 @@ const demoDb = {
     {
       ref: 'OpaqueRef:vbd-demo-1', uuid: 'vbd-demo-uuid-1', VM: 'OpaqueRef:vm-demo-1', VDI: 'OpaqueRef:vdi-demo-1',
       device: 'xvda', userdevice: '0', mode: 'RW', type: 'Disk', bootable: true, currently_attached: true,
+      ioReadKbs: 842.6, ioWriteKbs: 1310.2,
     },
     {
       ref: 'OpaqueRef:vbd-demo-2', uuid: 'vbd-demo-uuid-2', VM: 'OpaqueRef:vm-demo-2', VDI: 'OpaqueRef:vdi-demo-2',
       device: 'xvda', userdevice: '0', mode: 'RW', type: 'Disk', bootable: true, currently_attached: true,
+      ioReadKbs: 96.4, ioWriteKbs: 40.8,
     },
     {
       ref: 'OpaqueRef:vbd-demo-3', uuid: 'vbd-demo-uuid-3', VM: 'OpaqueRef:vm-demo-3', VDI: 'OpaqueRef:vdi-demo-3',
