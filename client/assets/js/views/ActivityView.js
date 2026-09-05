@@ -226,6 +226,7 @@ const ActivityView = {
         :selected-item-type="selectedItemType"
         :selected-task="selectedTask"
         :selected-audit="selectedAudit"
+        :tasks="tasks"
         :remediation-saving="remediationSaving"
         :remediation-error="remediationError"
         :log-sources="logSources"

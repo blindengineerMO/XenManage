@@ -236,6 +236,31 @@ function getActivityTaskResult(task = null) {
   return '-';
 }
 
+function buildTaskLineage(task = null, tasks = []) {
+  if (!task) return { parentLabel: '', subtaskCount: 0 };
+  const byRef = new Map((Array.isArray(tasks) ? tasks : []).map((entry) => [entry.ref, entry]));
+  const parentRef = task.subtask_of || '';
+  const parent = parentRef ? byRef.get(parentRef) : null;
+  const subtaskCount = Array.isArray(task.subtasks) ? task.subtasks.length : 0;
+
+  return {
+    parentLabel: parent ? (parent.name_label || parent.ref) : (parentRef || ''),
+    subtaskCount,
+  };
+}
+
+function formatTaskLineage(task = null, tasks = []) {
+  const lineage = buildTaskLineage(task, tasks);
+  const parts = [];
+  if (task?.subtask_of) {
+    parts.push(`Subtask of ${lineage.parentLabel || 'unknown parent task'}`);
+  }
+  if (lineage.subtaskCount) {
+    parts.push(`${lineage.subtaskCount} subtask${lineage.subtaskCount === 1 ? '' : 's'} ${lineage.subtaskCount === 1 ? 'exists' : 'exist'} under this task`);
+  }
+  return parts.join(' · ');
+}
+
 function getActivityTaskSourceLabel(task = null) {
   if (isRemediationActivityTask(task)) return 'remediation';
   if (isTemplateDeploymentActivityTask(task)) return 'template deployment';
@@ -436,4 +461,16 @@ function findActivityTaskByFocus(tasks = [], focus = null) {
   return (Array.isArray(tasks) ? tasks : []).find((task) =>
     recordMatchesRouteFocus(task, focus, ['ref', 'uuid', 'name_label'])
   ) || null;
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    isRemediationActivityTask,
+    isTemplateDeploymentActivityTask,
+    buildActivityTaskSlaMeta,
+    getActivityTaskResult,
+    buildTaskLineage,
+    formatTaskLineage,
+    findActivityTaskByFocus,
+  };
 }

@@ -10,6 +10,7 @@ const ActivityWorkspaceDialogs = {
     selectedItemType: { type: String, default: '' },
     selectedTask: { type: Object, default: null },
     selectedAudit: { type: Object, default: null },
+    tasks: { type: Array, default: () => [] },
     remediationSaving: { type: Boolean, default: false },
     remediationError: { type: String, default: null },
     logSources: { type: Array, default: () => [] },
@@ -48,6 +49,11 @@ const ActivityWorkspaceDialogs = {
           <span class="text-muted">Resident On</span><span class="mono property-wrap">{{ selectedTask.resident_on || '-' }}</span>
           <span class="text-muted">UUID</span><span class="mono property-wrap">{{ selectedTask.uuid || '-' }}</span>
           <span class="text-muted">Result</span><span class="property-wrap">{{ taskResult(selectedTask) }}</span>
+        </div>
+
+        <div class="detail-section" v-if="taskLineage(selectedTask)">
+          <div class="detail-section-title">Task Lineage</div>
+          <div class="text-muted">{{ taskLineage(selectedTask) }}</div>
         </div>
 
         <div class="detail-section" v-if="isTemplateDeploymentTask(selectedTask)">
@@ -305,6 +311,9 @@ const ActivityWorkspaceDialogs = {
     taskEvidenceChecklist: getActivityTaskEvidenceChecklist,
     taskCompletionCriteria: getActivityTaskCompletionCriteria,
     taskResult: getActivityTaskResult,
+    taskLineage(task) {
+      return formatTaskLineage(task, this.tasks);
+    },
     taskSourceTitle: getActivityTaskSourceTitle,
     formatActionTypeLabel: formatActivityActionTypeLabel,
     formatAuditActionLabel: formatActivityAuditActionLabel,
