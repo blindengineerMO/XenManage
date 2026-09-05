@@ -421,3 +421,26 @@ function mapResilienceDrillStatusToTaskStatus(status = '') {
   if (normalized === 'critical') return 'failure';
   return 'in_progress';
 }
+
+function buildResilienceDrillAnalytics(drills = []) {
+  const list = Array.isArray(drills) ? drills : [];
+  const totalDrills = list.length;
+  const successCount = list.filter((drill) => String(drill?.status || '').toLowerCase() === 'success').length;
+  const timedDrills = list.filter((drill) => Number(drill?.durationMinutes) > 0);
+  const avgDurationMinutes = timedDrills.length
+    ? Math.round(timedDrills.reduce((sum, drill) => sum + Number(drill.durationMinutes), 0) / timedDrills.length)
+    : 0;
+
+  return {
+    totalDrills,
+    successCount,
+    passRatePercent: totalDrills ? Math.round((successCount / totalDrills) * 100) : 0,
+    avgDurationMinutes,
+  };
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildResilienceDrillAnalytics,
+  };
+}

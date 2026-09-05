@@ -128,6 +128,9 @@ const ResilienceView = {
 
           <div class="dash-card">
             <div class="dash-card-label">Drill Ledger</div>
+            <div class="text-muted mono" style="font-size:11px;margin-bottom:8px" v-if="drillAnalytics.totalDrills">
+              {{ drillAnalytics.totalDrills }} drill{{ drillAnalytics.totalDrills === 1 ? '' : 's' }} logged · {{ drillAnalytics.passRatePercent }}% pass rate<template v-if="drillAnalytics.avgDurationMinutes"> · avg {{ drillAnalytics.avgDurationMinutes }} min</template>
+            </div>
             <div class="stack-list" v-if="drills.length">
               <button class="stack-item stack-item-button"
                       v-for="drill in drills.slice(0, 8)"
@@ -295,6 +298,9 @@ const ResilienceView = {
     },
     prioritizedRecoveryPlans() {
       return buildPrioritizedRecoveryPlans(this.recoveryPlans);
+    },
+    drillAnalytics() {
+      return buildResilienceDrillAnalytics(this.drills);
     },
     runbookCanExecuteDrill() {
       return Boolean(this.activePlan);
