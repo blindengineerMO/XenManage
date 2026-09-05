@@ -168,6 +168,13 @@ const CapacityView = {
             accent-status="info">
           </metric-trend-card>
           <metric-trend-card
+            title="Host Network Throughput"
+            subtitle="Aggregated persisted host ingress and egress throughput."
+            :series="combinedClusterMetricSeries(['cluster_host_network_rx_kib_per_s', 'cluster_host_network_tx_kib_per_s'])"
+            value-kind="throughput"
+            accent-status="info">
+          </metric-trend-card>
+          <metric-trend-card
             title="VM Network Throughput"
             subtitle="Aggregated persisted VM ingress and egress throughput."
             :series="combinedClusterMetricSeries(['cluster_vm_network_rx_kib_per_s', 'cluster_vm_network_tx_kib_per_s'])"

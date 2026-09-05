@@ -37,6 +37,9 @@ All notable changes to XenManage are documented here.
 - The Activity task detail panel now resolves parent/subtask lineage from real Xen task records: a subtask shows "Subtask of <parent task name>" and a parent task shows how many subtasks exist under it, instead of leaving those relationships entirely unsurfaced.
 - Audit detail records for governance and settings actions (policy, session, user, group, credential, vault, retention domain, settings section, log export, control-plane backup) now show an "Open Affected Record" button that jumps to the right workspace, instead of no follow-through at all.
 - Alerts tagged with the remaining native Xen message classes (VMSS, Host_patch, Certificate, PVS_proxy) now resolve to a focused Host/VM/Network record and a real follow-through link, instead of falling back to a generic Inventory link with no specific target.
+- The Alert Policy and Remediation Task Template "Match Class" dropdowns now list VMSS, Host_patch, Certificate, and PVS Proxy, so operators can configure matching rules for the classes the alert-routing work above just made resolvable.
+- The Capacity workbench now shows a "Host Network Throughput" trend card, the same aggregated persisted host ingress/egress metrics that were already computed by the metrics-history service but had no consuming UI card.
+- Audit detail records for network subobject edits (VIF, Bond, VLAN) and for alert-policy, host-target, and managed-target administration now also show an "Open Affected Record" follow-through button, closing the same routeMap gap already fixed for governance/settings entity types.
 
 ### Security
 

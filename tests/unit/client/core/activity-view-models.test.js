@@ -66,4 +66,16 @@ describe('activity-view-models governance/settings audit follow-through', () => 
   it('returns null for an unmapped entity type', () => {
     expect(resolveActivityAuditRecordLocation({ entityType: 'catalog_entry', entityRef: 'x' })).toBeNull();
   });
+
+  it('resolves a follow-through location for network subobject audit entries', () => {
+    expect(resolveActivityAuditRecordLocation({ entityType: 'vif', entityRef: 'vif-1' }).path).toBe('/networking');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'bond', entityRef: 'bond-1' }).path).toBe('/networking');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'vlan', entityRef: 'vlan-1' }).path).toBe('/networking');
+  });
+
+  it('resolves a follow-through location for alert-policy, host-target, and managed-target audit entries', () => {
+    expect(resolveActivityAuditRecordLocation({ entityType: 'alert-policy', entityRef: 'policy-1' }).path).toBe('/alerts');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'host-target', entityRef: 'target-1' }).path).toBe('/hosts');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'managed-target', entityRef: '1' }).path).toBe('/inventory');
+  });
 });

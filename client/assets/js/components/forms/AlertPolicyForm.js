@@ -48,6 +48,10 @@ const AlertPolicyForm = {
             <option value="pif">PIF</option>
             <option value="bond">Bond</option>
             <option value="vlan">VLAN</option>
+            <option value="vmss">VM Snapshot Schedule</option>
+            <option value="host_patch">Host Patch</option>
+            <option value="certificate">Certificate</option>
+            <option value="pvs_proxy">PVS Proxy</option>
             <option value="task">Task</option>
           </select>
         </div>
