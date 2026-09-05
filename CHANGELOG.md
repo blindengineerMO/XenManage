@@ -33,6 +33,7 @@ All notable changes to XenManage are documented here.
 - Storage Repository properties now show a "Path Health" summary derived from each repository's real PBD attachment records, naming any host where the storage path is currently unplugged, instead of a bare attachment-path count with no health signal.
 - The Attached VDIs list now resolves snapshot/clone lineage: a snapshot disk shows "Snapshot of <parent disk name>" (resolved from the real parent VDI record instead of a raw opaque ref), and a parent disk with existing snapshots shows how many. The per-disk attachment-count badge and delete-blocked reason also now read from the same real VBD-backed attachment data as the Attachment Topology section below them, instead of an inconsistent ref-list guess.
 - Storage Attachment Topology rows now show each attached VBD's live read/write throughput, sourced from a batched VBD_metrics read, the same pattern already used for Host Uplink PIF throughput in Networking.
+- Fixed the VDI delete safety check to use real VBD attachment records instead of an inferred ref-list guess, so a disk that appears attached in the UI can no longer be deleted through a stale enforcement path that disagreed with the display.
 
 ### Security
 
