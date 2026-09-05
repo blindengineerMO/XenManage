@@ -320,6 +320,16 @@ function resolveActivityAuditRecordLocation(entry = null) {
     alert: { path: '/alerts', kind: 'alert', cls: 'alert' },
     task: { path: '/activity', kind: 'task', cls: 'task' },
     template: { path: '/templates', kind: 'template', cls: 'template' },
+    policy: { path: '/governance', kind: 'policy', cls: 'policy' },
+    session: { path: '/governance', kind: 'session', cls: 'session' },
+    user: { path: '/governance', kind: 'user', cls: 'user' },
+    group: { path: '/governance', kind: 'group', cls: 'group' },
+    credential: { path: '/settings', kind: 'credential', cls: 'credential' },
+    vault: { path: '/settings', kind: 'vault', cls: 'vault' },
+    'retention-domain': { path: '/settings', kind: 'retention-domain', cls: 'retention-domain' },
+    'settings-section': { path: '/settings', kind: 'settings-section', cls: 'settings-section' },
+    'log-export': { path: '/settings', kind: 'log-export', cls: 'log-export' },
+    'control-plane-backup': { path: '/settings', kind: 'control-plane-backup', cls: 'control-plane-backup' },
   };
 
   const target = routeMap[entityType];
@@ -472,5 +482,6 @@ if (typeof module !== 'undefined') {
     buildTaskLineage,
     formatTaskLineage,
     findActivityTaskByFocus,
+    resolveActivityAuditRecordLocation,
   };
 }

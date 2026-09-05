@@ -35,6 +35,7 @@ All notable changes to XenManage are documented here.
 - Storage Attachment Topology rows now show each attached VBD's live read/write throughput, sourced from a batched VBD_metrics read, the same pattern already used for Host Uplink PIF throughput in Networking.
 - Fixed the VDI delete safety check to use real VBD attachment records instead of an inferred ref-list guess, so a disk that appears attached in the UI can no longer be deleted through a stale enforcement path that disagreed with the display.
 - The Activity task detail panel now resolves parent/subtask lineage from real Xen task records: a subtask shows "Subtask of <parent task name>" and a parent task shows how many subtasks exist under it, instead of leaving those relationships entirely unsurfaced.
+- Audit detail records for governance and settings actions (policy, session, user, group, credential, vault, retention domain, settings section, log export, control-plane backup) now show an "Open Affected Record" button that jumps to the right workspace, instead of no follow-through at all.
 
 ### Security
 
