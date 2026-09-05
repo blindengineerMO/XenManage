@@ -408,7 +408,9 @@ function buildResiliencePlanChecklist(plan = null) {
     },
     {
       label: 'Drill Recency',
-      detail: plan?.lastDrillAt ? `Last drill logged ${formatDateTime(plan.lastDrillAt)}.` : 'No drill logged for this pool.',
+      detail: plan?.lastDrillAt
+        ? `Last drill logged ${formatDateTime(plan.lastDrillAt)}.${plan?.nextDrillDueAt ? ` Next drill due ${formatDateTime(plan.nextDrillDueAt)}.` : ''}`
+        : 'No drill logged for this pool.',
       status: plan?.lastDrillAt ? (plan.lastDrillStatus || 'success') : 'warning',
     },
   ];
@@ -442,5 +444,6 @@ function buildResilienceDrillAnalytics(drills = []) {
 if (typeof module !== 'undefined') {
   module.exports = {
     buildResilienceDrillAnalytics,
+    buildResiliencePlanChecklist,
   };
 }

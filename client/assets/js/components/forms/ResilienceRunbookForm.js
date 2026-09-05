@@ -12,6 +12,7 @@ function buildResilienceRunbookDraft(initialValue = {}) {
     standbyHostRef: source.standbyHostRef || '',
     failoverNetworkRef: source.failoverNetworkRef || '',
     lastVerifiedAt: source.lastVerifiedAt ? String(source.lastVerifiedAt).slice(0, 16) : '',
+    drillCadenceDays: Number(source.drillCadenceDays || 45),
     runbookStepsText: Array.isArray(source.runbookSteps) ? source.runbookSteps.join('\n') : '',
     notes: source.notes || '',
   };
@@ -123,6 +124,11 @@ const ResilienceRunbookForm = {
           <label for="resilience-verified-at">Last Verified</label>
           <input id="resilience-verified-at" class="form-input" v-model="draft.lastVerifiedAt" type="datetime-local">
         </div>
+
+        <div class="form-group">
+          <label for="resilience-drill-cadence">Drill Cadence (days)</label>
+          <input id="resilience-drill-cadence" class="form-input" v-model.number="draft.drillCadenceDays" type="number" min="1" max="365">
+        </div>
       </div>
 
       <div class="form-group">
@@ -183,6 +189,7 @@ const ResilienceRunbookForm = {
         standbyHostRef: this.draft.standbyHostRef || '',
         failoverNetworkRef: this.draft.failoverNetworkRef || '',
         lastVerifiedAt: this.draft.lastVerifiedAt ? new Date(this.draft.lastVerifiedAt).toISOString() : '',
+        drillCadenceDays: Number(this.draft.drillCadenceDays || 45),
         runbookSteps: String(this.draft.runbookStepsText || '')
           .split('\n')
           .map((step) => step.trim())

@@ -122,4 +122,61 @@ describe('buildResilienceOverview', () => {
     expect(payload.hostPlans.find((host) => host.name_label === 'beta-xen').status).toBe('disabled');
     expect(payload.recentEvents.some((event) => event.type === 'drill')).toBe(true);
   });
+
+  it('derives nextDrillDueAt from the runbook drill cadence instead of a fixed 45-day default', () => {
+    const payload = buildResilienceOverview({
+      pools: [{ ref: 'OpaqueRef:pool1', name_label: 'Production Pool', uuid: 'pool-uuid-1' }],
+      hosts: [],
+      vms: [],
+      tasks: [],
+      messages: [],
+      runbooks: [
+        {
+          poolRef: 'OpaqueRef:pool1',
+          drillCadenceDays: 14,
+          updatedAt: '2026-08-20T18:30:00.000Z',
+        },
+      ],
+      drills: [
+        {
+          id: 'drill-1',
+          poolRef: 'OpaqueRef:pool1',
+          drillType: 'restore',
+          status: 'success',
+          executedAt: '2026-08-20T09:15:00.000Z',
+          durationMinutes: 20,
+        },
+      ],
+    });
+
+    const plan = payload.recoveryPlans.find((entry) => entry.ref === 'OpaqueRef:pool1');
+    expect(plan.drillCadenceDays).toBe(14);
+    expect(plan.nextDrillDueAt).toBe('2026-09-03T09:15:00.000Z');
+    expect(plan.status).toBe('warning');
+  });
+
+  it('defaults drillCadenceDays to 45 when a runbook does not set one', () => {
+    const payload = buildResilienceOverview({
+      pools: [{ ref: 'OpaqueRef:pool1', name_label: 'Production Pool', uuid: 'pool-uuid-1' }],
+      hosts: [],
+      vms: [],
+      tasks: [],
+      messages: [],
+      runbooks: [{ poolRef: 'OpaqueRef:pool1', updatedAt: '2026-08-20T18:30:00.000Z' }],
+      drills: [
+        {
+          id: 'drill-1',
+          poolRef: 'OpaqueRef:pool1',
+          drillType: 'restore',
+          status: 'success',
+          executedAt: '2026-08-20T09:15:00.000Z',
+          durationMinutes: 20,
+        },
+      ],
+    });
+
+    const plan = payload.recoveryPlans.find((entry) => entry.ref === 'OpaqueRef:pool1');
+    expect(plan.drillCadenceDays).toBe(45);
+    expect(plan.nextDrillDueAt).toBe('2026-10-04T09:15:00.000Z');
+  });
 });

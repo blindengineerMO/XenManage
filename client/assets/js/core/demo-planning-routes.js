@@ -31,6 +31,7 @@ function handleDemoPlanningRoutes(method, path, body) {
       standbyHostRef: body.standbyHostRef || '',
       failoverNetworkRef: body.failoverNetworkRef || '',
       lastVerifiedAt: body.lastVerifiedAt || '',
+      drillCadenceDays: Number(body.drillCadenceDays || 45),
       runbookSteps: Array.isArray(body.runbookSteps) ? body.runbookSteps.filter(Boolean).slice(0, 8) : [],
       notes: body.notes || '',
       sourceTaskRef: body.sourceTaskRef || '',

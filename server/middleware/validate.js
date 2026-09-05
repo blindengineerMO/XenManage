@@ -923,6 +923,7 @@ const schemas = {
     standbyHostRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
     failoverNetworkRef: Joi.string().allow('').pattern(/^OpaqueRef:/).default(''),
     lastVerifiedAt: Joi.string().allow('').isoDate().default(''),
+    drillCadenceDays: Joi.number().integer().min(1).max(365).default(45),
     runbookSteps: Joi.array().items(Joi.string().trim().min(1).max(240)).max(8).default([]),
     notes: Joi.string().allow('').max(1000).default(''),
     sourceTaskRef: Joi.string().allow('').max(160).default(''),

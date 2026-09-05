@@ -233,6 +233,10 @@ function buildDemoResilience() {
       failoverNetworkRef: runbook?.failoverNetworkRef || '',
       failoverNetworkLabel: networksByRef[runbook?.failoverNetworkRef]?.name_label || '',
       lastVerifiedAt: runbook?.lastVerifiedAt || '',
+      drillCadenceDays: Number(runbook?.drillCadenceDays || 45),
+      nextDrillDueAt: latestDrill?.executedAt
+        ? new Date(new Date(latestDrill.executedAt).getTime() + Number(runbook?.drillCadenceDays || 45) * 86400000).toISOString()
+        : '',
       lastDrillAt: latestDrill?.executedAt || '',
       lastDrillStatus: latestDrill?.status || '',
       drillCount: drills.length,

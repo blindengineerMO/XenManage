@@ -54,6 +54,7 @@ const resilienceRunbookService = {
       standbyHostRef: payload.standbyHostRef || '',
       failoverNetworkRef: payload.failoverNetworkRef || '',
       lastVerifiedAt: payload.lastVerifiedAt || '',
+      drillCadenceDays: Number(payload.drillCadenceDays || 45),
       runbookSteps: normalizeSteps(payload.runbookSteps),
       notes: payload.notes || '',
       sourceTaskRef: payload.sourceTaskRef || '',

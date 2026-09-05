@@ -163,11 +163,18 @@ function getLatestDrill(drills = []) {
   return sortByRecent(drills, (drill) => drill.executedAt)[0] || null;
 }
 
-function getDrillFreshnessState(drill) {
+function getDrillFreshnessState(drill, cadenceDays = 45) {
   if (!drill?.executedAt) return 'warning';
   const daysSinceDrill = (Date.now() - parseDateValue(drill.executedAt)) / 86400000;
-  if (daysSinceDrill > 45) return 'warning';
+  if (daysSinceDrill > Number(cadenceDays || 45)) return 'warning';
   return drill.status || 'success';
+}
+
+function getNextDrillDueAt(drill, cadenceDays = 45) {
+  if (!drill?.executedAt) return '';
+  const executedMs = parseDateValue(drill.executedAt);
+  if (!executedMs) return '';
+  return new Date(executedMs + Number(cadenceDays || 45) * 86400000).toISOString();
 }
 
 function buildProtectionPolicies(vms, hostsByRef, poolsByRef, runbookByPool, drillsByPool, tasks, messages) {
@@ -271,7 +278,7 @@ function buildHostPlans(hosts, poolsByRef, runbookByPool, drillsByPool, tasks, m
     } else if (!runbook) {
       status = 'warning';
       summary = 'No recovery runbook is attached to this host pool yet.';
-    } else if (relatedMessages.length || getDrillFreshnessState(latestDrill) === 'warning') {
+    } else if (relatedMessages.length || getDrillFreshnessState(latestDrill, runbook?.drillCadenceDays) === 'warning') {
       status = 'warning';
       summary = 'Recent resilience-adjacent alerts or stale drill history should be reviewed.';
     }
@@ -314,7 +321,8 @@ function buildRecoveryPlans(pools, hosts, protectionPolicies, runbooks, drillsBy
     const reviewRestorePointCount = poolPolicies.filter((policy) => policy.restorePointStatus === 'review').length;
     const hasRunbook = Boolean(poolRunbook);
     const standbyHostLabel = hostsByRef[poolRunbook?.standbyHostRef]?.name_label || hostsByRef[poolRunbook?.standbyHostRef]?.hostname || '';
-    const drillState = getDrillFreshnessState(latestDrill);
+    const drillCadenceDays = Number(poolRunbook?.drillCadenceDays || 45);
+    const drillState = getDrillFreshnessState(latestDrill, drillCadenceDays);
 
     let status = 'success';
     let nextAction = 'Validate periodic restore drills and maintain a recent evacuation target list.';
@@ -362,6 +370,8 @@ function buildRecoveryPlans(pools, hosts, protectionPolicies, runbooks, drillsBy
       standbyHostLabel,
       failoverNetworkRef: poolRunbook?.failoverNetworkRef || '',
       lastVerifiedAt: poolRunbook?.lastVerifiedAt || '',
+      drillCadenceDays,
+      nextDrillDueAt: getNextDrillDueAt(latestDrill, drillCadenceDays),
       lastDrillAt: latestDrill?.executedAt || '',
       lastDrillStatus: latestDrill?.status || '',
       drillCount: poolDrills.length,
@@ -439,7 +449,7 @@ function buildResilienceOverview({ pools = [], hosts = [], vms = [], tasks = [],
       recentEventCount: recentEvents.length,
       runbookCoverageCount: recoveryPlans.filter((plan) => plan.hasRunbook).length,
       staleRestorePointCount: protectionPolicies.filter((policy) => ['stale', 'missing'].includes(policy.restorePointStatus)).length,
-      overdueDrillCount: recoveryPlans.filter((plan) => getDrillFreshnessState({ executedAt: plan.lastDrillAt, status: plan.lastDrillStatus }) === 'warning').length,
+      overdueDrillCount: recoveryPlans.filter((plan) => getDrillFreshnessState({ executedAt: plan.lastDrillAt, status: plan.lastDrillStatus }, plan.drillCadenceDays) === 'warning').length,
     },
     protectionPolicies,
     hostPlans,
