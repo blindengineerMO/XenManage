@@ -135,7 +135,7 @@ const ResilienceView = {
                       @click="openDrillFromLedger(drill)">
                 <div>
                   <strong>{{ formatDrillType(drill.drillType) }}</strong>
-                  <div class="text-muted mono" style="font-size:11px">{{ resolvePoolLabel(drill.poolRef) }} · {{ formatDateTime(drill.executedAt) }}</div>
+                  <div class="text-muted mono" style="font-size:11px">{{ resolvePoolLabel(drill.poolRef) }} · {{ formatDateTime(drill.executedAt) }}<template v-if="drill.durationMinutes"> · {{ drill.durationMinutes }} min</template></div>
                   <div class="text-muted" style="font-size:12px;margin-top:6px">{{ drill.summary }}</div>
                 </div>
                 <status-badge :status="drill.status"></status-badge>

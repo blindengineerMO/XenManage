@@ -40,6 +40,7 @@ All notable changes to XenManage are documented here.
 - The Alert Policy and Remediation Task Template "Match Class" dropdowns now list VMSS, Host_patch, Certificate, and PVS Proxy, so operators can configure matching rules for the classes the alert-routing work above just made resolvable.
 - The Capacity workbench now shows a "Host Network Throughput" trend card, the same aggregated persisted host ingress/egress metrics that were already computed by the metrics-history service but had no consuming UI card.
 - Audit detail records for network subobject edits (VIF, Bond, VLAN) and for alert-policy, host-target, and managed-target administration now also show an "Open Affected Record" follow-through button, closing the same routeMap gap already fixed for governance/settings entity types.
+- The Resilience Drill Ledger now shows each logged drill's duration, previously collected by the drill form and persisted server-side but never displayed.
 
 ### Security
 
