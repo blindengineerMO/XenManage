@@ -16,10 +16,73 @@ function snapshotId() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-function sha256File(filePath) {
-  const hash = crypto.createHash('sha256');
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest('hex');
+function sha256Buffer(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function deriveDevelopmentRecoveryKey() {
+  return crypto.createHash('sha256')
+    .update(`${config.session.secret}:xenmange-backup-recovery-dev-key`)
+    .digest();
+}
+
+function parseRecoveryKey(base64Value) {
+  const value = String(base64Value || '').trim();
+  if (!value) return null;
+  const buffer = Buffer.from(value, 'base64');
+  if (buffer.length !== 32) {
+    throw new Error('CONTROL_PLANE_BACKUP_RECOVERY_KEY_INVALID');
+  }
+  return buffer;
+}
+
+function getRecoveryKeys() {
+  const current = parseRecoveryKey(config.backup.recoveryKey)
+    || (config.env === 'production' ? null : deriveDevelopmentRecoveryKey());
+
+  if (!current) {
+    throw new Error('CONTROL_PLANE_BACKUP_RECOVERY_KEY_REQUIRED');
+  }
+
+  return {
+    current,
+    previous: parseRecoveryKey(config.backup.previousRecoveryKey),
+  };
+}
+
+function encryptBuffer(plainBuffer, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plainBuffer), cipher.final()]);
+  return { encrypted, iv, authTag: cipher.getAuthTag() };
+}
+
+function decryptBuffer(encrypted, iv, authTag, key) {
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+// Snapshots are encrypted at rest with a recovery key kept deliberately separate from the
+// vault's own encryption key (see server/config.js), so on-disk .db.enc files are useless
+// without it even to someone with full filesystem access to the backup directory.
+function decryptSnapshotFile(directory, name, manifest) {
+  const encryption = manifest.encryption?.files?.[name];
+  if (!encryption) {
+    // Pre-encryption-era snapshot: the plaintext .db file is still on disk as-is.
+    return fs.readFileSync(path.join(directory, name));
+  }
+
+  const encrypted = fs.readFileSync(path.join(directory, `${name}.enc`));
+  const iv = Buffer.from(encryption.iv, 'base64');
+  const authTag = Buffer.from(encryption.authTag, 'base64');
+  const { current, previous } = getRecoveryKeys();
+  try {
+    return decryptBuffer(encrypted, iv, authTag, current);
+  } catch (error) {
+    if (previous) return decryptBuffer(encrypted, iv, authTag, previous);
+    throw error;
+  }
 }
 
 async function createSnapshot() {
@@ -37,9 +100,18 @@ async function createSnapshot() {
     await database.backup(path.join(directory, name));
   }));
 
+  const { current: recoveryKey } = getRecoveryKeys();
   const checksums = {};
+  const encryptionFiles = {};
   databases.forEach(([name]) => {
-    checksums[name] = sha256File(path.join(directory, name));
+    const plainPath = path.join(directory, name);
+    const plainBuffer = fs.readFileSync(plainPath);
+    checksums[name] = sha256Buffer(plainBuffer);
+
+    const { encrypted, iv, authTag } = encryptBuffer(plainBuffer, recoveryKey);
+    fs.writeFileSync(`${plainPath}.enc`, encrypted, { mode: 0o600 });
+    fs.unlinkSync(plainPath);
+    encryptionFiles[name] = { iv: iv.toString('base64'), authTag: authTag.toString('base64') };
   });
 
   const manifest = {
@@ -47,6 +119,7 @@ async function createSnapshot() {
     createdAt: new Date().toISOString(),
     databases: databases.map(([name]) => name),
     checksums,
+    encryption: { algorithm: 'aes-256-gcm', files: encryptionFiles },
   };
   fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 });
   return manifest;
@@ -72,6 +145,20 @@ function getSnapshotDirectory(id) {
   return path.join(config.db.backupPath, id);
 }
 
+// better-sqlite3 needs a real file on disk to run PRAGMA integrity_check against, so a
+// decrypted snapshot is briefly materialized here (0600, deleted in `finally`) rather than
+// checked purely in memory.
+function withDecryptedTempFile(directory, name, manifest, fn) {
+  const plainBuffer = decryptSnapshotFile(directory, name, manifest);
+  const tempPath = path.join(directory, `.decrypted-${name}-${crypto.randomBytes(8).toString('hex')}`);
+  fs.writeFileSync(tempPath, plainBuffer, { mode: 0o600 });
+  try {
+    return fn(tempPath, plainBuffer);
+  } finally {
+    fs.unlinkSync(tempPath);
+  }
+}
+
 function verifySnapshot(id) {
   const directory = getSnapshotDirectory(id);
   const manifestPath = directory && path.join(directory, 'manifest.json');
@@ -83,13 +170,22 @@ function verifySnapshot(id) {
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const databases = manifest.databases.map((name) => {
-    const filePath = path.join(directory, name);
-    if (!fs.existsSync(filePath)) {
+    const isEncrypted = Boolean(manifest.encryption?.files?.[name]);
+    const onDiskPath = path.join(directory, isEncrypted ? `${name}.enc` : name);
+    if (!fs.existsSync(onDiskPath)) {
       return { name, status: 'missing' };
     }
 
+    let plainBuffer;
+    try {
+      plainBuffer = decryptSnapshotFile(directory, name, manifest);
+    } catch (error) {
+      const code = error.message === 'CONTROL_PLANE_BACKUP_RECOVERY_KEY_REQUIRED' ? 'recovery_key_unavailable' : 'decryption_failed';
+      return { name, status: code, detail: error.message };
+    }
+
     const expectedChecksum = manifest.checksums?.[name];
-    const actualChecksum = sha256File(filePath);
+    const actualChecksum = sha256Buffer(plainBuffer);
     if (!expectedChecksum) {
       return { name, status: 'unverified_no_checksum', checksum: actualChecksum };
     }
@@ -98,13 +194,15 @@ function verifySnapshot(id) {
     }
 
     try {
-      const database = new Database(filePath, { readonly: true, fileMustExist: true });
-      const result = database.pragma('integrity_check', { simple: true });
-      database.close();
-      if (result !== 'ok') {
-        return { name, status: 'integrity_check_failed', detail: result, checksum: actualChecksum };
-      }
-      return { name, status: 'ok', checksum: actualChecksum };
+      return withDecryptedTempFile(directory, name, manifest, (tempPath) => {
+        const database = new Database(tempPath, { readonly: true, fileMustExist: true });
+        const result = database.pragma('integrity_check', { simple: true });
+        database.close();
+        if (result !== 'ok') {
+          return { name, status: 'integrity_check_failed', detail: result, checksum: actualChecksum };
+        }
+        return { name, status: 'ok', checksum: actualChecksum };
+      });
     } catch (error) {
       return { name, status: 'open_failed', detail: error.message, checksum: actualChecksum };
     }
@@ -153,36 +251,40 @@ function previewDatabaseRestore(name, snapshotFilePath) {
     current = new Database(currentPath, { readonly: true, fileMustExist: true });
     snapshot = new Database(snapshotFilePath, { readonly: true, fileMustExist: true });
 
-    const currentTables = new Set(listTableNames(current));
-    const snapshotTables = new Set(listTableNames(snapshot));
-    const tablesAddedSinceSnapshot = [...currentTables].filter((table) => !snapshotTables.has(table));
-    const tablesRemovedSinceSnapshot = [...snapshotTables].filter((table) => !currentTables.has(table));
-
-    const rowCountChanges = [...currentTables].filter((table) => snapshotTables.has(table))
-      .map((table) => {
-        const currentCount = tableRowCount(current, table);
-        const snapshotCount = tableRowCount(snapshot, table);
-        return { table, currentCount, snapshotCount, delta: currentCount - snapshotCount };
-      })
-      .filter((entry) => entry.delta !== 0);
-
-    const wouldChange = tablesAddedSinceSnapshot.length > 0
-      || tablesRemovedSinceSnapshot.length > 0
-      || rowCountChanges.length > 0;
-
-    return {
-      name,
-      status: wouldChange ? 'would_change' : 'no_changes_detected',
-      tablesAddedSinceSnapshot,
-      tablesRemovedSinceSnapshot,
-      rowCountChanges,
-    };
+    return comparePreviewDatabases(name, current, snapshot);
   } catch (error) {
     return { name, status: 'preview_failed', detail: error.message };
   } finally {
     if (current) current.close();
     if (snapshot) snapshot.close();
   }
+}
+
+function comparePreviewDatabases(name, current, snapshot) {
+  const currentTables = new Set(listTableNames(current));
+  const snapshotTables = new Set(listTableNames(snapshot));
+  const tablesAddedSinceSnapshot = [...currentTables].filter((table) => !snapshotTables.has(table));
+  const tablesRemovedSinceSnapshot = [...snapshotTables].filter((table) => !currentTables.has(table));
+
+  const rowCountChanges = [...currentTables].filter((table) => snapshotTables.has(table))
+    .map((table) => {
+      const currentCount = tableRowCount(current, table);
+      const snapshotCount = tableRowCount(snapshot, table);
+      return { table, currentCount, snapshotCount, delta: currentCount - snapshotCount };
+    })
+    .filter((entry) => entry.delta !== 0);
+
+  const wouldChange = tablesAddedSinceSnapshot.length > 0
+    || tablesRemovedSinceSnapshot.length > 0
+    || rowCountChanges.length > 0;
+
+  return {
+    name,
+    status: wouldChange ? 'would_change' : 'no_changes_detected',
+    tablesAddedSinceSnapshot,
+    tablesRemovedSinceSnapshot,
+    rowCountChanges,
+  };
 }
 
 function restorePreview(id) {
@@ -195,7 +297,23 @@ function restorePreview(id) {
   }
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  const databases = manifest.databases.map((name) => previewDatabaseRestore(name, path.join(directory, name)));
+  const databases = manifest.databases.map((name) => {
+    const isEncrypted = Boolean(manifest.encryption?.files?.[name]);
+    const onDiskPath = path.join(directory, isEncrypted ? `${name}.enc` : name);
+    if (!fs.existsSync(onDiskPath)) {
+      return { name, status: 'snapshot_file_missing' };
+    }
+    if (!isEncrypted) {
+      return previewDatabaseRestore(name, onDiskPath);
+    }
+
+    try {
+      return withDecryptedTempFile(directory, name, manifest, (tempPath) => previewDatabaseRestore(name, tempPath));
+    } catch (error) {
+      const status = error.message === 'CONTROL_PLANE_BACKUP_RECOVERY_KEY_REQUIRED' ? 'recovery_key_unavailable' : 'decryption_failed';
+      return { name, status, detail: error.message };
+    }
+  });
 
   return {
     id,

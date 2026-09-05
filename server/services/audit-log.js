@@ -96,6 +96,7 @@ const auditLogService = {
       operator: entry.operator || 'system',
       route: entry.route || '',
       status: entry.status || 'success',
+      breakGlassElevated: Boolean(entry.breakGlassElevated),
       before,
       after,
       changedFields,

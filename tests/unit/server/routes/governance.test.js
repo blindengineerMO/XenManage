@@ -552,6 +552,12 @@ describe('Governance Routes', () => {
     }, operatorAuth.cookie);
     expect(elevatedQuota.status).toBe(200);
 
+    const auditLog = await request('GET', '/api/audit', null, operatorAuth.cookie);
+    expect(auditLog.status).toBe(200);
+    const elevatedEntry = auditLog.body.data.find((entry) => entry.action === 'governance_quota_saved' && entry.operator === operatorUsername);
+    expect(elevatedEntry).toBeTruthy();
+    expect(elevatedEntry.breakGlassElevated).toBe(true);
+
     const deactivation = await request('POST', '/api/governance/break-glass/deactivate', null, operatorAuth.cookie);
     expect(deactivation.status).toBe(200);
     expect(deactivation.body.active).toBe(false);

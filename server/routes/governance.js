@@ -167,6 +167,7 @@ router.put('/policy', requireAdminSession, validate(schemas.governancePolicyUpda
       operator: currentOperator(req),
       route: '/governance',
       status: 'success',
+      breakGlassElevated: Boolean(req.breakGlassElevated),
       before: previous,
       after: policy,
       detail: `${policy.defaultRole} default role with ${policy.requireDestructiveApproval ? 'approval-gated' : 'direct'} destructive actions.`,
@@ -291,6 +292,7 @@ router.put('/quotas/:ref', requireAdminSession, validate(schemas.opaqueRefParam,
       operator: currentOperator(req),
       route: '/governance',
       status: 'success',
+      breakGlassElevated: Boolean(req.breakGlassElevated),
       before: previous,
       after: quota,
       detail: `${quota.maxVmCount || 0} VM cap and ${quota.maxTotalMemoryGiB || 0} GiB cap configured.`,
@@ -315,6 +317,7 @@ router.delete('/quotas/:ref', requireAdminSession, validate(schemas.opaqueRefPar
       operator: currentOperator(req),
       route: '/governance',
       status: 'success',
+      breakGlassElevated: Boolean(req.breakGlassElevated),
       before: previous,
       after: result,
       detail: 'Pool quota record removed from the governance policy store.',
@@ -345,7 +348,7 @@ router.put('/permissions/:id', requireAdminSession, validate(schemas.userIdParam
   auditLogService.record({
     category: 'governance', action: 'permission_grant_saved', actionLabel: 'Saved permission grant for',
     entityType: 'user', entityRef: String(user.id), entityName: user.username, operator: currentOperator(req),
-    route: '/governance', status: 'success', before: null, after: grant,
+    route: '/governance', status: 'success', breakGlassElevated: Boolean(req.breakGlassElevated), before: null, after: grant,
     detail: `${grant.effect} ${grant.permission} at ${grant.scope_type}:${grant.scope_ref}.`,
   });
   res.json(grant);
@@ -369,7 +372,7 @@ router.post('/api-tokens/:id', requireAdminSession, validate(schemas.userIdParam
   auditLogService.record({
     category: 'governance', action: 'api_token_created', actionLabel: 'Created API token for',
     entityType: 'user', entityRef: String(user.id), entityName: user.username, operator: currentOperator(req),
-    route: '/governance', status: 'success', before: null, after: { id: token.id, name: token.name, permissions: token.permissions },
+    route: '/governance', status: 'success', breakGlassElevated: Boolean(req.breakGlassElevated), before: null, after: { id: token.id, name: token.name, permissions: token.permissions },
     detail: `Created a scoped API token named ${token.name}.`,
   });
   res.status(201).json(token);
@@ -445,6 +448,7 @@ router.post('/approvals/:id/decision', requireAdminSession, validate(schemas.gov
       operator: currentOperator(req),
       route: '/governance',
       status: req.body.decision === 'rejected' ? 'warning' : 'success',
+      breakGlassElevated: Boolean(req.breakGlassElevated),
       before: previous,
       after: approval,
       detail: staged

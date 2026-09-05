@@ -12,8 +12,10 @@ describe('catalog client views', () => {
       createCatalogEntry: jest.fn().mockResolvedValue({}),
       submitCatalogRequest: jest.fn().mockResolvedValue({}),
       getMyCatalogRequests: jest.fn().mockResolvedValue({ requests: [] }),
+      deleteCatalogEntry: jest.fn().mockResolvedValue({}),
     };
     global.FloatingWindow = {};
+    global.ConfirmWindow = {};
     global.store = { authenticated: true };
     global.api = api;
     ApplicationsView = require(applicationsPath);
@@ -22,6 +24,7 @@ describe('catalog client views', () => {
 
   afterEach(() => {
     delete global.FloatingWindow;
+    delete global.ConfirmWindow;
     delete global.store;
     delete global.api;
   });
@@ -142,5 +145,25 @@ describe('catalog client views', () => {
     vm.draft.title = 'Ignored Title';
     ApplicationsView.methods.syncSlug.call(vm);
     expect(vm.draft.slug).toBe('custom-slug');
+  });
+
+  it('retires an application only after the confirmation dialog is confirmed, not on the initial click', async () => {
+    const vm = {
+      entryPendingRetire: null,
+      successMessage: '',
+      errorMessage: '',
+      load: jest.fn().mockResolvedValue(undefined),
+    };
+    const entry = { id: 42, title: 'Linux Builder' };
+
+    ApplicationsView.methods.deleteEntry.call(vm, entry);
+    expect(vm.entryPendingRetire).toBe(entry);
+    expect(api.deleteCatalogEntry).not.toHaveBeenCalled();
+
+    await ApplicationsView.methods.confirmDeleteEntry.call(vm);
+    expect(api.deleteCatalogEntry).toHaveBeenCalledWith(42);
+    expect(vm.entryPendingRetire).toBeNull();
+    expect(vm.successMessage).toBe('Linux Builder was retired.');
+    expect(vm.load).toHaveBeenCalled();
   });
 });

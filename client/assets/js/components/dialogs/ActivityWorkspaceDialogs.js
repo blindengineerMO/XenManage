@@ -228,6 +228,7 @@ const ActivityWorkspaceDialogs = {
       <div v-if="(selectedItemType === 'audit' || selectedItemType === 'log') && selectedAudit">
         <div class="property-grid">
           <span class="text-muted">Status</span><status-badge :status="selectedAudit.status || 'info'"></status-badge>
+          <span class="text-muted" v-if="selectedAudit.breakGlassElevated">Break-glass</span><span class="badge badge-error" v-if="selectedAudit.breakGlassElevated">Performed under break-glass elevation</span>
           <span class="text-muted" v-if="selectedItemType === 'log'">Source</span><span v-if="selectedItemType === 'log'">{{ formatLogSourceLabel(selectedAudit.source) }}</span>
           <span class="text-muted">Summary</span><span>{{ selectedAudit.summary || selectedAudit.message || '-' }}</span>
           <span class="text-muted">Action</span><span>{{ formatAuditActionLabel(selectedAudit) }}</span>

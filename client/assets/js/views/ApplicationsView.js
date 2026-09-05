@@ -1,5 +1,5 @@
 const ApplicationsView = {
-  components: { FloatingWindow },
+  components: { FloatingWindow, ConfirmWindow },
   template: `
     <div class="animate-fade-in">
       <div class="section-head">
@@ -96,10 +96,11 @@ const ApplicationsView = {
       </div>
       <div v-else class="empty-state">{{ loading ? 'Loading applications...' : 'No catalog applications have been curated yet.' }}</div>
 
+      <confirm-window :show="Boolean(entryPendingRetire)" title="Retire Application" :message="'Retire ' + (entryPendingRetire?.title || 'this application') + '? Its existing requests will also be removed.'" confirm-label="Retire" :danger="true" @close="entryPendingRetire = null" @confirm="confirmDeleteEntry"></confirm-window>
     </div>
   `,
   data() {
-    return { entries: [], sources: [], requests: [], credentials: [], versions: [], analytics: { entries: [], totals: {} }, loading: false, saving: false, showCreate: false, showReview: false, showVersions: false, showAnalytics: false, editingId: null, errorMessage: '', successMessage: '', draft: this.emptyDraft() };
+    return { entries: [], sources: [], requests: [], credentials: [], versions: [], analytics: { entries: [], totals: {} }, loading: false, saving: false, showCreate: false, showReview: false, showVersions: false, showAnalytics: false, editingId: null, errorMessage: '', successMessage: '', draft: this.emptyDraft(), entryPendingRetire: null };
   },
   computed: {
     pendingRequestCount() { return this.requests.filter((request) => request.status === 'pending').length; },
@@ -184,8 +185,13 @@ const ApplicationsView = {
         this.saving = false;
       }
     },
-    async deleteEntry(entry) {
-      if (!window.confirm(`Retire ${entry.title}? Its existing requests will also be removed.`)) return;
+    deleteEntry(entry) {
+      this.entryPendingRetire = entry;
+    },
+    async confirmDeleteEntry() {
+      const entry = this.entryPendingRetire;
+      this.entryPendingRetire = null;
+      if (!entry) return;
       try { await api.deleteCatalogEntry(entry.id); this.successMessage = `${entry.title} was retired.`; await this.load(); }
       catch (error) { this.errorMessage = error.message || 'Unable to retire the application.'; }
     },

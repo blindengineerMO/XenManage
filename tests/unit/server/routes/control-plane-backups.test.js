@@ -115,18 +115,21 @@ describe('Control-plane backup routes', () => {
     });
   });
 
-  it('flags a snapshot as tampered when a backed-up file no longer matches its recorded checksum', async () => {
+  it('flags a snapshot as tampered when a backed-up file is modified after encryption', async () => {
     const auth = await login();
 
     const created = await request('POST', '/api/control-plane-backups', null, auth.cookie);
-    const tamperedPath = path.join(TEST_BACKUP_PATH, created.body.snapshot.id, 'perf.db');
+    // Snapshot files are AES-256-GCM encrypted at rest, so appending bytes to the
+    // ciphertext fails the GCM auth tag check on decrypt rather than surfacing as a
+    // plain checksum mismatch — that's a stronger tamper signal, not a weaker one.
+    const tamperedPath = path.join(TEST_BACKUP_PATH, created.body.snapshot.id, 'perf.db.enc');
     fs.appendFileSync(tamperedPath, 'tampered-bytes');
 
     const verified = await request('POST', `/api/control-plane-backups/${created.body.snapshot.id}/verify`, null, auth.cookie);
     expect(verified.status).toBe(200);
     expect(verified.body.overallStatus).toBe('issues_found');
     const perfEntry = verified.body.databases.find((entry) => entry.name === 'perf.db');
-    expect(perfEntry.status).toBe('checksum_mismatch');
+    expect(perfEntry.status).toBe('decryption_failed');
   });
 
   it('returns 404 for an unknown snapshot id', async () => {

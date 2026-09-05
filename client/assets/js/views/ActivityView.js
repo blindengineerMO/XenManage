@@ -86,6 +86,7 @@ const ActivityView = {
                 <div class="text-muted mono" style="font-size:11px">{{ formatAuditActionLabel(entry) }} · {{ entry.operator || 'system' }} · {{ formatDateTime(entry.happenedAt) }}</div>
                 <div class="text-muted" style="font-size:12px;margin-top:6px">{{ entry.detail || summarizeChangedFields(entry) }}</div>
               </div>
+              <span class="badge badge-error" v-if="entry.breakGlassElevated" title="Performed under break-glass elevation">Break-glass</span>
               <status-badge :status="entry.status || 'info'"></status-badge>
             </button>
           </div>
@@ -178,6 +179,7 @@ const ActivityView = {
                   :searchable="true"
                   @row-click="openAuditProperties">
         <template #cell-status="{ row }">
+          <span class="badge badge-error" v-if="row.breakGlassElevated" title="Performed under break-glass elevation">Break-glass</span>
           <status-badge :status="row.status || 'info'"></status-badge>
         </template>
         <template #cell-summary="{ row }">

@@ -35,6 +35,13 @@ const config = {
     encryptionKey: process.env.VAULT_ENCRYPTION_KEY || '',
     previousEncryptionKey: process.env.VAULT_ENCRYPTION_KEY_PREVIOUS || '',
   },
+  backup: {
+    // Deliberately separate from VAULT_ENCRYPTION_KEY: a control-plane snapshot is meant to
+    // be restorable even in a disaster scenario where the primary deployment (and its vault
+    // key) is gone, so it is wrapped with its own recovery key instead of reusing the vault's.
+    recoveryKey: process.env.CONTROL_PLANE_BACKUP_RECOVERY_KEY || '',
+    previousRecoveryKey: process.env.CONTROL_PLANE_BACKUP_RECOVERY_KEY_PREVIOUS || '',
+  },
   xen: {
     defaultVersion: '2.0',
     defaultOriginator: 'xenmange',
