@@ -147,23 +147,82 @@ function buildFocusedNetworkContext(focusedNetworkClass = '', focusedPifRef = ''
   return null;
 }
 
-function buildSelectedNetworkHostUplinks(selectedNetwork = null, relatedHosts = [], vlanLabel = '-') {
+function formatPifIpSummary(pif = {}) {
+  const mode = String(pif.ip_configuration_mode || '').trim();
+  if (!mode || mode === 'None') return 'No IP configured';
+  if (mode === 'DHCP') return pif.IP ? `DHCP · ${pif.IP}` : 'DHCP';
+  if (!pif.IP) return mode;
+  return pif.netmask ? `${pif.IP}/${pif.netmask}` : pif.IP;
+}
+
+function formatPifLinkSummary(pif = {}) {
+  if (pif.carrier === null || pif.carrier === undefined) return 'Link state unknown';
+  if (!pif.carrier) return 'Link down';
+  const speed = Number(pif.speed);
+  if (!speed) return 'Link up';
+  const duplexLabel = pif.duplex === true ? 'full-duplex' : pif.duplex === false ? 'half-duplex' : '';
+  return duplexLabel ? `Link up · ${speed}Mb/s ${duplexLabel}` : `Link up · ${speed}Mb/s`;
+}
+
+function buildSelectedNetworkHostUplinks(selectedNetwork = null, relatedHosts = [], vlanLabel = '-', relatedPifs = [], relatedBonds = [], relatedVlans = []) {
   if (!selectedNetwork) return [];
 
   const uplinks = new Set(Array.isArray(selectedNetwork.PIFs) ? selectedNetwork.PIFs : []);
+  const pifMap = new Map((Array.isArray(relatedPifs) ? relatedPifs : []).map((pif) => [pif.ref, pif]));
+  const bondByMasterRef = new Map(
+    (Array.isArray(relatedBonds) ? relatedBonds : [])
+      .filter((bond) => bond.master)
+      .map((bond) => [bond.master, bond])
+  );
+  const vlanByTaggedPifRef = new Map(
+    (Array.isArray(relatedVlans) ? relatedVlans : [])
+      .filter((vlan) => vlan.tagged_PIF)
+      .map((vlan) => [vlan.tagged_PIF, vlan])
+  );
+
   return (Array.isArray(relatedHosts) ? relatedHosts : []).flatMap((host) =>
     (Array.isArray(host.PIFs) ? host.PIFs : [])
       .filter((ref) => uplinks.has(ref))
-      .map((ref, index) => ({
-        id: `${host.ref || host.uuid || host.address || 'host'}-${ref}-${index}`,
-        hostRef: host.ref || '',
-        hostUuid: host.uuid || '',
-        hostName: host.name_label || host.hostname || host.address || host.ref || 'Host',
-        hostAddress: host.address || host.hostname || host.uuid || '-',
-        interfaceRef: ref,
-        detail: `${vlanLabel} · ${host.enabled ? 'enabled host' : 'disabled host'} · ${host.hostname || 'no hostname'} · ${host.uuid || host.ref || '-'}`,
-        status: host.enabled ? 'enabled' : 'warning',
-      }))
+      .map((ref, index) => {
+        const pif = pifMap.get(ref) || {};
+        const ipSummary = formatPifIpSummary(pif);
+        const linkSummary = formatPifLinkSummary(pif);
+        const bond = bondByMasterRef.get(ref) || null;
+        const vlan = vlanByTaggedPifRef.get(ref) || null;
+        const bondMemberCount = bond && Array.isArray(bond.slaves) ? bond.slaves.length : 0;
+        const detailParts = [
+          vlanLabel,
+          pif.device ? `device ${pif.device}` : 'device auto',
+          pif.MAC || 'no MAC',
+          ipSummary,
+          linkSummary,
+          host.enabled ? 'enabled host' : 'disabled host',
+          host.uuid || host.ref || '-',
+        ];
+        if (bond) detailParts.splice(2, 0, `bond ${bond.mode || 'unknown mode'} (${bondMemberCount} member${bondMemberCount === 1 ? '' : 's'})`);
+        if (vlan) detailParts.splice(bond ? 3 : 2, 0, `VLAN ${vlan.tag}`);
+        return {
+          id: `${host.ref || host.uuid || host.address || 'host'}-${ref}-${index}`,
+          hostRef: host.ref || '',
+          hostUuid: host.uuid || '',
+          hostName: host.name_label || host.hostname || host.address || host.ref || 'Host',
+          hostAddress: host.address || host.hostname || host.uuid || '-',
+          interfaceRef: ref,
+          interfaceUuid: pif.uuid || '',
+          device: String(pif.device || ''),
+          mac: String(pif.MAC || ''),
+          ipSummary,
+          linkSummary,
+          linkUp: pif.carrier === true,
+          ioReadKbs: pif.ioReadKbs ?? null,
+          ioWriteKbs: pif.ioWriteKbs ?? null,
+          bondMode: bond ? String(bond.mode || '') : '',
+          bondMemberCount,
+          vlanTag: vlan ? vlan.tag : null,
+          detail: detailParts.join(' · '),
+          status: host.enabled ? 'enabled' : 'warning',
+        };
+      })
   );
 }
 
@@ -234,6 +293,9 @@ function buildCurrentNetworkDetailFocusOptions(focusState = {}, options = {}) {
     hosts: includeRelationships ? (focusState.relatedHosts || []) : undefined,
     vms: includeRelationships ? (focusState.relatedVMs || []) : undefined,
     vifs: includeRelationships ? (focusState.relatedVifs || []) : undefined,
+    pifs: includeRelationships ? (focusState.relatedPifs || []) : undefined,
+    bonds: includeRelationships ? (focusState.relatedBonds || []) : undefined,
+    vlans: includeRelationships ? (focusState.relatedVlans || []) : undefined,
   };
 }
 
@@ -314,12 +376,47 @@ function findNetworkByFocus(networks = [], focus = null) {
   ) || null;
 }
 
-function resolveFocusedNetworkTarget(networks = [], focus = null) {
+function resolveFocusedNetworkTarget(networks = [], focus = null, relatedPifs = [], relatedVifs = []) {
   const direct = findNetworkByFocus(networks, focus);
   if (direct) {
     return { network: direct, focusedPifRef: '', focusedVifRef: '', focusedNetworkClass: '' };
   }
 
+  if (['pif', 'bond', 'vlan'].includes(focus?.cls)) {
+    const pifRecord = (Array.isArray(relatedPifs) ? relatedPifs : [])
+      .find((pif) => recordMatchesRouteFocus(pif, focus, ['ref', 'uuid']));
+    const network = pifRecord?.network
+      ? (Array.isArray(networks) ? networks : []).find((candidate) => candidate.ref === pifRecord.network)
+      : null;
+    if (network) {
+      return {
+        network,
+        focusedPifRef: pifRecord.ref || focus?.ref || '',
+        focusedVifRef: '',
+        focusedNetworkClass: focus?.cls || '',
+      };
+    }
+  }
+
+  if (focus?.cls === 'vif') {
+    const vifRecord = (Array.isArray(relatedVifs) ? relatedVifs : [])
+      .find((vif) => recordMatchesRouteFocus(vif, focus, ['ref', 'uuid']));
+    const network = vifRecord?.network
+      ? (Array.isArray(networks) ? networks : []).find((candidate) => candidate.ref === vifRecord.network)
+      : null;
+    if (network) {
+      return {
+        network,
+        focusedPifRef: '',
+        focusedVifRef: vifRecord.ref || focus?.ref || '',
+        focusedNetworkClass: focus?.cls || '',
+      };
+    }
+  }
+
+  // Fall back to ref-only matching against each network's own PIFs/VIFs ref lists,
+  // for when relatedPifs/relatedVifs haven't been loaded yet (focus.uuid can't match here,
+  // only focus.ref, since those lists are opaque refs rather than full records).
   for (const network of Array.isArray(networks) ? networks : []) {
     if (['pif', 'bond', 'vlan'].includes(focus?.cls) && recordMatchesRouteFocus(network, focus, [], network.PIFs || [])) {
       return {
@@ -348,5 +445,9 @@ if (typeof module !== 'undefined') {
     buildNetworkSelectionProfile,
     buildSelectedNetworkDestroyBlockedReason,
     buildBulkNetworkDestroyMessage,
+    formatPifIpSummary,
+    formatPifLinkSummary,
+    buildSelectedNetworkHostUplinks,
+    resolveFocusedNetworkTarget,
   };
 }

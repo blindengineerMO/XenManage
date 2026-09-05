@@ -45,6 +45,39 @@ function isInventoryConnectionActive(connectedTargets = [], connection = null) {
   return Boolean(findInventoryAttachedTarget(connectedTargets, connection)?.active);
 }
 
+function formatConnectionHealthSummary(summary = null) {
+  if (!summary) return '';
+  const poolCount = Number(summary.poolCount || 0);
+  const hostCount = Number(summary.hostCount || 0);
+  const vmCount = Number(summary.vmCount || 0);
+  const runningCount = Number(summary.vmStates?.running || 0);
+  const alertCount = Number(summary.alertCount || 0);
+  const parts = [
+    `${poolCount} pool${poolCount === 1 ? '' : 's'}`,
+    `${hostCount} host${hostCount === 1 ? '' : 's'}`,
+    `${vmCount} VM${vmCount === 1 ? '' : 's'} (${runningCount} running)`,
+  ];
+  if (alertCount) parts.push(`${alertCount} alert${alertCount === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
+function buildManagedTargetsByConnectionId(managedTargets = []) {
+  const byConnectionId = {};
+  (Array.isArray(managedTargets) ? managedTargets : []).forEach((target) => {
+    const connectionId = Number(target?.connectionId || 0);
+    if (connectionId) byConnectionId[connectionId] = target;
+  });
+  return byConnectionId;
+}
+
+function formatManagedTargetStatus(managedTarget = null) {
+  if (!managedTarget) return '';
+  const state = managedTarget.state || 'Offline';
+  if (state === 'Healthy') return 'Managed target online';
+  const detail = managedTarget.lastError ? `: ${managedTarget.lastError}` : '';
+  return `Managed target ${state}${detail}`;
+}
+
 function resolveInventoryWorkspaceTargetLabel(workspace = null, safeConnections = []) {
   const targetId = Number(workspace?.targetConnectionId || 0);
   if (!targetId) return 'No saved target binding';
@@ -394,4 +427,12 @@ function buildInventorySummaryCards({
       valueClass: 'text-green',
     },
   ];
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    formatConnectionHealthSummary,
+    buildManagedTargetsByConnectionId,
+    formatManagedTargetStatus,
+  };
 }

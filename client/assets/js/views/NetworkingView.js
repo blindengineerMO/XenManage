@@ -197,6 +197,9 @@ const NetworkingView = {
       relatedHosts: [],
       relatedVMs: [],
       relatedVifs: [],
+      relatedPifs: [],
+      relatedBonds: [],
+      relatedVlans: [],
       showProps: false,
       detailActionBusy: '',
       detailActionError: '',
@@ -256,7 +259,7 @@ const NetworkingView = {
       );
     },
     selectedNetworkHostUplinks() {
-      return buildSelectedNetworkHostUplinks(this.selectedNetwork, this.relatedHosts, this.selectedNetworkVlanLabel);
+      return buildSelectedNetworkHostUplinks(this.selectedNetwork, this.relatedHosts, this.selectedNetworkVlanLabel, this.relatedPifs, this.relatedBonds, this.relatedVlans);
     },
     selectedNetworkVmAttachments() {
       return buildSelectedNetworkVmAttachments(this.selectedNetwork, this.relatedVMs, this.relatedVifs);
@@ -509,6 +512,9 @@ const NetworkingView = {
         relatedHosts: this.relatedHosts,
         relatedVMs: this.relatedVMs,
         relatedVifs: this.relatedVifs,
+        relatedPifs: this.relatedPifs,
+        relatedBonds: this.relatedBonds,
+        relatedVlans: this.relatedVlans,
       }, options);
     },
     async refreshSelectedNetworkDetail(options = {}) {
@@ -529,6 +535,9 @@ const NetworkingView = {
       this.relatedHosts = [];
       this.relatedVMs = [];
       this.relatedVifs = [];
+      this.relatedPifs = [];
+      this.relatedBonds = [];
+      this.relatedVlans = [];
       this.disconnectingVifRef = '';
       this.selectedAttachmentVifRef = '';
       this.focusedPifRef = '';
@@ -716,25 +725,37 @@ const NetworkingView = {
       this.relatedHosts = options.hosts || [];
       this.relatedVMs = options.vms || [];
       this.relatedVifs = options.vifs || [];
+      this.relatedPifs = options.pifs || [];
+      this.relatedBonds = options.bonds || [];
+      this.relatedVlans = options.vlans || [];
       this.focusedPifRef = options.focusedPifRef || '';
       this.focusedVifRef = options.focusedVifRef || '';
       this.focusedNetworkClass = options.focusedNetworkClass || '';
 
       try {
-        if (!options.hosts || !options.vms || !options.vifs) {
-          const [hostsResult, vmsResult, vifResult] = await Promise.all([
+        if (!options.hosts || !options.vms || !options.vifs || !options.pifs || !options.bonds || !options.vlans) {
+          const [hostsResult, vmsResult, vifResult, pifResult, bondResult, vlanResult] = await Promise.all([
             api.getHosts(),
             api.getVMs(),
             api.getNetworkInterfaces(),
+            api.getNetworkUplinks(),
+            api.getNetworkBonds(),
+            api.getNetworkVlans(),
           ]);
           this.relatedHosts = hostsResult.data || [];
           this.relatedVMs = vmsResult.data || [];
           this.relatedVifs = vifResult.data || [];
+          this.relatedPifs = pifResult.data || [];
+          this.relatedBonds = bondResult.data || [];
+          this.relatedVlans = vlanResult.data || [];
         }
       } catch (error) {
         this.relatedHosts = [];
         this.relatedVMs = [];
         this.relatedVifs = [];
+        this.relatedPifs = [];
+        this.relatedBonds = [];
+        this.relatedVlans = [];
         this.detailError = error.message || 'Unable to load network relationship detail';
       } finally {
         this.detailLoading = false;
@@ -798,7 +819,7 @@ const NetworkingView = {
       return findNetworkByFocus(this.networks, focus);
     },
     resolveFocusedNetworkTarget(focus) {
-      return resolveFocusedNetworkTarget(this.networks, focus);
+      return resolveFocusedNetworkTarget(this.networks, focus, this.relatedPifs, this.relatedVifs);
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);
@@ -815,6 +836,30 @@ const NetworkingView = {
       const key = getRouteFocusKey(focus);
       if (this.lastAppliedFocusKey === key) return;
 
+      // A pif/vif/bond/vlan focus arriving by UUID (rather than ref) can only be resolved
+      // against full PIF/VIF records, not the opaque-ref lists on the network object itself,
+      // so make sure those are loaded before attempting resolution.
+      if (['pif', 'bond', 'vlan', 'vif'].includes(focus.cls) && (!this.relatedPifs.length || !this.relatedVifs.length)) {
+        try {
+          const [hostsResult, vmsResult, vifResult, pifResult, bondResult, vlanResult] = await Promise.all([
+            api.getHosts(),
+            api.getVMs(),
+            api.getNetworkInterfaces(),
+            api.getNetworkUplinks(),
+            api.getNetworkBonds(),
+            api.getNetworkVlans(),
+          ]);
+          this.relatedHosts = hostsResult.data || [];
+          this.relatedVMs = vmsResult.data || [];
+          this.relatedVifs = vifResult.data || [];
+          this.relatedPifs = pifResult.data || [];
+          this.relatedBonds = bondResult.data || [];
+          this.relatedVlans = vlanResult.data || [];
+        } catch (error) {
+          // Best-effort prefetch for UUID resolution; fall back to ref-only matching below.
+        }
+      }
+
       const target = this.resolveFocusedNetworkTarget(focus);
       if (!target?.network) return;
 
@@ -822,6 +867,12 @@ const NetworkingView = {
         focusedPifRef: target.focusedPifRef,
         focusedVifRef: target.focusedVifRef,
         focusedNetworkClass: target.focusedNetworkClass,
+        hosts: this.relatedHosts.length ? this.relatedHosts : undefined,
+        vms: this.relatedVMs.length ? this.relatedVMs : undefined,
+        vifs: this.relatedVifs.length ? this.relatedVifs : undefined,
+        pifs: this.relatedPifs.length ? this.relatedPifs : undefined,
+        bonds: this.relatedBonds.length ? this.relatedBonds : undefined,
+        vlans: this.relatedVlans.length ? this.relatedVlans : undefined,
       });
       this.lastAppliedFocusKey = key;
     },

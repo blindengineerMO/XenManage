@@ -27,7 +27,7 @@ const InventoryView = {
               <span class="mdi mdi-folder-star-outline"></span>
               Saved Workspaces ({{ savedWorkspaces.length }})
             </button>
-            <button class="btn btn-sm" @click="showConnectionAtlasWindow = true">
+            <button class="btn btn-sm" @click="openConnectionAtlas">
               <span class="mdi mdi-server-network-outline"></span>
               Connection Atlas ({{ safeConnections.length }})
             </button>
@@ -166,6 +166,8 @@ const InventoryView = {
           :top-tags="topTags"
           :connection-default-pending-id="connectionDefaultPendingId"
           :connection-action-error="connectionActionError"
+          :connection-health="connectionHealth"
+          :managed-targets-by-connection-id="managedTargetsByConnectionId"
           @close="showConnectionAtlasWindow = false"
           @apply-tag="applyTag"
           @set-default-connection="setDefaultConnection"
@@ -218,6 +220,9 @@ const InventoryView = {
       showResult: false,
       showSavedWorkspacesWindow: false,
       showConnectionAtlasWindow: false,
+      connectionHealth: {},
+      connectionHealthPendingIds: [],
+      managedTargets: [],
       columns: [
         { key: 'kind', label: 'Kind' },
         { key: 'name', label: 'Name' },
@@ -258,6 +263,9 @@ const InventoryView = {
     },
     canSaveWorkspace() {
       return Boolean(this.workspaceName.trim());
+    },
+    managedTargetsByConnectionId() {
+      return buildManagedTargetsByConnectionId(this.managedTargets);
     },
   },
   async mounted() {
@@ -314,6 +322,43 @@ const InventoryView = {
     },
     findAttachedTarget(connection) {
       return findInventoryAttachedTarget(store.connectedTargets || [], connection);
+    },
+    openConnectionAtlas() {
+      this.showConnectionAtlasWindow = true;
+      this.refreshConnectionHealth();
+      this.refreshManagedTargets();
+    },
+    async refreshManagedTargets() {
+      try {
+        this.managedTargets = await api.getManagedTargets();
+      } catch (error) {
+        // Best-effort managed-target status; the atlas falls back to the generic "connect to view" placeholder.
+      }
+    },
+    async refreshConnectionHealth() {
+      const activeConnections = this.safeConnections.filter((connection) => this.isConnectionActive(connection));
+      await Promise.all(activeConnections.map(async (connection) => {
+        const targetKey = this.findAttachedTarget(connection)?.targetKey;
+        if (!targetKey || this.connectionHealthPendingIds.includes(connection.id)) return;
+        this.connectionHealthPendingIds.push(connection.id);
+        try {
+          const [summary, messages] = await Promise.all([
+            api.dashboard(targetKey),
+            api.dashboardMessages(targetKey),
+          ]);
+          this.connectionHealth = {
+            ...this.connectionHealth,
+            [connection.id]: { ...summary, alertCount: Array.isArray(messages) ? messages.length : 0 },
+          };
+        } catch (error) {
+          // Best-effort live rollup; the atlas falls back to a "connect to view" placeholder.
+        } finally {
+          this.connectionHealthPendingIds = this.connectionHealthPendingIds.filter((id) => id !== connection.id);
+        }
+      }));
+    },
+    isConnectionActive(connection) {
+      return isInventoryConnectionActive(store.connectedTargets || [], connection);
     },
     async loadSavedWorkspaces() {
       try {

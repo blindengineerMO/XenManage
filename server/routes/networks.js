@@ -49,6 +49,53 @@ router.get('/interfaces', async (req, res) => {
   }
 });
 
+router.get('/uplinks', async (req, res) => {
+  try {
+    const [pifResult, metricsResult] = await Promise.all([
+      req.xenApi.getPIFs(),
+      req.xenApi.getPIFMetrics(),
+    ]);
+    const pifs = Object.entries(pifResult.records)
+      .map(([ref, r]) => {
+        const metrics = r.metrics ? metricsResult.records[r.metrics] : null;
+        return {
+          ref,
+          ...r,
+          carrier: metrics ? metrics.carrier : null,
+          speed: metrics ? metrics.speed : null,
+          duplex: metrics ? metrics.duplex : null,
+          ioReadKbs: metrics ? metrics.io_read_kbs : null,
+          ioWriteKbs: metrics ? metrics.io_write_kbs : null,
+        };
+      });
+    res.json({ total: pifs.length, data: pifs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/bonds', async (req, res) => {
+  try {
+    const result = await req.xenApi.getBonds();
+    const bonds = Object.entries(result.records)
+      .map(([ref, r]) => ({ ref, ...r }));
+    res.json({ total: bonds.length, data: bonds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/vlans', async (req, res) => {
+  try {
+    const result = await req.xenApi.getVLANs();
+    const vlans = Object.entries(result.records)
+      .map(([ref, r]) => ({ ref, ...r }));
+    res.json({ total: vlans.length, data: vlans });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/interfaces/:vifRef/config',
   validate(schemas.vifRefParam, 'params'),
   validate(schemas.networkVifConfigUpdate),

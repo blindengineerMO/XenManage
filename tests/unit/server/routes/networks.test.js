@@ -9,6 +9,10 @@ process.env.DB_PATH = TEST_DB;
 const mockState = {
   networks: [],
   vifs: [],
+  pifs: [],
+  pifMetrics: [],
+  bonds: [],
+  vlans: [],
 };
 
 jest.mock('../../../../server/services/xenapi', () => {
@@ -34,6 +38,34 @@ jest.mock('../../../../server/services/xenapi', () => {
     return {
       refs: mockState.vifs.map((vif) => vif.ref),
       records: Object.fromEntries(mockState.vifs.map((vif) => [vif.ref, { ...vif }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getPIFs = jest.fn(async function () {
+    return {
+      refs: mockState.pifs.map((pif) => pif.ref),
+      records: Object.fromEntries(mockState.pifs.map((pif) => [pif.ref, { ...pif }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getPIFMetrics = jest.fn(async function () {
+    return {
+      refs: mockState.pifMetrics.map((metrics) => metrics.ref),
+      records: Object.fromEntries(mockState.pifMetrics.map((metrics) => [metrics.ref, { ...metrics }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getBonds = jest.fn(async function () {
+    return {
+      refs: mockState.bonds.map((bond) => bond.ref),
+      records: Object.fromEntries(mockState.bonds.map((bond) => [bond.ref, { ...bond }])),
+    };
+  });
+
+  actual.XenAPI.prototype.getVLANs = jest.fn(async function () {
+    return {
+      refs: mockState.vlans.map((vlan) => vlan.ref),
+      records: Object.fromEntries(mockState.vlans.map((vlan) => [vlan.ref, { ...vlan }])),
     };
   });
 
@@ -234,6 +266,45 @@ describe('Network Routes', () => {
         allowed_operations: ['unplug', 'destroy'],
       },
     ];
+    mockState.pifs = [
+      {
+        ref: 'OpaqueRef:pif1',
+        uuid: 'pif-uuid-1',
+        device: 'bond0',
+        MAC: '02:16:3e:20:00:01',
+        network: 'OpaqueRef:net1',
+        ip_configuration_mode: 'DHCP',
+        metrics: 'OpaqueRef:pifmetrics1',
+      },
+    ];
+    mockState.pifMetrics = [
+      {
+        ref: 'OpaqueRef:pifmetrics1',
+        carrier: true,
+        speed: 10000,
+        duplex: true,
+        io_read_kbs: 512.5,
+        io_write_kbs: 128.25,
+      },
+    ];
+    mockState.bonds = [
+      {
+        ref: 'OpaqueRef:bond1',
+        uuid: 'bond-uuid-1',
+        master: 'OpaqueRef:pif1',
+        slaves: ['OpaqueRef:pif2', 'OpaqueRef:pif3'],
+        mode: 'balance-slb',
+      },
+    ];
+    mockState.vlans = [
+      {
+        ref: 'OpaqueRef:vlan1',
+        uuid: 'vlan-uuid-1',
+        tagged_PIF: 'OpaqueRef:pif1',
+        untagged_PIF: 'OpaqueRef:pif4',
+        tag: 42,
+      },
+    ];
   });
 
   function request(method, pathName, body, cookie) {
@@ -305,6 +376,41 @@ describe('Network Routes', () => {
       ref: 'OpaqueRef:net1',
       bridge: 'xenbr0',
       MTU: 1500,
+    }));
+  });
+
+  it('lists PIF uplinks, bonds, and VLANs through their dedicated endpoints', async () => {
+    const auth = await login();
+
+    const uplinks = await request('GET', '/api/networks/uplinks', null, auth.cookie);
+    expect(uplinks.status).toBe(200);
+    expect(uplinks.body.total).toBe(1);
+    expect(uplinks.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:pif1',
+      device: 'bond0',
+      carrier: true,
+      speed: 10000,
+      duplex: true,
+      ioReadKbs: 512.5,
+      ioWriteKbs: 128.25,
+    }));
+
+    const bonds = await request('GET', '/api/networks/bonds', null, auth.cookie);
+    expect(bonds.status).toBe(200);
+    expect(bonds.body.total).toBe(1);
+    expect(bonds.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:bond1',
+      master: 'OpaqueRef:pif1',
+      mode: 'balance-slb',
+    }));
+
+    const vlans = await request('GET', '/api/networks/vlans', null, auth.cookie);
+    expect(vlans.status).toBe(200);
+    expect(vlans.body.total).toBe(1);
+    expect(vlans.body.data[0]).toEqual(expect.objectContaining({
+      ref: 'OpaqueRef:vlan1',
+      tagged_PIF: 'OpaqueRef:pif1',
+      tag: 42,
     }));
   });
 

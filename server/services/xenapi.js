@@ -966,6 +966,22 @@ class XenAPI {
     return this.getClassRecords('VIF');
   }
 
+  async getPIFs() {
+    return this.getClassRecords('PIF');
+  }
+
+  async getPIFMetrics() {
+    return this.getClassRecords('PIF_metrics');
+  }
+
+  async getBonds() {
+    return this.getClassRecords('Bond');
+  }
+
+  async getVLANs() {
+    return this.getClassRecords('VLAN');
+  }
+
   async updateVifConfig(ref, {
     qosAlgorithmType = '',
     qosAlgorithmParams = {},

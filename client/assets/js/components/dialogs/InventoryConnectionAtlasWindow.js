@@ -24,6 +24,14 @@ const InventoryConnectionAtlasWindow = {
       type: String,
       default: '',
     },
+    connectionHealth: {
+      type: Object,
+      default: () => ({}),
+    },
+    managedTargetsByConnectionId: {
+      type: Object,
+      default: () => ({}),
+    },
   },
   emits: [
     'close',
@@ -47,6 +55,15 @@ const InventoryConnectionAtlasWindow = {
               <div class="text-muted" style="font-size:12px;margin-top:6px">
                 {{ connection.is_default ? 'Default saved target' : 'Saved connection target' }}
                 <span v-if="connection.last_connected_at"> · last used {{ formatDateTime(connection.last_connected_at) }}</span>
+              </div>
+              <div class="text-muted mono" style="font-size:11px;margin-top:4px" v-if="isConnectionActive(connection)">
+                {{ healthSummary(connection) || 'Loading live status...' }}
+              </div>
+              <div class="text-muted mono" style="font-size:11px;margin-top:4px" v-else-if="managedStatus(connection)">
+                {{ managedStatus(connection) }}
+              </div>
+              <div class="text-muted mono" style="font-size:11px;margin-top:4px" v-else>
+                Connect to view live status
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
                 <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
@@ -101,6 +118,15 @@ const InventoryConnectionAtlasWindow = {
     },
     isConnectionActive(connection) {
       return isInventoryConnectionActive(store.connectedTargets || [], connection);
+    },
+    healthSummary(connection) {
+      return formatConnectionHealthSummary(this.connectionHealth?.[connection.id]);
+    },
+    managedStatus(connection) {
+      const managedTarget = this.managedTargetsByConnectionId?.[connection.id];
+      const status = formatManagedTargetStatus(managedTarget);
+      if (!status || !managedTarget?.lastCheckedAt) return status;
+      return `${status} · checked ${this.formatDateTime(managedTarget.lastCheckedAt)}`;
     },
   },
 };
