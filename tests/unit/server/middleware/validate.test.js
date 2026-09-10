@@ -720,6 +720,17 @@ describe('Validation Middleware', () => {
       validate(schemas.alertPolicyUpdate)(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    it('should accept the vmss, host_patch, certificate, and pvs_proxy match classes', () => {
+      ['vmss', 'host_patch', 'certificate', 'pvs_proxy'].forEach((matchClass) => {
+        const localReq = { body: { name: `Policy for ${matchClass}`, matchClass } };
+        const localRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        const localNext = jest.fn();
+        validate(schemas.alertPolicyUpdate)(localReq, localRes, localNext);
+        expect(localNext).toHaveBeenCalled();
+        expect(localReq.body.matchClass).toBe(matchClass);
+      });
+    });
   });
 
   describe('remediationTaskCreate schema', () => {
@@ -787,6 +798,24 @@ describe('Validation Middleware', () => {
       };
       validate(schemas.remediationTaskCreate)(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should accept the vmss, host_patch, certificate, and pvs_proxy related classes', () => {
+      ['vmss', 'host_patch', 'certificate', 'pvs_proxy'].forEach((relatedClass) => {
+        const localReq = {
+          body: {
+            nameLabel: `Review: ${relatedClass}`,
+            alertRef: 'OpaqueRef:msg1',
+            alertSummary: 'Alert summary',
+            relatedClass,
+          },
+        };
+        const localRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        const localNext = jest.fn();
+        validate(schemas.remediationTaskCreate)(localReq, localRes, localNext);
+        expect(localNext).toHaveBeenCalled();
+        expect(localReq.body.relatedClass).toBe(relatedClass);
+      });
     });
   });
 
@@ -891,6 +920,23 @@ describe('Validation Middleware', () => {
       };
       validate(schemas.remediationTaskTemplateUpdate)(req, res, next);
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should accept the vmss, host_patch, certificate, and pvs_proxy match classes', () => {
+      ['vmss', 'host_patch', 'certificate', 'pvs_proxy'].forEach((matchClass) => {
+        const localReq = {
+          body: {
+            name: `Template for ${matchClass}`,
+            matchClass,
+            taskNameTemplate: 'Review: {summary}',
+          },
+        };
+        const localRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        const localNext = jest.fn();
+        validate(schemas.remediationTaskTemplateUpdate)(localReq, localRes, localNext);
+        expect(localNext).toHaveBeenCalled();
+        expect(localReq.body.matchClass).toBe(matchClass);
+      });
     });
 
     it('should require cooldownDays when the recurrence guard uses a cooldown window', () => {

@@ -42,6 +42,7 @@ All notable changes to XenManage are documented here.
 - Audit detail records for network subobject edits (VIF, Bond, VLAN) and for alert-policy, host-target, and managed-target administration now also show an "Open Affected Record" follow-through button, closing the same routeMap gap already fixed for governance/settings entity types.
 - The Resilience Drill Ledger now shows each logged drill's duration, previously collected by the drill form and persisted server-side but never displayed.
 - The Resilience Drill Ledger now also shows a rolled-up pass-rate and average-duration stat line across all logged drills, instead of only exposing per-pool "last drill" status.
+- Resilience runbooks now carry a configurable drill cadence (default 45 days), and the recovery-plan checklist's Drill Recency detail now shows a computed "Next drill due" date alongside the last-drill date.
 
 ### Security
 

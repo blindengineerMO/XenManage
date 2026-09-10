@@ -834,7 +834,7 @@ const schemas = {
   alertPolicyUpdate: Joi.object({
     enabled: Joi.boolean().default(true),
     name: Joi.string().trim().required().min(1).max(120),
-    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task').default(''),
+    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'vmss', 'host_patch', 'certificate', 'pvs_proxy').default(''),
     matchTargetRoute: Joi.string().allow('').valid('', '/hosts', '/storage', '/vms', '/pools', '/networking', '/activity', '/inventory', '/capacity', '/resilience', '/lifecycle', '/governance').default(''),
     matchObject: Joi.string().allow('').max(120).default(''),
     matchSeverity: Joi.string().allow('').valid('', 'critical', 'warning', 'info', 'notice').default(''),
@@ -857,7 +857,7 @@ const schemas = {
     alertSummary: Joi.string().trim().required().min(1).max(180),
     targetRoute: Joi.string().allow('').valid('', '/hosts', '/storage', '/vms', '/pools', '/networking', '/activity', '/inventory', '/capacity', '/resilience', '/lifecycle', '/governance').default(''),
     relatedObject: Joi.string().allow('').max(180).default(''),
-    relatedClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'alert').default(''),
+    relatedClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'alert', 'vmss', 'host_patch', 'certificate', 'pvs_proxy').default(''),
     workspaceSummary: Joi.string().allow('').max(240).default(''),
     evidenceChecklist: Joi.array().items(Joi.string().trim().min(1).max(200)).max(8).default([]),
     completionCriteria: Joi.array().items(Joi.string().trim().min(1).max(200)).max(8).default([]),
@@ -884,7 +884,7 @@ const schemas = {
   remediationTaskTemplateUpdate: Joi.object({
     enabled: Joi.boolean().default(true),
     name: Joi.string().trim().required().min(1).max(120),
-    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'alert').default(''),
+    matchClass: Joi.string().allow('').valid('', 'host', 'sr', 'vdi', 'vbd', 'vm', 'pool', 'network', 'vif', 'pif', 'bond', 'vlan', 'task', 'alert', 'vmss', 'host_patch', 'certificate', 'pvs_proxy').default(''),
     matchTargetRoute: Joi.string().allow('').valid('', '/hosts', '/storage', '/vms', '/pools', '/networking', '/activity', '/inventory', '/capacity', '/resilience', '/lifecycle', '/governance').default(''),
     matchObject: Joi.string().allow('').max(120).default(''),
     matchSeverity: Joi.string().allow('').valid('', 'critical', 'warning', 'info', 'notice').default(''),
