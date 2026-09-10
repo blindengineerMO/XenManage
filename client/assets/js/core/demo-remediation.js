@@ -88,6 +88,38 @@ function normalizeDemoResilienceRunbookSeed(seed = {}, current = null) {
   };
 }
 
+function normalizeDemoVmMigrationSeed(seed = {}, current = null) {
+  const source = seed && typeof seed === 'object' ? seed : {};
+  const fallback = current && typeof current === 'object' ? current : {};
+
+  if (source.enabled === false && !fallback.enabled) return null;
+  if (!source.enabled && !fallback.enabled && !Object.keys(source).length) return null;
+
+  return {
+    enabled: source.enabled !== undefined ? Boolean(source.enabled) : Boolean(fallback.enabled),
+    mode: String(source.mode || fallback.mode || 'same-pool').trim().toLowerCase(),
+    hostRef: String(source.hostRef || fallback.hostRef || '').trim(),
+    destinationTargetKey: String(source.destinationTargetKey || fallback.destinationTargetKey || '').trim(),
+    transferNetworkRef: String(source.transferNetworkRef || fallback.transferNetworkRef || '').trim(),
+    srRef: String(source.srRef || fallback.srRef || '').trim(),
+    vifNetworkMap: Array.isArray(source.vifNetworkMap || fallback.vifNetworkMap)
+      ? (source.vifNetworkMap || fallback.vifNetworkMap)
+        .map((entry) => ({ vifRef: String(entry?.vifRef || '').trim(), networkRef: String(entry?.networkRef || '').trim() }))
+        .filter((entry) => entry.vifRef && entry.networkRef)
+        .slice(0, 16)
+      : [],
+    live: source.live !== undefined ? Boolean(source.live) : Boolean(fallback.live ?? true),
+    copy: source.copy !== undefined ? Boolean(source.copy) : Boolean(fallback.copy),
+    force: source.force !== undefined ? Boolean(source.force) : Boolean(fallback.force),
+    compress: source.compress !== undefined ? Boolean(source.compress) : Boolean(fallback.compress ?? true),
+    setAsHomeServer: source.setAsHomeServer !== undefined ? Boolean(source.setAsHomeServer) : Boolean(fallback.setAsHomeServer),
+    notes: String(source.notes || fallback.notes || '').trim(),
+    sourceTaskRef: String(source.sourceTaskRef || fallback.sourceTaskRef || '').trim(),
+    sourceTemplateId: String(source.sourceTemplateId || fallback.sourceTemplateId || '').trim(),
+    sourceTemplateName: String(source.sourceTemplateName || fallback.sourceTemplateName || '').trim(),
+  };
+}
+
 function buildDemoRemediationTask(payload = {}) {
   const now = new Date().toISOString();
   return {
@@ -129,6 +161,7 @@ function buildDemoRemediationTask(payload = {}) {
     recurrence_window_key: buildDemoRemediationRecurrenceKey(payload),
     lifecycle_plan_seed: normalizeDemoLifecyclePlanSeed(payload.lifecyclePlanSeed, payload.lifecycle_plan_seed),
     resilience_runbook_seed: normalizeDemoResilienceRunbookSeed(payload.resilienceRunbookSeed, payload.resilience_runbook_seed),
+    vm_migration_seed: normalizeDemoVmMigrationSeed(payload.vmMigrationSeed, payload.vm_migration_seed),
     created_by: store.username || 'demo',
     updated_at: now,
   };
@@ -164,6 +197,15 @@ function buildDemoRemediationTemplate(payload = {}, current = {}) {
     cooldownDays: Number(payload.cooldownDays ?? current.cooldownDays ?? 0),
     lifecyclePlanSeed: normalizeDemoLifecyclePlanSeed(payload.lifecyclePlanSeed, current.lifecyclePlanSeed),
     resilienceRunbookSeed: normalizeDemoResilienceRunbookSeed(payload.resilienceRunbookSeed, current.resilienceRunbookSeed),
+    vmMigrationSeed: normalizeDemoVmMigrationSeed(payload.vmMigrationSeed, current.vmMigrationSeed),
     updatedAt: payload.updatedAt || current.updatedAt || new Date().toISOString(),
+  };
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildDemoRemediationTask,
+    buildDemoRemediationTemplate,
+    normalizeDemoVmMigrationSeed,
   };
 }

@@ -218,46 +218,6 @@ const AlertsWorkspaceDialogs = {
         </div>
       </floating-window>
 
-      <floating-window :show="false"
-                       title="Alert Policy"
-                       :width="740"
-                       :height="660"
-                       @close="$emit('close-policy-editor')">
-        <div class="detail-section" v-if="policyError">
-          <div class="capacity-callout">
-            <strong>{{ policyError }}</strong>
-          </div>
-        </div>
-        <alert-policy-form
-          :initial-value="editingPolicy"
-          :saving="policySaving"
-          :submit-label="editingPolicy && editingPolicy.id ? 'Save Alert Policy' : 'Create Alert Policy'"
-          @submit="$emit('save-policy', $event)">
-        </alert-policy-form>
-        <div class="form-actions" style="margin-top:12px" v-if="editingPolicy?.id">
-          <button class="btn" @click="$emit('remove-policy', editingPolicy)" :disabled="policySaving">Delete Policy</button>
-        </div>
-      </floating-window>
-
-      <floating-window :show="false"
-                       title="Create Remediation Task"
-                       :width="720"
-                       :height="650"
-                       @close="$emit('close-remediation-composer')">
-        <div class="detail-section" v-if="remediationError">
-          <div class="capacity-callout">
-            <strong>{{ remediationError }}</strong>
-          </div>
-        </div>
-        <remediation-task-form
-          v-if="remediationDraft"
-          :initial-value="remediationDraft"
-          :saving="remediationSaving"
-          submit-label="Create Remediation Task"
-          @submit="$emit('submit-remediation-task', $event)">
-        </remediation-task-form>
-      </floating-window>
-
       <floating-window :show="showTemplateEditor"
                        title="Remediation Template"
                        :width="760"

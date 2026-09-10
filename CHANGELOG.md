@@ -44,6 +44,10 @@ All notable changes to XenManage are documented here.
 - The Resilience Drill Ledger now also shows a rolled-up pass-rate and average-duration stat line across all logged drills, instead of only exposing per-pool "last drill" status.
 - Resilience runbooks now carry a configurable drill cadence (default 45 days), and the recovery-plan checklist's Drill Recency detail now shows a computed "Next drill due" date alongside the last-drill date.
 
+### Fixed
+
+- The alert-policy, remediation-template, and remediation-task validation schemas now accept `vmss`/`host_patch`/`certificate`/`pvs_proxy` as match/related classes. The "Match Class" dropdowns started emitting those values on September 5, but the server-side Joi enums still rejected them with a 400, so saving a policy or template on one of those classes — or creating a remediation task directly from a live alert of one of those classes — failed outright.
+
 ### Security
 
 - Replaced inline-script CSP allowance with per-response nonces.

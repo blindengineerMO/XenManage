@@ -8,6 +8,9 @@ function buildRemediationTemplateDraft(initialValue = {}) {
   const resilienceSeed = source.resilienceRunbookSeed && typeof source.resilienceRunbookSeed === 'object'
     ? source.resilienceRunbookSeed
     : null;
+  const vmMigrationSeed = source.vmMigrationSeed && typeof source.vmMigrationSeed === 'object'
+    ? source.vmMigrationSeed
+    : null;
   return {
     enabled: source.enabled !== false,
     name: source.name || '',
@@ -54,6 +57,18 @@ function buildRemediationTemplateDraft(initialValue = {}) {
     resilienceFailoverNetworkRef: resilienceSeed?.failoverNetworkRef || '',
     resilienceRunbookStepsText: Array.isArray(resilienceSeed?.runbookSteps) ? resilienceSeed.runbookSteps.join('\n') : '',
     resilienceNotes: resilienceSeed?.notes || '',
+    vmMigrationSeedEnabled: Boolean(vmMigrationSeed?.enabled),
+    vmMigrationMode: vmMigrationSeed?.mode || 'same-pool',
+    vmMigrationHostRef: vmMigrationSeed?.hostRef || '',
+    vmMigrationDestinationTargetKey: vmMigrationSeed?.destinationTargetKey || '',
+    vmMigrationTransferNetworkRef: vmMigrationSeed?.transferNetworkRef || '',
+    vmMigrationSrRef: vmMigrationSeed?.srRef || '',
+    vmMigrationLive: vmMigrationSeed ? vmMigrationSeed.live !== false : true,
+    vmMigrationCopy: Boolean(vmMigrationSeed?.copy),
+    vmMigrationForce: Boolean(vmMigrationSeed?.force),
+    vmMigrationCompress: vmMigrationSeed ? vmMigrationSeed.compress !== false : true,
+    vmMigrationSetAsHomeServer: Boolean(vmMigrationSeed?.setAsHomeServer),
+    vmMigrationNotes: vmMigrationSeed?.notes || '',
   };
 }
 
@@ -488,6 +503,87 @@ const RemediationTaskTemplateForm = {
         </div>
       </template>
 
+      <div class="detail-section" style="margin-top:8px">
+        <div class="detail-section-title">VM Migration Seed</div>
+      </div>
+
+      <label class="form-toggle">
+        <input type="checkbox" v-model="draft.vmMigrationSeedEnabled">
+        <span>Seed a VM migration handoff when this template is queued</span>
+      </label>
+
+      <template v-if="draft.vmMigrationSeedEnabled">
+        <div class="vm-inline-form-grid">
+          <div class="form-group">
+            <label for="remediation-template-migration-mode">Migration Mode</label>
+            <select id="remediation-template-migration-mode" class="form-input" v-model="draft.vmMigrationMode">
+              <option value="same-pool">Same Pool</option>
+              <option value="cross-pool">Cross Pool</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="remediation-template-migration-host">Destination Host Ref</label>
+            <input id="remediation-template-migration-host" class="form-input" v-model="draft.vmMigrationHostRef" placeholder="OpaqueRef:host-demo-1">
+          </div>
+        </div>
+
+        <div class="vm-inline-form-grid">
+          <div class="form-group">
+            <label for="remediation-template-migration-target">Destination Target Key</label>
+            <input id="remediation-template-migration-target" class="form-input" v-model="draft.vmMigrationDestinationTargetKey" placeholder="Cross-pool saved connection key">
+          </div>
+
+          <div class="form-group">
+            <label for="remediation-template-migration-network">Transfer Network Ref</label>
+            <input id="remediation-template-migration-network" class="form-input" v-model="draft.vmMigrationTransferNetworkRef" placeholder="OpaqueRef:net-demo-1">
+          </div>
+        </div>
+
+        <div class="vm-inline-form-grid">
+          <div class="form-group">
+            <label for="remediation-template-migration-sr">Storage Repository Ref</label>
+            <input id="remediation-template-migration-sr" class="form-input" v-model="draft.vmMigrationSrRef" placeholder="OpaqueRef:sr-demo-1">
+          </div>
+        </div>
+
+        <div class="vm-inline-form-grid">
+          <label class="form-toggle">
+            <input type="checkbox" v-model="draft.vmMigrationLive">
+            <span>Live migration</span>
+          </label>
+          <label class="form-toggle">
+            <input type="checkbox" v-model="draft.vmMigrationCopy">
+            <span>Copy instead of move</span>
+          </label>
+        </div>
+
+        <div class="vm-inline-form-grid">
+          <label class="form-toggle">
+            <input type="checkbox" v-model="draft.vmMigrationForce">
+            <span>Force migration</span>
+          </label>
+          <label class="form-toggle">
+            <input type="checkbox" v-model="draft.vmMigrationCompress">
+            <span>Compress transfer</span>
+          </label>
+        </div>
+
+        <label class="form-toggle">
+          <input type="checkbox" v-model="draft.vmMigrationSetAsHomeServer">
+          <span>Set destination as home server</span>
+        </label>
+
+        <div class="form-group">
+          <label for="remediation-template-migration-notes">Migration Notes</label>
+          <textarea id="remediation-template-migration-notes"
+                    class="form-input form-textarea"
+                    rows="4"
+                    v-model="draft.vmMigrationNotes"
+                    placeholder="Maintenance window, rollback plan, or migration-specific caveats."></textarea>
+        </div>
+      </template>
+
       <div class="form-actions">
         <button class="form-btn" type="submit" :disabled="saving">
           <span class="mdi mdi-content-save-outline"></span>
@@ -546,6 +642,22 @@ const RemediationTaskTemplateForm = {
           notes: this.draft.resilienceNotes.trim(),
         }
         : null;
+      const vmMigrationSeed = this.draft.vmMigrationSeedEnabled
+        ? {
+          enabled: true,
+          mode: this.draft.vmMigrationMode || 'same-pool',
+          hostRef: this.draft.vmMigrationHostRef.trim(),
+          destinationTargetKey: this.draft.vmMigrationDestinationTargetKey.trim(),
+          transferNetworkRef: this.draft.vmMigrationTransferNetworkRef.trim(),
+          srRef: this.draft.vmMigrationSrRef.trim(),
+          live: Boolean(this.draft.vmMigrationLive),
+          copy: Boolean(this.draft.vmMigrationCopy),
+          force: Boolean(this.draft.vmMigrationForce),
+          compress: Boolean(this.draft.vmMigrationCompress),
+          setAsHomeServer: Boolean(this.draft.vmMigrationSetAsHomeServer),
+          notes: this.draft.vmMigrationNotes.trim(),
+        }
+        : null;
       this.$emit('submit', {
         enabled: Boolean(this.draft.enabled),
         name: this.draft.name.trim(),
@@ -576,6 +688,7 @@ const RemediationTaskTemplateForm = {
         cooldownDays: Number(this.draft.recurrenceMode === 'cooldown' ? (this.draft.cooldownDays || 1) : 0),
         lifecyclePlanSeed,
         resilienceRunbookSeed,
+        vmMigrationSeed,
       });
     },
   },
