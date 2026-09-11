@@ -336,6 +336,10 @@ function resolveActivityAuditRecordLocation(entry = null) {
     'settings-section': { path: '/settings', kind: 'settings-section', cls: 'settings-section' },
     'log-export': { path: '/settings', kind: 'log-export', cls: 'log-export' },
     'control-plane-backup': { path: '/settings', kind: 'control-plane-backup', cls: 'control-plane-backup' },
+    connection: { path: '/pools', kind: 'connection', cls: 'connection' },
+    catalog_entry: { path: '/applications', kind: 'catalog-entry', cls: 'catalog-entry' },
+    catalog_request: { path: '/applications', kind: 'catalog-request', cls: 'catalog-request' },
+    compose: { path: '/vms', kind: 'compose', cls: 'compose' },
   };
 
   const target = routeMap[entityType];

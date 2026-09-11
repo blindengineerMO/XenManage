@@ -607,7 +607,24 @@ const PoolsView = {
     },
     async syncRouteFocus() {
       const focus = getRouteFocus(this.$route.query);
-      if (!focus || (focus.kind && focus.kind !== 'pool')) {
+      if (!focus) {
+        this.lastAppliedFocusKey = '';
+        return;
+      }
+
+      if (focus.cls === 'connection') {
+        const key = getRouteFocusKey(focus);
+        if (this.lastAppliedFocusKey === key) return;
+        const connection = this.connections.find((entry) => (
+          String(entry.id) === String(focus.ref) || (entry.name || entry.host || '').toLowerCase() === (focus.name || '').toLowerCase()
+        ));
+        if (!connection) return;
+        this.openConnectDialog(connection);
+        this.lastAppliedFocusKey = key;
+        return;
+      }
+
+      if (focus.kind && focus.kind !== 'pool') {
         this.lastAppliedFocusKey = '';
         return;
       }

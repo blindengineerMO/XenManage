@@ -1,6 +1,6 @@
 const DataTable = {
   components: { ContextMenu: typeof ContextMenu !== 'undefined' ? ContextMenu : undefined },
-  props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey', 'emptyMessage', 'emptyIcon'],
+  props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey', 'emptyMessage', 'emptyIcon', 'initialSearch'],
   emits: ['row-click', 'selection-change', 'cell-edit', 'row-context'],
   template: `
     <div class="data-table-wrap" :style="tableStickyVars">
@@ -110,7 +110,7 @@ const DataTable = {
   `,
   data() {
     return {
-      searchQuery: '',
+      searchQuery: this.initialSearch || '',
       sortKey: '',
       sortDir: 'asc',
       page: 1,
@@ -182,6 +182,12 @@ const DataTable = {
   watch: {
     data() {
       this.page = 1;
+    },
+    initialSearch(value) {
+      if (value) {
+        this.searchQuery = value;
+        this.page = 1;
+      }
     },
   },
   methods: {

@@ -76,7 +76,7 @@ const ApplicationsView = {
       <floating-window title="Request Review Queue" :show="showReview" :width="720" :height="520" :x="180" :y="90" @close="showReview = false">
         <div class="dash-card-label" style="margin-bottom:14px">Catalog Requests</div>
         <div class="stack-list" v-if="requests.length">
-          <div class="stack-item" v-for="request in requests" :key="request.id">
+          <div class="stack-item" :class="{ 'focus-highlight': request.id === highlightedRequestId }" v-for="request in requests" :key="request.id">
             <div><strong>{{ request.title }}</strong><div class="text-muted mono" style="font-size:11px">{{ request.requested_by_name || 'subscriber' }} · {{ request.generated_name || 'Awaiting approval' }}<span v-if="request.approvalSteps?.length"> · step {{ approvedStepCount(request) + 1 }} of {{ request.approvalSteps.length }}: {{ currentApprovalStep(request)?.label || 'complete' }}</span><span v-if="request.hook_status"> · hook {{ request.hook_status }} ({{ request.hook_attempt_count }})</span><span v-if="request.decided_at"> · decided {{ new Date(request.decided_at).toLocaleString() }}</span></div><div v-if="request.approvalSteps?.length" class="catalog-approval-chain"><span v-for="step in request.approvalSteps" :key="step.id" class="badge" :class="step.status === 'approved' ? 'badge-success' : step.status === 'rejected' ? 'badge-danger' : 'badge-info'">{{ step.step_order }}. {{ step.label }}</span></div><div v-if="request.hook_last_error" class="form-error" style="margin-top:4px;text-align:left">{{ request.hook_last_error }}</div></div>
             <div style="display:flex;gap:6px;align-items:center"><span class="badge badge-info">{{ request.status }}</span><button v-if="request.status === 'pending'" class="btn btn-sm" @click="reviewRequest(request, 'approved')">Approve</button><button v-if="request.status === 'pending'" class="btn btn-sm btn-danger" @click="reviewRequest(request, 'rejected')">Reject</button><button v-if="request.status === 'approved'" class="btn btn-sm btn-primary" @click="deployRequest(request)">Deploy</button></div>
           </div>
@@ -100,7 +100,7 @@ const ApplicationsView = {
     </div>
   `,
   data() {
-    return { entries: [], sources: [], requests: [], credentials: [], versions: [], analytics: { entries: [], totals: {} }, loading: false, saving: false, showCreate: false, showReview: false, showVersions: false, showAnalytics: false, editingId: null, errorMessage: '', successMessage: '', draft: this.emptyDraft(), entryPendingRetire: null };
+    return { entries: [], sources: [], requests: [], credentials: [], versions: [], analytics: { entries: [], totals: {} }, loading: false, saving: false, showCreate: false, showReview: false, showVersions: false, showAnalytics: false, editingId: null, errorMessage: '', successMessage: '', draft: this.emptyDraft(), entryPendingRetire: null, highlightedRequestId: null };
   },
   computed: {
     pendingRequestCount() { return this.requests.filter((request) => request.status === 'pending').length; },
@@ -108,8 +108,31 @@ const ApplicationsView = {
   },
   async mounted() {
     await this.load();
+    this.syncRouteFocus();
   },
   methods: {
+    syncRouteFocus() {
+      const focus = getRouteFocus(this.$route.query);
+      if (!focus) return;
+
+      if (focus.cls === 'catalog-entry') {
+        const match = this.entries.find((entry) => (
+          String(entry.id) === String(focus.ref) || (entry.title || '').toLowerCase() === (focus.name || '').toLowerCase()
+        ));
+        if (match) this.editEntry(match);
+        return;
+      }
+
+      if (focus.cls === 'catalog-request') {
+        const match = this.requests.find((request) => (
+          String(request.id) === String(focus.ref) || (request.title || '').toLowerCase() === (focus.name || '').toLowerCase()
+        ));
+        if (match) {
+          this.showReview = true;
+          this.highlightedRequestId = match.id;
+        }
+      }
+    },
     emptyDraft() {
       return { title: '', slug: '', sourceItemId: null, namingPattern: 'NODE-XXXX', category: '', imageUrl: '', description: '', visibility: 'draft', approvalMode: 'manual', approvalStepsJson: '["Infrastructure review", "Security review"]', approvalThresholdField: '', approvalThresholdMax: null, approvalWebhookUrl: '', approvalCredentialId: null, maxActivePerSubscriber: null, leaseDurationHours: null, costPerVcpu: null, costPerGiBRam: null, costPerGiBDisk: null, targetPoolRefsJson: '[]', subscriberFieldsJson: '[]', fixedVariablesJson: '{}' };
     },

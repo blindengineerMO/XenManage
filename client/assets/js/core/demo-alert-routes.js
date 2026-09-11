@@ -1,10 +1,10 @@
 function handleDemoAlertActivityRoutes(method, path, body) {
   if (method === 'GET' && path === '/api/dashboard/messages') {
-    return clone(demoDb.messages.map((message) => buildDemoAlert(message)));
+    return clone(listDemoAlertMessages().map((message) => buildDemoAlert(message)));
   }
 
   if (method === 'GET' && path === '/api/alerts') {
-    const alerts = demoDb.messages.map((message) => buildDemoAlert(message))
+    const alerts = listDemoAlertMessages().map((message) => buildDemoAlert(message))
       .sort((left, right) => new Date(right.timestamp || 0) - new Date(left.timestamp || 0));
     return { total: alerts.length, data: clone(alerts) };
   }
@@ -17,7 +17,7 @@ function handleDemoAlertActivityRoutes(method, path, body) {
   if (method === 'PUT' && path.startsWith('/api/alerts/') && path.endsWith('/state')) {
     ensureDemoMutationAllowed({ actionKey: 'alert_state_save', entityType: 'alert', entityRef: decodeURIComponent(path.split('/')[3] || '') });
     const ref = decodeURIComponent(path.split('/')[3] || '');
-    const previousAlert = buildDemoAlert(demoDb.messages.find((entry) => entry.ref === ref) || { ref });
+    const previousAlert = buildDemoAlert(listDemoAlertMessages().find((entry) => entry.ref === ref) || { ref });
     const state = {
       acknowledged: Boolean(body.acknowledged),
       acknowledgedAt: body.acknowledged ? (demoDb.alertStates[ref]?.acknowledgedAt || new Date().toISOString()) : '',
@@ -29,7 +29,7 @@ function handleDemoAlertActivityRoutes(method, path, body) {
       updatedAt: new Date().toISOString(),
     };
     demoDb.alertStates[ref] = state;
-    const message = demoDb.messages.find((entry) => entry.ref === ref);
+    const message = listDemoAlertMessages().find((entry) => entry.ref === ref);
     if (!message) throw new Error('ALERT_NOT_FOUND');
     const alert = buildDemoAlert(message);
     recordDemoAudit({
@@ -61,7 +61,7 @@ function handleDemoAlertActivityRoutes(method, path, body) {
         updatedAt: new Date().toISOString(),
       };
       demoDb.alertStates[ref] = state;
-      return buildDemoAlert(demoDb.messages.find((entry) => entry.ref === ref) || { ref });
+      return buildDemoAlert(listDemoAlertMessages().find((entry) => entry.ref === ref) || { ref });
     });
     recordDemoAudit({
       category: 'alerts',

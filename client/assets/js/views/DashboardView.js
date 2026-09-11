@@ -489,6 +489,7 @@ const DashboardView = {
     },
     alertCounts() {
       return this.sortedMessages.reduce((counts, message) => {
+        if (message.stateLabel === 'suppressed' || message.stateLabel === 'acknowledged') return counts;
         const severity = getMessageSeverity(message);
         counts[severity] = (counts[severity] || 0) + 1;
         return counts;

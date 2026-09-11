@@ -207,6 +207,25 @@ describe('Template Routes', () => {
     expect(promote.body.history.some((entry) => entry.eventType === 'promoted')).toBe(true);
   });
 
+  it('should reject promoting a validated template that is not staged', async () => {
+    const auth = await login();
+
+    await request('PUT', '/api/vms/templates/OpaqueRef%3Atemplate1/governance', {
+      versionLabel: '2026.07-lts',
+      profileLabel: 'Secure Linux',
+      lifecycleStage: 'draft',
+      validationStatus: 'validated',
+      lastValidatedAt: '2026-08-10T00:00:00.000Z',
+      owner: 'Platform Ops',
+      notes: 'Still in draft.',
+    }, auth.cookie);
+
+    const promote = await request('POST', '/api/vms/templates/OpaqueRef%3Atemplate1/promote', {}, auth.cookie);
+
+    expect(promote.status).toBe(409);
+    expect(promote.body.error).toBe('PROMOTION_REQUIRES_STAGED_TEMPLATE');
+  });
+
   it('should restore template governance from a saved history snapshot', async () => {
     const auth = await login();
 
@@ -285,6 +304,9 @@ describe('Template Routes', () => {
       vmName: 'ubuntu-prod-01',
       validationStatus: 'pending',
       policyTagged: true,
+      hostLabel: 'ubuntu-prod-01',
+      storageLabel: 'ubuntu-prod-01',
+      networkLabel: 'ubuntu-prod-01',
     }));
     expect(deploy.body.deploymentRun).toEqual(expect.objectContaining({
       task_kind: 'template_deployment',

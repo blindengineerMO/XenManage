@@ -1409,4 +1409,53 @@ const demoDb = {
       updated_at: null,
     },
   ],
+  templateLibraryItemVersions: [
+    {
+      id: 1, item_id: 1, version: 1,
+      content: JSON.stringify({
+        version: '1',
+        name: 'web-tier-demo',
+        variables: { hostnamePrefix: 'web', diskSizeGb: 30 },
+        startAfter: true,
+        vms: {
+          app: {
+            template: 'ubuntu-24-golden',
+            nameLabel: '${hostnamePrefix}-app',
+            memoryStaticMax: 2147483648,
+            vcpusAtStartup: 2,
+            disks: [{ sr: 'Tier-1 SSD SR', sizeGb: '${diskSizeGb}', nameLabel: '${hostnamePrefix}-app-data' }],
+            networkInterfaces: [{ network: 'VMLAN Production' }],
+            tags: ['tier:app'],
+          },
+        },
+      }, null, 2),
+      saved_by: 1, saved_at: '2026-08-20T09:10:00.000Z',
+    },
+    {
+      id: 2, item_id: 1, version: 2,
+      content: JSON.stringify({
+        version: '1',
+        name: 'web-tier-demo',
+        variables: { hostnamePrefix: 'web', diskSizeGb: 40 },
+        startAfter: true,
+        vms: {
+          app: {
+            template: 'ubuntu-24-golden',
+            nameLabel: '${hostnamePrefix}-app',
+            memoryStaticMax: 4294967296,
+            vcpusAtStartup: 2,
+            disks: [{ sr: 'Tier-1 SSD SR', sizeGb: '${diskSizeGb}', nameLabel: '${hostnamePrefix}-app-data' }],
+            networkInterfaces: [{ network: 'VMLAN Production' }],
+            tags: ['tier:app'],
+          },
+        },
+      }, null, 2),
+      saved_by: 1, saved_at: '2026-08-24T11:00:00.000Z',
+    },
+    {
+      id: 3, item_id: 2, version: 1,
+      content: '#cloud-config\npackage_update: true\npackages:\n  - qemu-guest-agent\nruncmd:\n  - systemctl enable qemu-guest-agent\n',
+      saved_by: 1, saved_at: '2026-08-20T09:12:00.000Z',
+    },
+  ],
 };

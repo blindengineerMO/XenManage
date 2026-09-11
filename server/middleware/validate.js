@@ -1145,6 +1145,10 @@ const schemas = {
   templateLibraryNumericId: Joi.object({
     id: Joi.number().integer().min(1).required(),
   }),
+  templateLibraryItemVersionId: Joi.object({
+    id: Joi.number().integer().min(1).required(),
+    version: Joi.number().integer().min(1).required(),
+  }),
   templateLibraryFolderCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     parentId: Joi.alternatives().try(

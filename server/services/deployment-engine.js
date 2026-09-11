@@ -257,7 +257,7 @@ async function planCompose(xenApi, spec) {
       networkInterfaces,
       otherConfig: vmSpec.otherConfig || {},
       xenstoreData: vmSpec.xenstoreData || {},
-      tags: vmSpec.tags || [],
+      tags: [...(vmSpec.tags || []), `compose:${spec.name}`],
       dependsOn: vmSpec.dependsOn || [],
       startAfter: typeof vmSpec.startAfter === 'boolean' ? vmSpec.startAfter : Boolean(spec.startAfter),
     });

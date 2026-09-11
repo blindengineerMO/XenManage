@@ -187,6 +187,11 @@ const templateGovernanceService = {
       invalid.code = 'PROMOTION_REQUIRES_VALIDATED_TEMPLATE';
       throw invalid;
     }
+    if (current.lifecycleStage !== 'staged') {
+      const invalid = new Error('PROMOTION_REQUIRES_STAGED_TEMPLATE');
+      invalid.code = 'PROMOTION_REQUIRES_STAGED_TEMPLATE';
+      throw invalid;
+    }
 
     const profileLabel = String(current.profileLabel || '').trim().toLowerCase();
     const explicitBaselineRef = String(payload.baselineTemplateRef || '').trim();

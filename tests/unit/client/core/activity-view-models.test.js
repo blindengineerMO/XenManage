@@ -64,7 +64,14 @@ describe('activity-view-models governance/settings audit follow-through', () => 
   });
 
   it('returns null for an unmapped entity type', () => {
-    expect(resolveActivityAuditRecordLocation({ entityType: 'catalog_entry', entityRef: 'x' })).toBeNull();
+    expect(resolveActivityAuditRecordLocation({ entityType: 'catalog_role', entityRef: 'x' })).toBeNull();
+  });
+
+  it('resolves a follow-through location for connection, catalog, and compose audit entries', () => {
+    expect(resolveActivityAuditRecordLocation({ entityType: 'connection', entityRef: 'conn-1' }).path).toBe('/pools');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'catalog_entry', entityRef: 'entry-1' }).path).toBe('/applications');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'catalog_request', entityRef: 'req-1' }).path).toBe('/applications');
+    expect(resolveActivityAuditRecordLocation({ entityType: 'compose', entityRef: 'web-tier' }).path).toBe('/vms');
   });
 
   it('resolves a follow-through location for network subobject audit entries', () => {

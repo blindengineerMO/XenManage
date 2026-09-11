@@ -84,6 +84,7 @@ const VMsView = {
                   :data="vms"
                   :loading="loading"
                   :searchable="true"
+                  :initial-search="composeFocusSearch"
                   :selectable="true"
                   :selected-keys="selectedVmRefs"
                   row-key="ref"
@@ -164,6 +165,7 @@ const VMsView = {
     return {
       loading: true,
       vms: [],
+      composeFocusSearch: '',
       showProps: false,
       showImportWindow: false,
       showCreateWindow: false,
@@ -394,12 +396,14 @@ const VMsView = {
       this.$router.replace('/vms');
     }
     await this.syncRouteFocus();
+    this.syncComposeFocus();
   },
   watch: {
     '$route.query': {
       deep: true,
       async handler() {
         await this.syncRouteFocus();
+        this.syncComposeFocus();
       },
     },
     vms() {
@@ -600,6 +604,14 @@ const VMsView = {
 
       this.lastAppliedFocusKey = result.lastAppliedFocusKey;
       this.automationTasks = result.automationTasks;
+    },
+    syncComposeFocus() {
+      const focus = getRouteFocus(this.$route.query);
+      if (focus && focus.cls === 'compose') {
+        this.composeFocusSearch = `compose:${focus.ref || focus.name || ''}`;
+      } else {
+        this.composeFocusSearch = '';
+      }
     },
     async syncMigrationSourceTaskStatus(status, result) {
       const syncResult = await syncVmMigrationSourceTaskWorkflow({

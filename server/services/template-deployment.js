@@ -22,15 +22,30 @@ async function deployTemplate({
   const templateRecord = await xenApi.getRecord('VM', templateRef);
   const record = await xenApi.deployTemplate(templateRef, payload);
   const governance = templateGovernanceService.getGovernance(templateRef);
+
+  const resolvedHostRef = payload.hostRef || record.affinity || '';
+  const resolvedStorageRef = payload.storageRef || record.storageRef || '';
+  const resolvedNetworkRef = payload.networkRef || '';
+  const [hostRecord, storageRecord, networkRecord] = await Promise.all([
+    resolvedHostRef ? xenApi.getRecord('host', resolvedHostRef).catch(() => null) : Promise.resolve(null),
+    resolvedStorageRef ? xenApi.getRecord('SR', resolvedStorageRef).catch(() => null) : Promise.resolve(null),
+    resolvedNetworkRef ? xenApi.getRecord('network', resolvedNetworkRef).catch(() => null) : Promise.resolve(null),
+  ]);
+  const hostLabel = hostRecord?.name_label || resolvedHostRef;
+  const storageLabel = storageRecord?.name_label || resolvedStorageRef;
+  const networkLabel = networkRecord?.name_label || resolvedNetworkRef;
   const deploymentAudit = templateGovernanceService.recordDeployment({
     templateRef,
     templateName: templateRecord?.name_label || templateRef,
     templateVersion: governance?.versionLabel || '',
     vmRef: record.ref,
     vmName: record.name_label || payload.nameLabel,
-    hostRef: payload.hostRef || record.affinity || '',
-    storageRef: payload.storageRef || record.storageRef || '',
-    networkRef: payload.networkRef || '',
+    hostRef: resolvedHostRef,
+    hostLabel,
+    storageRef: resolvedStorageRef,
+    storageLabel,
+    networkRef: resolvedNetworkRef,
+    networkLabel,
     startAfter: Boolean(payload.startAfter),
     submittedBy,
     validationStatus: governance?.validationStatus === 'validated' ? 'pending' : 'warning',
@@ -49,12 +64,12 @@ async function deployTemplate({
     templateName: templateRecord?.name_label || templateRef,
     vmRef: record.ref,
     vmName: record.name_label || payload.nameLabel,
-    hostRef: payload.hostRef || record.affinity || '',
-    hostLabel: payload.hostRef || record.affinity || '',
-    storageRef: payload.storageRef || record.storageRef || '',
-    storageLabel: payload.storageRef || record.storageRef || '',
-    networkRef: payload.networkRef || '',
-    networkLabel: payload.networkRef || '',
+    hostRef: resolvedHostRef,
+    hostLabel,
+    storageRef: resolvedStorageRef,
+    storageLabel,
+    networkRef: resolvedNetworkRef,
+    networkLabel,
   });
   auditLogService.record({
     category: 'templates', action: 'template_deployed', actionLabel: 'Deployed template to',

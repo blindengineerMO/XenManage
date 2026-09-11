@@ -2,24 +2,26 @@ const ContextMenu = {
   props: ['show', 'x', 'y', 'items'],
   emits: ['close', 'select'],
   template: `
-    <div class="context-menu-backdrop" v-if="show" @click="$emit('close')" @contextmenu.prevent="$emit('close')">
-      <div ref="menu" class="context-menu" role="menu" aria-label="Actions" tabindex="-1" :style="{ left: clampedX + 'px', top: clampedY + 'px' }" @click.stop @keydown="onKeydown">
-        <template v-for="(item, index) in items" :key="index">
-          <div v-if="item.divider" class="context-menu-divider"></div>
-          <button v-else
-               ref="menuItems"
-               type="button"
-               role="menuitem"
-               class="context-menu-item"
-               :class="{ disabled: item.disabled, danger: item.danger }"
-               :disabled="item.disabled"
-               @click="onSelect(item)">
-            <span class="mdi" :class="item.icon || 'mdi-circle-small'"></span>
-            <span>{{ item.label }}</span>
-          </button>
-        </template>
+    <teleport to="body">
+      <div class="context-menu-backdrop" v-if="show" @click="$emit('close')" @contextmenu.prevent="$emit('close')">
+        <div ref="menu" class="context-menu" role="menu" aria-label="Actions" tabindex="-1" :style="{ left: clampedX + 'px', top: clampedY + 'px' }" @click.stop @keydown="onKeydown">
+          <template v-for="(item, index) in items" :key="index">
+            <div v-if="item.divider" class="context-menu-divider"></div>
+            <button v-else
+                 ref="menuItems"
+                 type="button"
+                 role="menuitem"
+                 class="context-menu-item"
+                 :class="{ disabled: item.disabled, danger: item.danger }"
+                 :disabled="item.disabled"
+                 @click="onSelect(item)">
+              <span class="mdi" :class="item.icon || 'mdi-circle-small'"></span>
+              <span>{{ item.label }}</span>
+            </button>
+          </template>
+        </div>
       </div>
-    </div>
+    </teleport>
   `,
   computed: {
     clampedX() {

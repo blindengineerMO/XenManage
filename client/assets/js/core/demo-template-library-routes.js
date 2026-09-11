@@ -139,10 +139,54 @@ function handleDemoTemplateLibraryRoutes(method, path, body) {
       updated_at: now,
     };
     demoDb.templateLibraryItems.push(record);
+    demoDb.templateLibraryItemVersions.push({
+      id: nextDemoId(demoDb.templateLibraryItemVersions),
+      item_id: record.id,
+      version: 1,
+      content: record.content,
+      saved_by: actor.userId,
+      saved_at: now,
+    });
     return enrichDemoOwnedRecord(record, actor);
   }
 
   const itemMatch = path.match(/^\/api\/template-library\/items\/(\d+)(\/move|\/rename|\/versions)?$/);
+  const itemVersionMatch = path.match(/^\/api\/template-library\/items\/(\d+)\/versions\/(\d+)(\/restore)?$/);
+  if (itemVersionMatch) {
+    const id = Number(itemVersionMatch[1]);
+    const version = Number(itemVersionMatch[2]);
+    const isRestore = Boolean(itemVersionMatch[3]);
+    const record = demoDb.templateLibraryItems.find((entry) => entry.id === id);
+    if (!record) throw new Error('TEMPLATE_LIBRARY_ITEM_NOT_FOUND');
+    const actor = getDemoActor();
+    if (!demoCanManageRecord(record, actor) && method !== 'GET') {
+      const error = new Error('TEMPLATE_LIBRARY_ITEM_FORBIDDEN');
+      error.code = 'TEMPLATE_LIBRARY_ITEM_FORBIDDEN';
+      throw error;
+    }
+    const versionRecord = demoDb.templateLibraryItemVersions.find((entry) => entry.item_id === id && entry.version === version);
+    if (!versionRecord) throw new Error('TEMPLATE_LIBRARY_ITEM_VERSION_NOT_FOUND');
+
+    if (method === 'GET' && !isRestore) {
+      return versionRecord;
+    }
+
+    if (method === 'POST' && isRestore) {
+      ensureDemoMutationAllowed({ actionKey: 'template_library_item_save', entityType: 'template-library-item', entityRef: String(id) });
+      record.content = versionRecord.content;
+      record.version = Number(record.version || 1) + 1;
+      record.updated_at = new Date().toISOString();
+      demoDb.templateLibraryItemVersions.push({
+        id: nextDemoId(demoDb.templateLibraryItemVersions),
+        item_id: id,
+        version: record.version,
+        content: record.content,
+        saved_by: actor.userId,
+        saved_at: record.updated_at,
+      });
+      return enrichDemoOwnedRecord(record, actor);
+    }
+  }
   if (itemMatch) {
     const id = Number(itemMatch[1]);
     const suffix = itemMatch[2] || '';
@@ -160,7 +204,12 @@ function handleDemoTemplateLibraryRoutes(method, path, body) {
     }
 
     if (method === 'GET' && suffix === '/versions') {
-      return { data: [{ id: 1, item_id: id, version: record.version, saved_by: record.owner_user_id, saved_at: record.updated_at || record.created_at }] };
+      return {
+        data: demoDb.templateLibraryItemVersions
+          .filter((entry) => entry.item_id === id)
+          .map(({ id: versionId, item_id, version, saved_by, saved_at }) => ({ id: versionId, item_id, version, saved_by, saved_at }))
+          .sort((a, b) => b.version - a.version),
+      };
     }
 
     if (method === 'PUT' && suffix === '/rename') {
@@ -180,12 +229,21 @@ function handleDemoTemplateLibraryRoutes(method, path, body) {
       record.content = body.content || '';
       record.version = Number(record.version || 1) + 1;
       record.updated_at = new Date().toISOString();
+      demoDb.templateLibraryItemVersions.push({
+        id: nextDemoId(demoDb.templateLibraryItemVersions),
+        item_id: id,
+        version: record.version,
+        content: record.content,
+        saved_by: actor.userId,
+        saved_at: record.updated_at,
+      });
       return enrichDemoOwnedRecord(record, actor);
     }
 
     if (method === 'DELETE' && suffix === '') {
       ensureDemoMutationAllowed({ actionKey: 'template_library_item_delete', entityType: 'template-library-item', entityRef: String(id), destructive: true });
       demoDb.templateLibraryItems = demoDb.templateLibraryItems.filter((entry) => entry.id !== id);
+      demoDb.templateLibraryItemVersions = demoDb.templateLibraryItemVersions.filter((entry) => entry.item_id !== id);
       return { success: true };
     }
   }

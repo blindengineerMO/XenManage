@@ -182,6 +182,7 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
 
     const current = demoDb.templateGovernance[index];
     if (current.validationStatus !== 'validated') throw new Error('PROMOTION_REQUIRES_VALIDATED_TEMPLATE');
+    if (current.lifecycleStage !== 'staged') throw new Error('PROMOTION_REQUIRES_STAGED_TEMPLATE');
 
     const previous = clone(current);
     const profileLabel = String(current.profileLabel || '').trim().toLowerCase();
@@ -797,7 +798,7 @@ function buildDemoComposePlan(spec) {
       affinityRef: vmSpec.affinity ? buildDemoComposeResolveRef(demoDb.hosts, vmSpec.affinity, `host "${vmSpec.affinity}"`) : '',
       disks,
       networkInterfaces,
-      tags: vmSpec.tags || [],
+      tags: [...(vmSpec.tags || []), `compose:${spec.name}`],
       dependsOn: vmSpec.dependsOn || [],
       startAfter: typeof vmSpec.startAfter === 'boolean' ? vmSpec.startAfter : Boolean(spec.startAfter),
     };

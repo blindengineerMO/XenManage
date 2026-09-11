@@ -11,6 +11,7 @@ const TemplateLibraryTreeNode = {
            @contextmenu.prevent="onContextMenu">
         <span class="mdi" :class="iconClass"></span>
         <span>{{ node.name }}</span>
+        <span v-if="kindBadge" class="tl-tree-kind-badge" :title="'Kind: ' + node.kind">{{ kindBadge }}</span>
       </div>
       <div class="tl-tree-children" v-if="node.type === 'folder' && expanded">
         <template-library-tree-node
@@ -35,6 +36,11 @@ const TemplateLibraryTreeNode = {
         return this.expanded ? 'mdi-folder-open-outline' : 'mdi-folder-outline';
       }
       return this.node.language === 'yaml' ? 'mdi-file-code-outline' : 'mdi-code-json';
+    },
+    kindBadge() {
+      if (this.node.type !== 'item') return '';
+      const labels = { 'deployment-template': 'TMPL', 'guest-script': 'SCRIPT', snippet: '' };
+      return labels[this.node.kind] || '';
     },
   },
   methods: {

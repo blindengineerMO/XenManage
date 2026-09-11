@@ -212,6 +212,50 @@ router.get('/items/:id/versions', validate(schemas.templateLibraryNumericId, 'pa
   res.json({ data: templateLibraryModel.listItemVersions(req.params.id) });
 });
 
+router.get('/items/:id/versions/:version', validate(schemas.templateLibraryItemVersionId, 'params'), (req, res) => {
+  const actor = resolveActor(req);
+  const item = findItemOrRespond(req.params.id, actor, res);
+  if (!item) return;
+  const record = templateLibraryModel.getItemVersion(req.params.id, Number(req.params.version));
+  if (!record) {
+    res.status(404).json({ error: 'TEMPLATE_LIBRARY_ITEM_VERSION_NOT_FOUND' });
+    return;
+  }
+  res.json(record);
+});
+
+router.post('/items/:id/versions/:version/restore', validate(schemas.templateLibraryItemVersionId, 'params'), (req, res) => {
+  try {
+    if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_item_save', entityType: 'template-library-item', entityRef: String(req.params.id) })) return;
+    const actor = resolveActor(req);
+    const previous = findItemOrRespond(req.params.id, actor, res);
+    if (!previous) return;
+    const versionRecord = templateLibraryModel.getItemVersion(req.params.id, Number(req.params.version));
+    if (!versionRecord) {
+      res.status(404).json({ error: 'TEMPLATE_LIBRARY_ITEM_VERSION_NOT_FOUND' });
+      return;
+    }
+    const item = templateLibraryModel.saveItemContent(req.params.id, versionRecord.content, actor.userId);
+    auditLogService.record({
+      category: 'template-library',
+      action: 'template_library_item_version_restored',
+      actionLabel: 'Restored template library item version',
+      entityType: 'template-library-item',
+      entityRef: String(item.id),
+      entityName: item.name,
+      operator: actor.username,
+      route: '/templates',
+      status: 'success',
+      before: { version: previous.version },
+      after: { version: item.version, restoredFromVersion: versionRecord.version },
+      detail: `Item "${item.name}" restored from version ${versionRecord.version} as new version ${item.version}.`,
+    });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/items/:id/rename', validate(schemas.templateLibraryNumericId, 'params'), validate(schemas.templateLibraryItemRename), (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_item_rename', entityType: 'template-library-item', entityRef: String(req.params.id) })) return;

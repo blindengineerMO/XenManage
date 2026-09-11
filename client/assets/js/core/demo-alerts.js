@@ -101,6 +101,80 @@ function getBestDemoAlertPolicy(message, baseSeverity) {
   return bestPolicy;
 }
 
+const DEMO_TELEMETRY_THRESHOLDS = [
+  {
+    entityType: 'host',
+    metricName: 'memory_used_percent',
+    cls: 'host',
+    warningAt: 85,
+    criticalAt: 95,
+    buildName: (label, severity) => `${label} memory pressure ${severity === 'critical' ? 'critical' : 'elevated'}`,
+    buildBody: (label, value) => `${label} is using ${value.toFixed(1)}% of host memory based on the latest telemetry sample.`,
+  },
+  {
+    entityType: 'sr',
+    metricName: 'utilization_percent',
+    cls: 'sr',
+    warningAt: 80,
+    criticalAt: 92,
+    buildName: (label, severity) => `${label} storage utilization ${severity === 'critical' ? 'critical' : 'elevated'}`,
+    buildBody: (label, value) => `${label} is ${value.toFixed(1)}% allocated based on the latest telemetry sample.`,
+  },
+];
+
+function buildDemoTelemetrySyntheticRef(entityType, metricName, entityRef) {
+  return `OpaqueRef:telemetry:${entityType}:${metricName}:${entityRef}`;
+}
+
+function listDemoTelemetryEntities(entityType) {
+  if (entityType === 'host') {
+    return (demoDb.hosts || []).map((host) => {
+      const metrics = demoDb.hostMetrics[host.ref] || { memory_total: 0, memory_free: 0 };
+      const used = Math.max(0, Number(metrics.memory_total || 0) - Number(metrics.memory_free || 0));
+      return { ref: host.ref, uuid: host.uuid, name: host.name_label, value: demoMetricPercent(used, metrics.memory_total) };
+    });
+  }
+
+  if (entityType === 'sr') {
+    return (demoDb.srs || []).map((sr) => ({
+      ref: sr.ref,
+      uuid: sr.uuid,
+      name: sr.name_label,
+      value: demoMetricPercent(Number(sr.virtual_allocation || 0), Number(sr.physical_size || 0)),
+    }));
+  }
+
+  return [];
+}
+
+function buildDemoTelemetryAlerts() {
+  return DEMO_TELEMETRY_THRESHOLDS.flatMap((threshold) => listDemoTelemetryEntities(threshold.entityType).flatMap((entity) => {
+    if (entity.value < threshold.warningAt) return [];
+
+    const severity = entity.value >= threshold.criticalAt ? 'critical' : 'warning';
+    const label = String(entity.name || entity.ref || threshold.entityType).trim();
+    const entityUuid = String(entity.uuid || entity.ref || '').trim();
+
+    return [{
+      ref: buildDemoTelemetrySyntheticRef(threshold.entityType, threshold.metricName, entity.ref),
+      name: threshold.buildName(label, severity),
+      cls: threshold.cls,
+      body: threshold.buildBody(label, entity.value),
+      timestamp: new Date().toISOString(),
+      uuid: `telemetry:${threshold.entityType}:${threshold.metricName}:${entityUuid}`,
+      obj_uuid: entityUuid,
+      severity,
+      metricName: threshold.metricName,
+      metricValue: entity.value,
+      entityRef: entity.ref,
+    }];
+  }));
+}
+
+function listDemoAlertMessages() {
+  return [...demoDb.messages, ...buildDemoTelemetryAlerts()];
+}
+
 function buildDemoAlert(message) {
   const baseSeverity = getMessageSeverity(message);
   const state = demoDb.alertStates[message.ref] || {};
@@ -151,4 +225,12 @@ function resolveDemoInventoryLabel(collection, ref, fallback = '') {
   const record = (collection || []).find((item) => item.ref === ref);
   if (!record) return fallback || ref || '';
   return record.name_label || record.hostname || record.bridge || record.address || record.ref || fallback || '';
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildDemoTelemetryAlerts,
+    listDemoAlertMessages,
+    buildDemoAlert,
+  };
 }

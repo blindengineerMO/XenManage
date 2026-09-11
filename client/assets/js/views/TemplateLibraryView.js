@@ -85,6 +85,9 @@ const TemplateLibraryView = {
         <button class="btn btn-sm" :disabled="!isComposeItem || deploying" @click="deployActive">
           <span class="mdi mdi-rocket-launch-outline"></span> Deploy
         </button>
+        <button class="btn btn-sm" :disabled="!activeItem" @click="openHistory">
+          <span class="mdi mdi-history"></span> History
+        </button>
         <button class="btn btn-sm" @click="helpVisible = true">
           <span class="mdi mdi-help-circle-outline"></span> Variables &amp; Options
         </button>
@@ -235,6 +238,31 @@ const TemplateLibraryView = {
         </div>
       </floating-window>
 
+      <floating-window
+        title="Version History"
+        :show="historyVisible"
+        :width="440"
+        :height="480"
+        :x="140"
+        :y="100"
+        @close="historyVisible = false">
+        <div class="tl-history">
+          <div v-if="historyError" class="form-error">{{ historyError }}</div>
+          <div v-if="historyLoading" class="tl-history-loading">Loading version history&hellip;</div>
+          <div v-else-if="!historyVersions.length" class="tl-history-loading">No saved versions yet.</div>
+          <ul v-else class="tl-history-list">
+            <li v-for="entry in historyVersions" :key="entry.id" class="tl-history-row">
+              <span class="tl-history-version">v{{ entry.version }}</span>
+              <span class="tl-history-meta">{{ entry.saved_at ? new Date(entry.saved_at).toLocaleString() : 'Unknown time' }}</span>
+              <button class="btn btn-sm" @click="previewVersion(entry)">View</button>
+              <button class="btn btn-sm" :disabled="activeItem && entry.version === activeItem.version" @click="confirmRestoreVersion(entry)">Restore</button>
+            </li>
+          </ul>
+          <div v-if="historyPreviewLoading" class="tl-history-loading">Loading version content&hellip;</div>
+          <pre v-if="historyPreview" class="tl-history-preview">{{ historyPreview.content }}</pre>
+        </div>
+      </floating-window>
+
       <context-menu
         :show="contextMenu.show"
         :x="contextMenu.x"
@@ -252,6 +280,8 @@ const TemplateLibraryView = {
         :initial-value="promptDialog.initialValue"
         :confirm-label="promptDialog.confirmLabel"
         :error-message="promptDialog.errorMessage"
+        :show-kind-select="Boolean(promptDialog.showKindSelect)"
+        :initial-kind="promptDialog.initialKind || 'snippet'"
         @close="promptDialog.show = false"
         @confirm="submitPromptDialog">
       </prompt-window>
@@ -283,6 +313,15 @@ const TemplateLibraryView = {
         confirm-label="Deploy"
         @close="deployConfirm.show = false"
         @confirm="confirmDeploy">
+      </confirm-window>
+
+      <confirm-window
+        :show="restoreConfirm.show"
+        title="Restore Version"
+        :message="restoreConfirm.version ? ('Restore version ' + restoreConfirm.version.version + '? This saves it as the new latest version.') : ''"
+        confirm-label="Restore"
+        @close="restoreConfirm.show = false"
+        @confirm="restoreVersion">
       </confirm-window>
     </div>
   `,
@@ -316,6 +355,13 @@ const TemplateLibraryView = {
       discardConfirm: { show: false, pendingNode: null },
       deleteConfirm: { show: false, message: '', targetNode: null },
       deployConfirm: { show: false, message: '', spec: null },
+      historyVisible: false,
+      historyLoading: false,
+      historyPreviewLoading: false,
+      historyError: '',
+      historyVersions: [],
+      historyPreview: null,
+      restoreConfirm: { show: false, version: null },
     };
   },
   computed: {
@@ -446,6 +492,53 @@ const TemplateLibraryView = {
         this.saving = false;
       }
     },
+    async openHistory() {
+      if (!this.activeItem) return;
+      this.historyVisible = true;
+      this.historyPreview = null;
+      this.historyError = '';
+      this.historyLoading = true;
+      try {
+        const response = await api.getTemplateLibraryItemVersions(this.activeItem.id);
+        this.historyVersions = response.data || [];
+      } catch (error) {
+        this.historyError = error.message || 'Unable to load version history.';
+      } finally {
+        this.historyLoading = false;
+      }
+    },
+    async previewVersion(entry) {
+      if (!this.activeItem) return;
+      this.historyError = '';
+      this.historyPreview = null;
+      this.historyPreviewLoading = true;
+      try {
+        this.historyPreview = await api.getTemplateLibraryItemVersion(this.activeItem.id, entry.version);
+      } catch (error) {
+        this.historyError = error.message || 'Unable to load that version.';
+      } finally {
+        this.historyPreviewLoading = false;
+      }
+    },
+    confirmRestoreVersion(entry) {
+      this.restoreConfirm = { show: true, version: entry };
+    },
+    async restoreVersion() {
+      const entry = this.restoreConfirm.version;
+      this.restoreConfirm = { show: false, version: null };
+      if (!entry || !this.activeItem) return;
+      this.historyError = '';
+      try {
+        const updated = await api.restoreTemplateLibraryItemVersion(this.activeItem.id, entry.version);
+        this.activeItem = { ...this.activeItem, ...updated };
+        this.setEditorContent(updated.content || '', updated.language || this.activeItem.language || 'json');
+        this.historyVisible = false;
+        this.historyPreview = null;
+        await this.loadTree();
+      } catch (error) {
+        this.historyError = error.message || 'Unable to restore that version.';
+      }
+    },
     async deployActive() {
       if (!this.activeItem || this.deploying) return;
       this.errorMessage = '';
@@ -551,6 +644,8 @@ const TemplateLibraryView = {
           errorMessage: '',
           targetNode: null,
           parentFolderId,
+          showKindSelect: true,
+          initialKind: 'snippet',
         };
       } else if (action === 'rename' && node) {
         this.promptDialog = {
@@ -574,14 +669,14 @@ const TemplateLibraryView = {
         };
       }
     },
-    async submitPromptDialog(value) {
+    async submitPromptDialog(value, kind) {
       const dialog = this.promptDialog;
       try {
         if (dialog.mode === 'new-folder') {
           await api.createTemplateLibraryFolder({ parentId: dialog.parentFolderId, name: value });
         } else if (dialog.mode === 'new-item') {
           const language = value.trim().toLowerCase().endsWith('.yaml') || value.trim().toLowerCase().endsWith('.yml') ? 'yaml' : 'json';
-          await api.createTemplateLibraryItem({ folderId: dialog.parentFolderId, name: value, language, content: '' });
+          await api.createTemplateLibraryItem({ folderId: dialog.parentFolderId, name: value, language, kind, content: '' });
         } else if (dialog.mode === 'rename' && dialog.targetNode) {
           const node = dialog.targetNode;
           if (value === node.name) {

@@ -359,7 +359,7 @@ router.post('/templates/:ref/promote',
       if (code === 'TEMPLATE_GOVERNANCE_NOT_FOUND') {
         return res.status(404).json({ error: code });
       }
-      if (code === 'PROMOTION_REQUIRES_VALIDATED_TEMPLATE') {
+      if (code === 'PROMOTION_REQUIRES_VALIDATED_TEMPLATE' || code === 'PROMOTION_REQUIRES_STAGED_TEMPLATE') {
         return res.status(409).json({ error: code });
       }
       return res.status(500).json({ error: code || 'TEMPLATE_PROMOTION_FAILED' });

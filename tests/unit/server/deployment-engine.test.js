@@ -60,6 +60,11 @@ describe('Compose deployment planning', () => {
     })]);
   });
 
+  it('tags every planned VM with the originating compose run name', async () => {
+    const plan = await planCompose(buildXenApi(), buildSpec());
+    expect(plan.plans[0].tags).toContain('compose:web-tier');
+  });
+
   it('rejects an operating-system profile before any deployment mutation', async () => {
     await expect(planCompose(buildXenApi(), buildSpec({
       vms: { app: { ...buildSpec().vms.app, template: 'Ubuntu Server 24.04 LTS' } },
