@@ -196,7 +196,7 @@ router.put('/remediation/templates/:id', validate(schemas.remediationTemplateIdP
 
 router.delete('/remediation/templates/:id', validate(schemas.remediationTemplateIdParam, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'remediation_template_delete', entityType: 'task-template', entityRef: req.params.id, destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'remediation_template_delete', entityType: 'task-template', entityRef: req.params.id })) return;
 
     const template = remediationTaskTemplateService.delete(req.params.id);
     auditLogService.record({

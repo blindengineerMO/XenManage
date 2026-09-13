@@ -116,7 +116,7 @@ router.post('/join',
   validate(schemas.poolJoin),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'pool_join', entityType: 'host', entityRef: req.body.joiningHostAddress, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'pool_join', entityType: 'host', entityRef: req.body.joiningHostAddress })) return;
       const { joiningHostVaultCredentialId, masterVaultCredentialId } = req.body;
       let joiningHostPassword = req.body.joiningHostPassword;
       let masterPassword = req.body.masterPassword;
@@ -158,7 +158,7 @@ router.post('/:ref/eject',
   validate(schemas.poolEject),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'pool_host_eject', entityType: 'host', entityRef: req.body.hostRef, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'pool_host_eject', entityType: 'host', entityRef: req.body.hostRef })) return;
       const previousPoolRecord = await safeGetPoolRecord(req.xenApi, req.params.ref);
       if (previousPoolRecord?.master === req.body.hostRef) {
         throw createRouteError('POOL_EJECT_MASTER_NOT_SUPPORTED', 'The pool coordinator cannot be ejected. Promote a different host first if you need to remove this one.', 409);

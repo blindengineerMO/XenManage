@@ -6,6 +6,7 @@ All notable changes to XenManage are documented here.
 
 ### Added
 
+- A central Action Catalog (`server/services/action-catalog.js`) now registers the entity type, destructive flag, and risk level for all 115 governed mutating actions; `ensureMutationAllowed` consumes it as the default source of truth instead of each route repeating its own literal `destructive: true`, and a new governance-coverage test suite fails CI if a route's action key has no catalog entry, if a route's explicit destructive flag drifts from its catalog entry, or if a catalog entry has no matching route.
 - Pool-join now supports resolving saved vault credentials for both the coordinator and joining-host logins, closing the last raw-password-only attach flow — the "Join Host To Pool" dialog offers an "Or Use Saved Credential" picker for each side.
 - Organizations & Projects workspace: create/edit/delete organizations and projects, bind pool access, edit per-project VM/vCPU/memory/storage/GPU/network quotas with live usage evaluation, and manage project members — with a matching `Project` picker in the New VM wizard that enforces quota and pool-access restrictions at creation time. Existing pools are auto-bucketed into a "Default Organization"/"Default Project" on first startup. Full demo-mode parity, including a new demo `GET /api/managed-targets` route.
 - Configurable undo delay for queued VM power operations.

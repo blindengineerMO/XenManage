@@ -163,7 +163,7 @@ router.put('/policies/:id', validate(schemas.alertPolicyIdParam, 'params'), vali
 
 router.delete('/policies/:id', validate(schemas.alertPolicyIdParam, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'alert_policy_delete', entityType: 'alert-policy', entityRef: req.params.id, destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'alert_policy_delete', entityType: 'alert-policy', entityRef: req.params.id })) return;
     const result = deleteAlertPolicy(req.params.id);
     if (!result.deleted) {
       res.status(404).json({ error: 'ALERT_POLICY_NOT_FOUND' });

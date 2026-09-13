@@ -112,7 +112,7 @@ router.put('/:id/quota', validate(schemas.vFabricIdParam, 'params'), validate(sc
 router.delete('/:id/quota', validate(schemas.vFabricIdParam, 'params'), (req, res) => {
   try {
     if (!requireAdminSession(req, res)) return;
-    if (!ensureMutationAllowed(req, res, { actionKey: 'vfabric_quota_delete', entityType: 'vfabric', entityRef: String(req.params.id), destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vfabric_quota_delete', entityType: 'vfabric', entityRef: String(req.params.id) })) return;
     const actor = resolveActor(req);
     const fabric = findManageable(req.params.id, actor, res);
     if (!fabric) return;
@@ -170,7 +170,7 @@ router.put('/:id', validate(schemas.vFabricIdParam, 'params'), validate(schemas.
 });
 
 router.delete('/:id', validate(schemas.vFabricIdParam, 'params'), (req, res) => {
-  if (!ensureMutationAllowed(req, res, { actionKey: 'vfabric_delete', entityType: 'vfabric', entityRef: String(req.params.id), destructive: true })) return;
+  if (!ensureMutationAllowed(req, res, { actionKey: 'vfabric_delete', entityType: 'vfabric', entityRef: String(req.params.id) })) return;
   const actor = resolveActor(req);
   const previous = findManageable(req.params.id, actor, res);
   if (!previous) return;

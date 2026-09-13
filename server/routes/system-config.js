@@ -90,7 +90,6 @@ router.post('/retention/run', validate(schemas.retentionRun), (req, res) => {
         actionKey: 'retention_sweep_run',
         entityType: 'retention-domain',
         entityRef: req.body.domain || 'all',
-        destructive: true,
       })) return;
     } else if (!ensureMutationAllowed(req, res, {
       actionKey: 'retention_sweep_preview',

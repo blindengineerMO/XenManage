@@ -534,7 +534,6 @@ router.post(
         actionKey: 'vm_snapshot_revert',
         entityType: 'vm-snapshot',
         entityRef: req.params.snapshotRef,
-        destructive: true,
       })) return;
       const previousRecord = await safeGetVmRecord(req.xenApi, req.params.ref);
       const snapshot = await safeGetVmSnapshot(req.xenApi, req.params.ref, req.params.snapshotRef);
@@ -574,7 +573,6 @@ router.delete(
         actionKey: 'vm_snapshot_delete',
         entityType: 'vm-snapshot',
         entityRef: req.params.snapshotRef,
-        destructive: true,
       })) return;
       const snapshot = await safeGetVmSnapshot(req.xenApi, req.params.ref, req.params.snapshotRef);
       await req.xenApi.deleteVMSnapshot(req.params.snapshotRef);
@@ -1051,7 +1049,7 @@ router.post('/start', validate(schemas.vmLifecycle), async (req, res) => {
 
 router.post('/shutdown', validate(schemas.vmLifecycle), async (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_shutdown', entityType: 'vm', entityRef: req.body.ref, destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_shutdown', entityType: 'vm', entityRef: req.body.ref })) return;
     const previousRecord = await safeGetVmRecord(req.xenApi, req.body.ref);
     await req.xenApi.shutdownVM(req.body.ref, req.body.force);
     const nextRecord = await safeGetVmRecord(req.xenApi, req.body.ref);
@@ -1077,7 +1075,7 @@ router.post('/shutdown', validate(schemas.vmLifecycle), async (req, res) => {
 
 router.post('/reboot', validate(schemas.vmLifecycle), async (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_reboot', entityType: 'vm', entityRef: req.body.ref, destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_reboot', entityType: 'vm', entityRef: req.body.ref })) return;
     const previousRecord = await safeGetVmRecord(req.xenApi, req.body.ref);
     await req.xenApi.rebootVM(req.body.ref, req.body.force);
     const nextRecord = await safeGetVmRecord(req.xenApi, req.body.ref);
@@ -1103,7 +1101,7 @@ router.post('/reboot', validate(schemas.vmLifecycle), async (req, res) => {
 
 router.post('/suspend', validate(schemas.vmAction), async (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_suspend', entityType: 'vm', entityRef: req.body.ref, destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'vm_suspend', entityType: 'vm', entityRef: req.body.ref })) return;
     const previousRecord = await safeGetVmRecord(req.xenApi, req.body.ref);
     await req.xenApi.suspendVM(req.body.ref);
     const nextRecord = await safeGetVmRecord(req.xenApi, req.body.ref);

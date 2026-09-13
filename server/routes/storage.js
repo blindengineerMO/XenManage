@@ -298,7 +298,7 @@ router.post('/:ref/forget',
   validate(schemas.storageMutation),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_forget', entityType: 'sr', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_forget', entityType: 'sr', entityRef: req.params.ref })) return;
       const previousRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
       await req.xenApi.forgetSR(req.params.ref);
       auditLogService.record({
@@ -340,7 +340,7 @@ router.post('/:ref/destroy',
         );
       }
 
-      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_destroy', entityType: 'sr', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_destroy', entityType: 'sr', entityRef: req.params.ref })) return;
       await req.xenApi.destroySR(req.params.ref);
       auditLogService.record({
         category: 'storage',
@@ -438,7 +438,7 @@ router.delete('/:ref/vdis/:vdiRef',
         );
       }
 
-      if (!ensureMutationAllowed(req, res, { actionKey: 'vdi_delete', entityType: 'vdi', entityRef: req.params.vdiRef, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'vdi_delete', entityType: 'vdi', entityRef: req.params.vdiRef })) return;
       const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
       await req.xenApi.deleteStorageVdi(req.params.vdiRef);
       auditLogService.record({
@@ -648,7 +648,7 @@ router.delete('/:ref/files',
   validate(schemas.storageFileDeleteQuery, 'query'),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_file_delete', entityType: 'sr', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'sr_file_delete', entityType: 'sr', entityRef: req.params.ref })) return;
       const srRecord = await safeGetSrRecord(req.xenApi, req.params.ref);
       if (!srRecord) throw createRouteError('SR_NOT_FOUND', 'Storage repository not found.', 404);
       const result = await storageFileBrowser.deletePath(srRecord.uuid, req.query.path);

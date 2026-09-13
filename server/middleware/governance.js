@@ -1,5 +1,6 @@
 const governanceService = require('../services/governance');
 const identityService = require('../services/identity');
+const actionCatalog = require('../services/action-catalog');
 
 function getGovernanceSnapshot(session = {}) {
   const policy = governanceService.getPolicy();
@@ -38,6 +39,9 @@ function ensureMutationAllowed(req, res, options = {}) {
     return false;
   }
 
+  const catalogEntry = actionCatalog.get(options.actionKey);
+  const entityType = options.entityType || catalogEntry?.entityType || 'resource';
+  const destructive = options.destructive ?? catalogEntry?.destructive ?? false;
   const permission = options.permission || identityService.actionPermission(options.actionKey || 'resource.update');
   const entityRef = options.entityRef || req.body?.ref || req.params?.ref || '';
   const hasPermission = identityService.hasPermission({
@@ -48,19 +52,19 @@ function ensureMutationAllowed(req, res, options = {}) {
     target: req.xenTarget?.connectionId || '',
     pool: req.xenTarget?.connectionId || '',
     resource: entityRef,
-    [options.entityType || 'resource']: entityRef,
+    [entityType]: entityRef,
   });
   if (!hasPermission) {
     deny(
       res,
       'PERMISSION_DENIED',
       `The current principal does not have ${permission} permission for this resource scope.`,
-      { permission, entityType: options.entityType || 'resource', entityRef }
+      { permission, entityType, entityRef }
     );
     return false;
   }
 
-  if (options.destructive && snapshot.currentRole !== 'admin' && snapshot.policy.requireDestructiveApproval) {
+  if (destructive && snapshot.currentRole !== 'admin' && snapshot.policy.requireDestructiveApproval) {
     const approvalId = req.body?.approvalId || req.query?.approvalId || '';
     if (!approvalId) {
       deny(
@@ -75,7 +79,7 @@ function ensureMutationAllowed(req, res, options = {}) {
     const result = governanceService.consumeApproval({
       id: approvalId,
       actionKey: options.actionKey || '',
-      entityType: options.entityType || 'resource',
+      entityType,
       entityRef,
       usedBy: req.session?.xenUser || 'system',
     });

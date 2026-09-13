@@ -138,7 +138,7 @@ router.post('/folders/:id/move', validate(schemas.templateLibraryNumericId, 'par
 
 router.delete('/folders/:id', validate(schemas.templateLibraryNumericId, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_folder_delete', entityType: 'template-library-folder', entityRef: String(req.params.id), destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_folder_delete', entityType: 'template-library-folder', entityRef: String(req.params.id) })) return;
     const actor = resolveActor(req);
     const previous = findFolderOrRespond(req.params.id, actor, res);
     if (!previous) return;
@@ -339,7 +339,7 @@ router.put('/items/:id', validate(schemas.templateLibraryNumericId, 'params'), v
 
 router.delete('/items/:id', validate(schemas.templateLibraryNumericId, 'params'), (req, res) => {
   try {
-    if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_item_delete', entityType: 'template-library-item', entityRef: String(req.params.id), destructive: true })) return;
+    if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_item_delete', entityType: 'template-library-item', entityRef: String(req.params.id) })) return;
     const actor = resolveActor(req);
     const previous = findItemOrRespond(req.params.id, actor, res);
     if (!previous) return;

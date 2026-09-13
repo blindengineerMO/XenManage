@@ -146,7 +146,7 @@ router.post(
   validate(schemas.hostPowerMutation),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'host_reboot', entityType: 'host', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'host_reboot', entityType: 'host', entityRef: req.params.ref })) return;
       const previousRecord = await safeGetHostRecord(req.xenApi, req.params.ref);
       await req.xenApi.rebootHost(req.params.ref);
       const record = await safeGetHostRecord(req.xenApi, req.params.ref);
@@ -179,7 +179,7 @@ router.post(
   validate(schemas.hostPowerMutation),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'host_shutdown', entityType: 'host', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'host_shutdown', entityType: 'host', entityRef: req.params.ref })) return;
       const previousRecord = await safeGetHostRecord(req.xenApi, req.params.ref);
       await req.xenApi.shutdownHost(req.params.ref);
       const record = await safeGetHostRecord(req.xenApi, req.params.ref);
@@ -212,7 +212,7 @@ router.post(
   validate(schemas.hostMultipathingUpdate),
   async (req, res) => {
     try {
-      if (!ensureMutationAllowed(req, res, { actionKey: 'host_multipathing_update', entityType: 'host', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'host_multipathing_update', entityType: 'host', entityRef: req.params.ref })) return;
       const previousRecord = await safeGetHostRecord(req.xenApi, req.params.ref);
       const record = await req.xenApi.setHostMultipathing(req.params.ref, req.body);
 

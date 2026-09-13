@@ -252,7 +252,7 @@ router.post('/:ref/destroy',
         );
       }
 
-      if (!ensureMutationAllowed(req, res, { actionKey: 'network_destroy', entityType: 'network', entityRef: req.params.ref, destructive: true })) return;
+      if (!ensureMutationAllowed(req, res, { actionKey: 'network_destroy', entityType: 'network', entityRef: req.params.ref })) return;
       await req.xenApi.destroyNetwork(req.params.ref);
       auditLogService.record({
         category: 'networking',
