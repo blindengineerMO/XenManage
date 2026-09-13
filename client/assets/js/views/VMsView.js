@@ -121,7 +121,7 @@ const VMsView = {
         </template>
       </data-table>
 
-      <floating-window :show="showCreateWindow" :title="createMode === 'template' ? 'Deploy Virtual Machine From Template' : 'Create Virtual Machine From Operating System'" :width="960" :height="780" @close="showCreateWindow = false"><div class="detail-section" style="margin-top:0"><vm-create-form :key="createMode" :saving="creatingVm" :creation-mode="createMode" :operating-systems="createOperatingSystems" :deployable-templates="createDeployableTemplates" :hosts="relatedHosts" :storage="relatedStorage" :networks="relatedNetworks" :iso-options="createIsoOptions" :vm-groups="createVmGroups" :gpu-profiles="createGpuProfiles" @submit="createVM"></vm-create-form><div class="form-error" v-if="createVmError">{{ createVmError }}</div></div></floating-window>
+      <floating-window :show="showCreateWindow" :title="createMode === 'template' ? 'Deploy Virtual Machine From Template' : 'Create Virtual Machine From Operating System'" :width="960" :height="780" @close="showCreateWindow = false"><div class="detail-section" style="margin-top:0"><vm-create-form :key="createMode" :saving="creatingVm" :creation-mode="createMode" :operating-systems="createOperatingSystems" :deployable-templates="createDeployableTemplates" :hosts="relatedHosts" :storage="relatedStorage" :networks="relatedNetworks" :iso-options="createIsoOptions" :vm-groups="createVmGroups" :gpu-profiles="createGpuProfiles" :projects="createProjects" @submit="createVM"></vm-create-form><div class="form-error" v-if="createVmError">{{ createVmError }}</div></div></floating-window>
 
       <vm-properties-window
         :show="showProps"
@@ -177,6 +177,7 @@ const VMsView = {
       createIsoOptions: [],
       createVmGroups: [],
       createGpuProfiles: [],
+      createProjects: [],
       selectedVM: null,
       detailLoading: false,
       detailError: null,
@@ -416,11 +417,12 @@ const VMsView = {
       this.createMode = mode === 'template' ? 'template' : 'operating-system';
       try {
         Object.assign(this, await loadVmInventoryContext(api));
-        const [sources, vmGroups, gpuProfiles, vdiResults] = await Promise.all([
+        const [sources, vmGroups, gpuProfiles, vdiResults, projects] = await Promise.all([
           api.getVmCreationSources(),
           api.getVMGroups(),
           api.getVmGpuProfiles(),
           Promise.all(this.relatedStorage.map(async (sr) => ({ sr, result: await api.getSRVDIs(sr.ref).catch(() => ({ data: [] })) }))),
+          api.getProjects().catch(() => ({ data: [] })),
         ]);
         const bundledOperatingSystems = sources.bundledOperatingSystems || [];
         const customOperatingSystems = (sources.operatingSystems || []).filter((source) =>
@@ -433,6 +435,7 @@ const VMsView = {
         this.createDeployableTemplates = sources.deployableTemplates || [];
         this.createVmGroups = vmGroups.data || [];
         this.createGpuProfiles = gpuProfiles.data || [];
+        this.createProjects = Array.isArray(projects) ? projects : (projects.data || []);
         this.createIsoOptions = vdiResults.flatMap(({ sr, result }) => (result.data || []).filter((vdi) => vdi.type === 'iso' || sr.content_type === 'iso').map((vdi) => ({ ...vdi, srName: sr.name_label })));
       } catch (error) {
         this.createVmError = error.message || 'Unable to load VM creation options';

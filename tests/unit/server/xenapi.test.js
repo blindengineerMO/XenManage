@@ -1752,8 +1752,8 @@ describe('XenAPI', () => {
       xenApi.sessionRef = 'OpaqueRef:session123';
     });
 
-    it('deployTemplate should clone, configure, place, and optionally start the VM', async () => {
-      const cloneSpy = jest.spyOn(xenApi, 'cloneVM').mockResolvedValue('OpaqueRef:vm9');
+    it('deployTemplate should copy to the target SR, configure, place, and optionally start the VM', async () => {
+      const copySpy = jest.spyOn(xenApi, 'copyVM').mockResolvedValue('OpaqueRef:vm9');
       const configSpy = jest.spyOn(xenApi, 'updateVMConfig').mockResolvedValue({ name_label: 'ubuntu-prod-01' });
       const affinitySpy = jest.spyOn(xenApi, 'setField').mockResolvedValue(undefined);
       const nicSpy = jest.spyOn(xenApi, 'addVMNic').mockResolvedValue({ success: true, vifRef: 'OpaqueRef:vif9' });
@@ -1776,7 +1776,7 @@ describe('XenAPI', () => {
         startAfter: true,
       });
 
-      expect(cloneSpy).toHaveBeenCalledWith('OpaqueRef:template1', 'ubuntu-prod-01');
+      expect(copySpy).toHaveBeenCalledWith('OpaqueRef:template1', 'ubuntu-prod-01', 'OpaqueRef:sr1');
       expect(configSpy).toHaveBeenCalledWith('OpaqueRef:vm9', expect.objectContaining({
         nameLabel: 'ubuntu-prod-01',
         vcpusAtStartup: 4,

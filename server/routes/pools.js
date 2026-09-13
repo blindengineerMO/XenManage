@@ -3,6 +3,8 @@ const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');
 const auditLogService = require('../services/audit-log');
 const { ensureMutationAllowed } = require('../middleware/governance');
+const credentialVaultService = require('../services/credential-vault');
+const governanceService = require('../services/governance');
 
 async function safeGetPoolRecord(xenApi, ref) {
   try {
@@ -115,7 +117,22 @@ router.post('/join',
   async (req, res) => {
     try {
       if (!ensureMutationAllowed(req, res, { actionKey: 'pool_join', entityType: 'host', entityRef: req.body.joiningHostAddress, destructive: true })) return;
-      const result = await req.xenApi.joinPoolAsHost(req.body);
+      const { joiningHostVaultCredentialId, masterVaultCredentialId } = req.body;
+      let joiningHostPassword = req.body.joiningHostPassword;
+      let masterPassword = req.body.masterPassword;
+      if (!String(joiningHostPassword || '').trim() && joiningHostVaultCredentialId) {
+        if (!req.session?.userId) return res.status(403).json({ error: 'LOCAL_USER_REQUIRED_FOR_VAULT_CREDENTIAL' });
+        joiningHostPassword = credentialVaultService.getPassword(
+          joiningHostVaultCredentialId, req.session.userId, governanceService.getSessionRole(req.session)
+        );
+      }
+      if (!String(masterPassword || '').trim() && masterVaultCredentialId) {
+        if (!req.session?.userId) return res.status(403).json({ error: 'LOCAL_USER_REQUIRED_FOR_VAULT_CREDENTIAL' });
+        masterPassword = credentialVaultService.getPassword(
+          masterVaultCredentialId, req.session.userId, governanceService.getSessionRole(req.session)
+        );
+      }
+      const result = await req.xenApi.joinPoolAsHost({ ...req.body, joiningHostPassword, masterPassword });
       auditLogService.record({
         category: 'pools',
         action: 'pool_host_joined',

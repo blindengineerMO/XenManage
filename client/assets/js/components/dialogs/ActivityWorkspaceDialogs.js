@@ -220,12 +220,18 @@ const ActivityWorkspaceDialogs = {
 
         <div class="detail-section" v-if="selectedTask.error_info && selectedTask.error_info.length">
           <div class="detail-section-title">Error Info</div>
-          <div class="stack-list">
-            <div class="stack-item" v-for="(error, index) in selectedTask.error_info" :key="index">
+          <div class="property-grid">
+            <span class="text-muted">Error Code</span><span class="mono">{{ taskError(selectedTask).code || '-' }}</span>
+            <template v-if="taskError(selectedTask).message">
+              <span class="text-muted">Meaning</span><span>{{ taskError(selectedTask).message }}</span>
+            </template>
+          </div>
+          <div class="stack-list" v-if="taskError(selectedTask).params.length">
+            <div class="stack-item" v-for="(param, index) in taskError(selectedTask).params" :key="index">
               <div>
-                <strong>{{ String(error) }}</strong>
+                <strong>{{ param }}</strong>
               </div>
-              <span class="badge badge-error">error</span>
+              <span class="badge badge-error">param {{ index + 1 }}</span>
             </div>
           </div>
         </div>
@@ -311,6 +317,9 @@ const ActivityWorkspaceDialogs = {
     taskEvidenceChecklist: getActivityTaskEvidenceChecklist,
     taskCompletionCriteria: getActivityTaskCompletionCriteria,
     taskResult: getActivityTaskResult,
+    taskError(task) {
+      return describeActivityTaskError(task?.error_info || []);
+    },
     taskLineage(task) {
       return formatTaskLineage(task, this.tasks);
     },

@@ -10,11 +10,13 @@ function buildTemplateDeployDraft(template = {}, hostOptions = [], storageOption
     memoryGiB: Math.max(1, Math.round(memoryBytes / (1024 ** 3)) || 1),
     tags: Array.isArray(template.tags) ? template.tags.join(', ') : '',
     startAfter: true,
+    guestScriptItemId: '',
+    guestScriptVariablesJson: '{}',
   };
 }
 
 const TemplateDeployForm = {
-  props: ['templateRecord', 'hostOptions', 'storageOptions', 'networkOptions', 'submitLabel', 'saving'],
+  props: ['templateRecord', 'hostOptions', 'storageOptions', 'networkOptions', 'guestScriptOptions', 'submitLabel', 'saving'],
   emits: ['submit'],
   template: `
     <form @submit.prevent="handleSubmit">
@@ -87,6 +89,27 @@ const TemplateDeployForm = {
         <span>Start VM after deployment completes</span>
       </label>
 
+      <div class="form-group">
+        <label for="template-deploy-guest-script">Guest Customization Script</label>
+        <select id="template-deploy-guest-script" class="form-input" v-model="draft.guestScriptItemId">
+          <option value="">None</option>
+          <option v-for="item in (guestScriptOptions || [])" :key="item.id" :value="item.id">
+            {{ item.name }}
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group" v-if="draft.guestScriptItemId">
+        <label for="template-deploy-guest-script-variables">Guest Script Variables (JSON)</label>
+        <textarea id="template-deploy-guest-script-variables"
+                  class="form-input mono"
+                  rows="4"
+                  v-model="draft.guestScriptVariablesJson"
+                  placeholder='{"hostname":"web-01"}'></textarea>
+      </div>
+
+      <p class="form-error" v-if="errorMessage">{{ errorMessage }}</p>
+
       <button class="form-btn" type="submit" :disabled="saving">
         <span class="mdi mdi-rocket-launch-outline"></span>
         {{ saving ? 'Deploying...' : (submitLabel || 'Deploy VM') }}
@@ -96,6 +119,7 @@ const TemplateDeployForm = {
   data() {
     return {
       draft: buildTemplateDeployDraft(this.templateRecord, this.hostOptions, this.storageOptions, this.networkOptions),
+      errorMessage: '',
     };
   },
   watch: {
@@ -126,6 +150,16 @@ const TemplateDeployForm = {
   },
   methods: {
     handleSubmit() {
+      let guestScriptVariables = {};
+      if (this.draft.guestScriptItemId) {
+        try {
+          guestScriptVariables = JSON.parse(this.draft.guestScriptVariablesJson || '{}');
+        } catch (error) {
+          this.errorMessage = 'Guest script variables must be valid JSON.';
+          return;
+        }
+      }
+      this.errorMessage = '';
       this.$emit('submit', {
         nameLabel: this.draft.nameLabel.trim(),
         nameDescription: this.draft.nameDescription.trim(),
@@ -139,6 +173,8 @@ const TemplateDeployForm = {
           .map((tag) => tag.trim())
           .filter(Boolean),
         startAfter: Boolean(this.draft.startAfter),
+        guestScriptItemId: this.draft.guestScriptItemId || null,
+        guestScriptVariables,
       });
     },
   },

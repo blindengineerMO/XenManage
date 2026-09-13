@@ -83,6 +83,11 @@ function demoRequest(method, url, body) {
     return targetRouteResult;
   }
 
+  const projectsRouteResult = handleDemoProjectsRoutes(method, path, body);
+  if (projectsRouteResult !== undefined) {
+    return projectsRouteResult;
+  }
+
   const templateLibraryRouteResult = handleDemoTemplateLibraryRoutes(method, path, body);
   if (templateLibraryRouteResult !== undefined) {
     return templateLibraryRouteResult;

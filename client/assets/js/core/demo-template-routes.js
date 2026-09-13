@@ -334,6 +334,20 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
     const templateRef = decodeURIComponent(path.split('/')[4] || '');
     const template = demoDb.vms.find((vm) => vm.ref === templateRef && vm.is_a_template);
     if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+
+    let guestScriptName = '';
+    if (body.guestScriptItemId) {
+      const scriptItem = demoDb.templateLibraryItems.find((entry) => entry.id === Number(body.guestScriptItemId));
+      if (!scriptItem || scriptItem.kind !== 'guest-script') throw new Error('TEMPLATE_GUEST_SCRIPT_NOT_FOUND');
+      if (!String(scriptItem.content || '').trimStart().startsWith('#cloud-config')) throw new Error('TEMPLATE_GUEST_SCRIPT_INVALID');
+      const variables = body.guestScriptVariables || {};
+      const script = String(scriptItem.content || '').replace(/\$\{([a-zA-Z0-9_]+)\}/g, (_match, name) => {
+        if (!Object.prototype.hasOwnProperty.call(variables, name)) throw new Error(`Guest script references unknown variable "${name}".`);
+        return String(variables[name]);
+      });
+      if (new TextEncoder().encode(script).length > 64 * 1024) throw new Error('Guest scripts cannot exceed 64 KiB after interpolation.');
+      guestScriptName = scriptItem.name;
+    }
     if (body.hostRef) {
       const host = demoDb.hosts.find((entry) => entry.ref === body.hostRef);
       const quota = demoDb.governanceQuotas.find((entry) => entry.poolRef === host?.pool) || null;
@@ -432,7 +446,9 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
       validationNotes: governance?.validationStatus === 'validated'
         ? 'Validate guest boot, networking, storage mapping, and policy tags after first start.'
         : 'Template governance is not fully validated yet. Review this deployment before promotion.',
-      guestCustomization: governance?.guestCustomization || '',
+      guestCustomization: guestScriptName
+        ? `${governance?.guestCustomization ? `${governance.guestCustomization} — ` : ''}${guestScriptName} applied`
+        : (governance?.guestCustomization || ''),
       bootVerified: false,
       networkVerified: false,
       storageVerified: false,
@@ -470,7 +486,7 @@ function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetK
       submitted_by: store.username || 'demo',
       validation_status: deploymentAudit.validationStatus,
       validation_notes: deploymentAudit.validationNotes,
-      guest_customization: governance?.guestCustomization || '',
+      guest_customization: deploymentAudit.guestCustomization,
       boot_verified: false,
       network_verified: false,
       storage_verified: false,

@@ -12,6 +12,13 @@ router.post('/organizations', validate(schemas.organizationCreate), (req, res) =
   if (!ensureMutationAllowed(req, res, { actionKey: 'organization_create', entityType: 'organization', entityRef: 'new' })) return;
   try { res.status(201).json(projectModel.createOrganization(req.body)); } catch (error) { res.status(409).json({ error: error.code || error.message }); }
 });
+router.delete('/organizations/:id', validate(schemas.organizationId, 'params'), (req, res) => {
+  if (!ensureMutationAllowed(req, res, { actionKey: 'organization_delete', entityType: 'organization', entityRef: req.params.id, destructive: true })) return;
+  const organization = projectModel.getOrganization(req.params.id);
+  if (!organization) return res.status(404).json({ error: 'ORGANIZATION_NOT_FOUND' });
+  projectModel.deleteOrganization(req.params.id);
+  res.json({ success: true });
+});
 router.get('/', (req, res) => {
   const actor = resolveActor(req);
   res.json({ data: projectModel.listProjects().filter((project) => projectsService.canAccessProject(project, actor)) });
@@ -46,6 +53,14 @@ router.put('/:id/members/:userId', validate(schemas.projectMemberParams, 'params
   if (!project) return res.status(404).json({ error: 'PROJECT_NOT_FOUND' });
   if (resolveActor(req).role !== 'admin' && Number(project.owner_user_id) !== Number(req.session.userId)) return res.status(403).json({ error: 'PROJECT_FORBIDDEN' });
   res.json({ data: projectModel.setMember(req.params.id, req.params.userId, req.body.role) });
+});
+router.delete('/:id', validate(schemas.projectId, 'params'), (req, res) => {
+  if (!ensureMutationAllowed(req, res, { actionKey: 'project_delete', entityType: 'project', entityRef: req.params.id, destructive: true })) return;
+  const project = projectModel.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'PROJECT_NOT_FOUND' });
+  if (resolveActor(req).role !== 'admin' && Number(project.owner_user_id) !== Number(req.session.userId)) return res.status(403).json({ error: 'PROJECT_FORBIDDEN' });
+  projectModel.deleteProject(req.params.id);
+  res.json({ success: true });
 });
 router.get('/:id/quota-evaluation', validate(schemas.projectId, 'params'), async (req, res) => {
   try { res.json(await projectsService.evaluateProjectQuota({ projectId: req.params.id, actor: resolveActor(req), xenApi: req.xenApi, targetKey: req.xenTarget?.targetKey || '' })); }

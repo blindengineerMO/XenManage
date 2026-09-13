@@ -615,8 +615,10 @@ const DashboardView = {
       this.selectedTask = task;
     },
     fullTaskResult(task) {
-      const errors = Array.isArray(task.error_info) ? task.error_info : [task.error_info];
-      return [task.result, task.error, task.errorMessage, ...errors]
+      const decodedError = task.error_info && task.error_info.length
+        ? describeActivityTaskError(task.error_info).summary
+        : null;
+      return [task.result, task.error, task.errorMessage, decodedError]
         .filter((value, index, values) => value && values.indexOf(value) === index)
         .map((value) => typeof value === 'string' ? value : JSON.stringify(value, null, 2))
         .join('\n\n') || 'No result or error detail was supplied.';

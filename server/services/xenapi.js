@@ -1879,7 +1879,7 @@ class XenAPI {
     startAfter = false,
     xenstoreData = {},
   }) {
-    const vmRef = await this.cloneVM(ref, nameLabel);
+    const vmRef = storageRef ? await this.copyVM(ref, nameLabel, storageRef) : await this.cloneVM(ref, nameLabel);
 
     await this.updateVMConfig(vmRef, {
       nameLabel,

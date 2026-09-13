@@ -119,7 +119,23 @@ function getDb() {
     adoptLegacySchema: true,
     up: initializeSchema,
   }]);
+  ensureDefaultOrganizationProject(db);
   return db;
+}
+
+function ensureDefaultOrganizationProject(database) {
+  const { count } = database.prepare('SELECT COUNT(*) AS count FROM organizations').get();
+  if (count > 0) return;
+  const orgResult = database.prepare('INSERT INTO organizations (name, description) VALUES (?, ?)').run(
+    'Default Organization', 'Auto-created on first startup to hold pre-existing pools and resources.'
+  );
+  const projectResult = database.prepare(
+    'INSERT INTO projects (organization_id, name, description) VALUES (?, ?, ?)'
+  ).run(orgResult.lastInsertRowid, 'Default Project', 'Auto-created to bucket pools registered before Organizations & Projects existed.');
+  const targetInsert = database.prepare('INSERT OR IGNORE INTO project_targets (project_id, managed_target_id) VALUES (?, ?)');
+  database.prepare('SELECT id FROM managed_targets').all().forEach((target) => {
+    targetInsert.run(projectResult.lastInsertRowid, target.id);
+  });
 }
 
 function initializeSchema() {
@@ -1073,6 +1089,7 @@ const projectModel = {
   getOrganization(id) {
     return getDb().prepare('SELECT * FROM organizations WHERE id = ?').get(id) || null;
   },
+  deleteOrganization(id) { return getDb().prepare('DELETE FROM organizations WHERE id = ?').run(id).changes > 0; },
   listProjects() {
     return getDb().prepare(`
       SELECT projects.*, organizations.name AS organization_name,

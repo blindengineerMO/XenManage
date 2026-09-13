@@ -911,6 +911,35 @@ const demoDb = {
     },
   ],
   vfabricQuotas: [],
+  organizations: [
+    {
+      id: 1,
+      name: 'Default Organization',
+      description: 'Auto-created on first startup to hold pre-existing pools and resources.',
+      created_at: '2026-08-19T15:00:00.000Z',
+      updated_at: '2026-08-19T15:00:00.000Z',
+    },
+  ],
+  projects: [
+    {
+      id: 1,
+      organization_id: 1,
+      name: 'Default Project',
+      description: 'Auto-created to bucket pools registered before Organizations & Projects existed.',
+      cost_center: '',
+      default_recovery_tier: '',
+      owner_user_id: 1,
+      enabled: true,
+      target_ids: [1, 2],
+      created_at: '2026-08-19T15:00:00.000Z',
+      updated_at: '2026-08-19T15:00:00.000Z',
+    },
+  ],
+  projectQuotas: [],
+  projectMembers: [
+    { project_id: 1, user_id: 1, role: 'owner' },
+  ],
+  projectResourceAssignments: [],
   inventoryWorkspaces: [
     {
       id: 'workspace-demo-1',

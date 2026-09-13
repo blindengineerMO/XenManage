@@ -18,6 +18,7 @@ const appRoutes = [
   { path: '/networking', component: NetworkingView },
   { path: '/inventory', component: InventoryView },
   { path: '/vfabrics', component: VFabricsView },
+  { path: '/projects', component: ProjectsView },
   { path: '/governance', component: GovernanceView },
   { path: '/settings', component: SettingsView },
   { path: '/lifecycle', component: LifecycleView },

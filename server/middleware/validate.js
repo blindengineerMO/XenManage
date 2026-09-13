@@ -212,6 +212,7 @@ const schemas = {
     description: Joi.string().allow('').max(500).default(''),
   }),
   projectId: Joi.object({ id: Joi.number().integer().min(1).required() }),
+  organizationId: Joi.object({ id: Joi.number().integer().min(1).required() }),
   projectMemberParams: Joi.object({
     id: Joi.number().integer().min(1).required(),
     userId: Joi.number().integer().min(1).required(),
@@ -540,11 +541,27 @@ const schemas = {
   poolJoin: Joi.object({
     joiningHostAddress: Joi.string().trim().required().min(1).max(255),
     joiningHostUsername: Joi.string().trim().required().min(1).max(120),
-    joiningHostPassword: Joi.string().required().min(1).max(255),
+    joiningHostPassword: Joi.string().allow('').max(255).default(''),
+    joiningHostVaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     masterAddress: Joi.string().trim().required().min(1).max(255),
     masterUsername: Joi.string().trim().required().min(1).max(120),
-    masterPassword: Joi.string().required().min(1).max(255),
+    masterPassword: Joi.string().allow('').max(255).default(''),
+    masterVaultCredentialId: Joi.alternatives().try(
+      Joi.number().integer().min(1),
+      Joi.allow(null)
+    ).default(null),
     force: Joi.boolean().default(false),
+  }).custom((value, helpers) => {
+    if (!String(value.joiningHostPassword || '').trim() && !value.joiningHostVaultCredentialId) {
+      return helpers.error('any.invalid');
+    }
+    if (!String(value.masterPassword || '').trim() && !value.masterVaultCredentialId) {
+      return helpers.error('any.invalid');
+    }
+    return value;
   }),
   poolEject: Joi.object({
     hostRef: Joi.string().required().pattern(/^OpaqueRef:/),
@@ -713,6 +730,8 @@ const schemas = {
     memoryStaticMax: Joi.number().integer().min(1073741824).max(Number.MAX_SAFE_INTEGER).required(),
     tags: Joi.array().items(Joi.string().trim().min(1).max(64)).max(24).default([]),
     startAfter: Joi.boolean().default(false),
+    guestScriptItemId: Joi.number().integer().allow(null).default(null),
+    guestScriptVariables: Joi.object().pattern(Joi.string(), Joi.alternatives().try(Joi.string(), Joi.number(), Joi.boolean())).default({}),
   }),
   templateCreate: Joi.object({
     kind: Joi.string().valid('operating-system', 'deployable').required(),

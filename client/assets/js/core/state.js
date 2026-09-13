@@ -311,6 +311,7 @@ const APP_ROUTE_LABELS = {
   '/templates': 'Templates',
   '/template-library': 'Template Library',
   '/vfabrics': 'vFabrics',
+  '/projects': 'Organizations & Projects',
   '/vms': 'Virtual Machines',
   '/hosts': 'Hosts',
   '/storage': 'Storage',

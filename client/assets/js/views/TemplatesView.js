@@ -136,6 +136,7 @@ const TemplatesView = {
         :host-options="hostOptions"
         :storage-options="storageOptions"
         :network-options="networkOptions"
+        :guest-script-options="guestScriptOptions"
         :deployments="deployments"
         :selected-template-deployments="selectedTemplateDeployments"
         :selected-template-history="selectedTemplateHistory"
@@ -190,6 +191,7 @@ const TemplatesView = {
       networks: [],
       governanceRecords: [],
       deployments: [],
+      guestScriptOptions: [],
       selectedTemplate: null,
       governanceTemplateRecord: null,
       deployTemplateRecord: null,
@@ -438,7 +440,7 @@ const TemplatesView = {
     async loadAll() {
       this.loading = true;
       try {
-        const [templates, hosts, storage, networks, governance, deployments, creationSources] = await Promise.all([
+        const [templates, hosts, storage, networks, governance, deployments, creationSources, libraryTree] = await Promise.all([
           api.getTemplates(),
           api.getHosts().catch(() => ({ data: [] })),
           api.getSRs().catch(() => ({ data: [] })),
@@ -446,6 +448,7 @@ const TemplatesView = {
           api.getTemplateGovernance().catch(() => ({ data: [] })),
           api.getTemplateDeployments().catch(() => ({ data: [] })),
           api.getVmCreationSources().catch(() => ({ operatingSystems: [] })),
+          api.getTemplateLibraryTree().catch(() => ({ data: [] })),
         ]);
 
         this.templates = templates.data || [];
@@ -455,6 +458,8 @@ const TemplatesView = {
         this.governanceRecords = governance.data || [];
         this.deployments = deployments.data || [];
         this.operatingSystemTemplateRefs = (creationSources.operatingSystems || []).map((source) => source.ref);
+        const collectLibraryItems = (nodes) => nodes.flatMap((node) => (node.type === 'item' ? [node] : collectLibraryItems(node.children || [])));
+        this.guestScriptOptions = collectLibraryItems(libraryTree.data || []).filter((item) => item.kind === 'guest-script');
       } catch (error) {
         console.error(error);
       } finally {

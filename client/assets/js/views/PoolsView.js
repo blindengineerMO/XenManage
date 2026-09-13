@@ -143,6 +143,7 @@ const PoolsView = {
         :pool-join-draft="poolJoinDraft"
         :pool-join-saving="poolJoinSaving"
         :pool-join-error="poolJoinError"
+        :pool-join-credential-options="poolJoinCredentialOptions"
         @close-pool-identity="showPoolIdentityWindow = false"
         @close-pool-context="showPoolContextWindow = false"
         @close-pool-ha="showPoolHaWindow = false"
@@ -250,13 +251,16 @@ const PoolsView = {
         joiningHostAddress: '',
         joiningHostUsername: '',
         joiningHostPassword: '',
+        joiningHostVaultCredentialId: null,
         masterAddress: '',
         masterUsername: '',
         masterPassword: '',
+        masterVaultCredentialId: null,
         force: false,
       },
       poolJoinSaving: false,
       poolJoinError: '',
+      poolJoinCredentialOptions: [],
       poolUpdates: { kind: '', updates: [] },
       poolUpdatesLoading: false,
       poolUpdatesError: '',
@@ -520,12 +524,19 @@ const PoolsView = {
         joiningHostAddress: '',
         joiningHostUsername: '',
         joiningHostPassword: '',
+        joiningHostVaultCredentialId: null,
         masterAddress: this.selectedPool?.address || '',
         masterUsername: '',
         masterPassword: '',
+        masterVaultCredentialId: null,
         force: false,
       };
       this.showPoolJoinWindow = true;
+      api.getCredentials().then((result) => {
+        this.poolJoinCredentialOptions = Array.isArray(result?.data) ? result.data : [];
+      }).catch(() => {
+        this.poolJoinCredentialOptions = [];
+      });
     },
     async submitPoolJoin() {
       this.poolJoinError = '';

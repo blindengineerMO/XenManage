@@ -81,6 +81,15 @@ function handleDemoVmTransferRoutes(method, path, body, parsedUrl, search, targe
     const vcpus = Math.min(64, Math.max(1, Number(body?.vcpus) || 2));
     const memoryGiB = Math.min(1024, Math.max(1, Number(body?.memoryGiB) || 4));
     const memoryBytes = memoryGiB * 1024 * 1024 * 1024;
+
+    let projectAssignment = null;
+    if (body?.projectId) {
+      const { project, managedTargetId } = enforceDemoProjectQuota(body.projectId, targetKey, {
+        vcpus, memoryGiB, diskPlan: body?.diskPlan, networkInterfaces: body?.networkInterfaces, vgpuTypeRef: body?.vgpuTypeRef,
+      });
+      projectAssignment = { projectId: project.id, managedTargetId };
+    }
+
     const targetHost = demoDb.hosts.find((host) => host.ref === body?.hostRef)
       || demoDb.hosts.find((host) => host.enabled && !host.maintenance_mode) || demoDb.hosts[0] || null;
     const targetPool = demoDb.pools.find((pool) => pool.ref === targetHost?.pool) || demoDb.pools[0] || null;
@@ -133,6 +142,9 @@ function handleDemoVmTransferRoutes(method, path, body, parsedUrl, search, targe
     demoDb.vms.push(nextVm);
     if (targetHost) {
       targetHost.resident_VMs = [...(targetHost.resident_VMs || []), nextVmRef];
+    }
+    if (projectAssignment) {
+      assignDemoProjectResource(projectAssignment.projectId, projectAssignment.managedTargetId, 'vm', nextVmRef);
     }
 
     recordDemoAudit({

@@ -1,3 +1,5 @@
+const { buildGuestScriptXenstoreData } = require('./guest-script');
+
 function createCatalogDeploymentError(code, message = code) {
   const error = new Error(message);
   error.code = code;
@@ -60,15 +62,6 @@ function buildCatalogComposeDeployment(entry, request, source) {
   };
 }
 
-function interpolateGuestScript(content, variables) {
-  return String(content || '').replace(/\$\{([a-zA-Z0-9_]+)\}/g, (_match, name) => {
-    if (!Object.prototype.hasOwnProperty.call(variables, name)) {
-      throw createCatalogDeploymentError('CATALOG_GUEST_SCRIPT_VARIABLE_UNKNOWN', `Guest script references unknown variable "${name}".`);
-    }
-    return String(variables[name]);
-  });
-}
-
 function buildCatalogGuestScriptDeployment(entry, request, source) {
   if (source?.kind !== 'guest-script' || !String(source.content || '').trimStart().startsWith('#cloud-config')) {
     throw createCatalogDeploymentError('CATALOG_SOURCE_NOT_DEPLOYABLE', 'Catalog guest scripts must be cloud-init #cloud-config sources.');
@@ -81,9 +74,11 @@ function buildCatalogGuestScriptDeployment(entry, request, source) {
   if (!/^OpaqueRef:/.test(templateRef) || !Number.isInteger(Number(payload.vcpus)) || Number(payload.vcpus) < 1 || Number(payload.memoryStaticMax) < 1073741824) {
     throw createCatalogDeploymentError('CATALOG_SOURCE_INVALID', 'Guest-script catalog entries need fixed template, vCPU, and memory settings.');
   }
-  const script = interpolateGuestScript(source.content, { ...fixed, ...parameters, catalogName: request.generated_name });
-  if (Buffer.byteLength(script, 'utf8') > 64 * 1024) {
-    throw createCatalogDeploymentError('CATALOG_GUEST_SCRIPT_TOO_LARGE', 'Guest scripts cannot exceed 64 KiB after interpolation.');
+  let xenstoreData;
+  try {
+    xenstoreData = buildGuestScriptXenstoreData(source.content, { ...fixed, ...parameters, catalogName: request.generated_name });
+  } catch (error) {
+    throw createCatalogDeploymentError(error.code === 'GUEST_SCRIPT_TOO_LARGE' ? 'CATALOG_GUEST_SCRIPT_TOO_LARGE' : 'CATALOG_GUEST_SCRIPT_VARIABLE_UNKNOWN', error.message);
   }
   return {
     templateRef,
@@ -97,7 +92,7 @@ function buildCatalogGuestScriptDeployment(entry, request, source) {
       memoryStaticMax: Number(payload.memoryStaticMax),
       tags: Array.isArray(payload.tags) ? payload.tags : [],
       startAfter: Boolean(payload.startAfter),
-      xenstoreData: { 'vm-data': script },
+      xenstoreData,
     },
   };
 }

@@ -6,6 +6,8 @@ All notable changes to XenManage are documented here.
 
 ### Added
 
+- Pool-join now supports resolving saved vault credentials for both the coordinator and joining-host logins, closing the last raw-password-only attach flow — the "Join Host To Pool" dialog offers an "Or Use Saved Credential" picker for each side.
+- Organizations & Projects workspace: create/edit/delete organizations and projects, bind pool access, edit per-project VM/vCPU/memory/storage/GPU/network quotas with live usage evaluation, and manage project members — with a matching `Project` picker in the New VM wizard that enforces quota and pool-access restrictions at creation time. Existing pools are auto-bucketed into a "Default Organization"/"Default Project" on first startup. Full demo-mode parity, including a new demo `GET /api/managed-targets` route.
 - Configurable undo delay for queued VM power operations.
 - Global API rate limiting and session-bound CSRF protection.
 - Health, readiness, and Prometheus metrics endpoints.
@@ -45,6 +47,8 @@ All notable changes to XenManage are documented here.
 - Resilience runbooks now carry a configurable drill cadence (default 45 days), and the recovery-plan checklist's Drill Recency detail now shows a computed "Next drill due" date alongside the last-drill date.
 - Audit detail records for saved pool connections, self-service catalog entries/requests, and compose deployments now also show a working "Open Affected Record" button with real in-page follow-through: a connection opens its Connect-to-Pool dialog, a catalog entry opens its Edit Application dialog, a catalog request opens the Request Review Queue with the matching row highlighted, and a compose run filters the VMs table down to just the VMs it created (each VM is now tagged `compose:<run name>` by the deployment engine, in both live and demo mode, closing the gap where compose runs had no shared identifier linking their VMs together).
 - The Template Library's "New Script" dialog now has a Kind picker (Snippet/Deployment Template/Guest Script), and the library tree shows a `TMPL`/`SCRIPT` badge next to non-snippet items, giving the already-persisted server-side `kind` taxonomy its first UI consumer.
+- Failed-task detail panels now decode `error_info` instead of showing it as a flat list of opaque strings: the error code is shown alongside a human-readable meaning for ~15 common XenAPI error classes (`VM_BAD_POWER_STATE`, `SR_BACKEND_FAILURE`, `HANDLE_INVALID`, and others), with remaining params listed as labeled rows. The Dashboard's task-result popup and the Activity task-result summary line reuse the same decoding.
+- Deploy-from-Template now supports a "Guest Customization Script" picker sourced from the Template Library's `guest-script`-kind items, with a JSON variables textarea. The selected `#cloud-config` script is variable-interpolated (64 KiB size cap, unknown-variable rejection) and pushed into the new VM via xenstore (`vm-data`), reusing the same mechanism already used for catalog guest-script deployments, now extracted to a shared `server/services/guest-script.js` module. Demo mode mirrors this end-to-end.
 
 ### Fixed
 
@@ -57,6 +61,7 @@ All notable changes to XenManage are documented here.
 - Live-mode template deployment audit records now persist the real resolved host/storage/network names instead of a blank label or the raw opaque ref, matching demo mode's existing behavior and no longer breaking if the referenced inventory object is later removed.
 - The Template Library now has a working Version History panel: view any prior saved version's content, or restore it as the new latest version, both new server routes built on the version-history data the backend already tracked but no UI ever exposed. Demo mode's version-history endpoint no longer fabricates a single fake row in place of real history.
 - `ContextMenu.js` is now teleported to `<body>`, like the app's other overlay components (`FloatingWindow.js`, `PromptWindow.js`). It previously rendered inline in the page, so its dropdown could be, and inside the Template Library's floating explorer window always was, visually painted underneath an open floating window — making "New Folder"/"New Script"/rename/delete unusable while that window was open.
+- Deploy-from-Template's "Preferred Storage" selector now actually places the new VM's boot disk on the chosen storage repository. `xenApi.deployTemplate()` always used `VM.clone` (which keeps disks on the source template's SR), silently ignoring the operator's storage selection; it now uses `VM.copy` with the target SR when one is supplied, matching the real placement behavior the UI already promised.
 
 ### Security
 

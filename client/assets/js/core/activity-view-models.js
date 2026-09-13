@@ -232,8 +232,34 @@ function getActivityTaskCompletionCriteria(task = null) {
 function getActivityTaskResult(task = null) {
   if (task?.result) return String(task.result);
   if (isTemplateDeploymentActivityTask(task) && task?.validation_notes) return String(task.validation_notes);
-  if (task?.error_info && task.error_info.length) return task.error_info.map(String).join(' | ');
+  if (task?.error_info && task.error_info.length) return describeActivityTaskError(task.error_info).summary;
   return '-';
+}
+
+const XEN_TASK_ERROR_CODES = {
+  VM_BAD_POWER_STATE: 'The VM was not in the required power state for this operation.',
+  SR_BACKEND_FAILURE: 'The storage repository backend reported a failure.',
+  HANDLE_INVALID: 'A referenced object no longer exists (its handle/ref is invalid).',
+  OPERATION_NOT_ALLOWED: 'The operation is not allowed in the current state or configuration.',
+  VDI_IN_USE: 'The virtual disk is currently in use and cannot be modified.',
+  LICENSE_RESTRICTION: 'The current license does not permit this operation.',
+  LICENCE_RESTRICTION: 'The current license does not permit this operation.',
+  HOST_NOT_ENOUGH_FREE_MEMORY: 'The target host does not have enough free memory for this operation.',
+  TOO_MANY_PENDING_TASKS: 'Too many tasks are already pending; the operation was throttled.',
+  SR_IO_TIMEOUT: 'A storage I/O operation timed out.',
+  NETWORK_CONTAINS_VIF: 'The network cannot be removed while VIFs are still attached to it.',
+  VM_MISSING_PV_DRIVERS: 'The VM is missing the PV drivers required for this operation.',
+  HOST_NOT_LIVE: 'The target host is not currently live/reachable.',
+  NOT_SUPPORTED_DURING_UPGRADE: 'This operation is not supported while a pool upgrade is in progress.',
+  SESSION_INVALID: 'The Xen session used for this operation was invalid or had expired.',
+};
+
+function describeActivityTaskError(errorInfo = []) {
+  const [code, ...params] = Array.isArray(errorInfo) ? errorInfo : [errorInfo];
+  const message = XEN_TASK_ERROR_CODES[String(code)] || '';
+  const cleanParams = params.filter((value) => value !== undefined && value !== null && value !== '');
+  const summary = [code, message, ...cleanParams].filter(Boolean).join(' | ');
+  return { code: code || '', message, params: cleanParams, summary };
 }
 
 function buildTaskLineage(task = null, tasks = []) {
@@ -489,6 +515,7 @@ if (typeof module !== 'undefined') {
     isTemplateDeploymentActivityTask,
     buildActivityTaskSlaMeta,
     getActivityTaskResult,
+    describeActivityTaskError,
     buildTaskLineage,
     formatTaskLineage,
     findActivityTaskByFocus,

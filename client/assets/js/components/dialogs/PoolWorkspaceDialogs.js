@@ -34,14 +34,17 @@ const PoolWorkspaceDialogs = {
         joiningHostAddress: '',
         joiningHostUsername: '',
         joiningHostPassword: '',
+        joiningHostVaultCredentialId: null,
         masterAddress: '',
         masterUsername: '',
         masterPassword: '',
+        masterVaultCredentialId: null,
         force: false,
       }),
     },
     poolJoinSaving: { type: Boolean, default: false },
     poolJoinError: { type: String, default: '' },
+    poolJoinCredentialOptions: { type: Array, default: () => [] },
   },
   emits: [
     'close-pool-identity',
@@ -212,7 +215,14 @@ const PoolWorkspaceDialogs = {
               </div>
               <div class="form-group">
                 <label for="pool-join-master-password">Coordinator Password</label>
-                <input id="pool-join-master-password" class="form-input" type="password" :value="poolJoinDraft.masterPassword" @input="updateJoinDraft('masterPassword', $event.target.value)" required>
+                <input id="pool-join-master-password" class="form-input" type="password" :value="poolJoinDraft.masterPassword" @input="updateJoinDraft('masterPassword', $event.target.value)" :required="!poolJoinDraft.masterVaultCredentialId">
+              </div>
+              <div class="form-group" v-if="poolJoinCredentialOptions.length">
+                <label for="pool-join-master-credential">Or Use Saved Credential</label>
+                <select id="pool-join-master-credential" class="form-input" :value="poolJoinDraft.masterVaultCredentialId" @change="updateJoinDraft('masterVaultCredentialId', $event.target.value ? Number($event.target.value) : null)">
+                  <option :value="null">Type a password above</option>
+                  <option v-for="credential in poolJoinCredentialOptions" :key="credential.id" :value="credential.id">{{ credential.name }} · {{ credential.username }}</option>
+                </select>
               </div>
             </div>
           </section>
@@ -236,7 +246,14 @@ const PoolWorkspaceDialogs = {
               </div>
               <div class="form-group">
                 <label for="pool-join-host-password">Host Password</label>
-                <input id="pool-join-host-password" class="form-input" type="password" :value="poolJoinDraft.joiningHostPassword" @input="updateJoinDraft('joiningHostPassword', $event.target.value)" required>
+                <input id="pool-join-host-password" class="form-input" type="password" :value="poolJoinDraft.joiningHostPassword" @input="updateJoinDraft('joiningHostPassword', $event.target.value)" :required="!poolJoinDraft.joiningHostVaultCredentialId">
+              </div>
+              <div class="form-group" v-if="poolJoinCredentialOptions.length">
+                <label for="pool-join-host-credential">Or Use Saved Credential</label>
+                <select id="pool-join-host-credential" class="form-input" :value="poolJoinDraft.joiningHostVaultCredentialId" @change="updateJoinDraft('joiningHostVaultCredentialId', $event.target.value ? Number($event.target.value) : null)">
+                  <option :value="null">Type a password above</option>
+                  <option v-for="credential in poolJoinCredentialOptions" :key="credential.id" :value="credential.id">{{ credential.name }} · {{ credential.username }}</option>
+                </select>
               </div>
             </div>
           </section>

@@ -58,6 +58,10 @@ const SideNav = {
           <span class="mdi mdi-vector-combine"></span>
           <span class="tree-label" v-if="!collapsed">vFabrics</span>
         </div>
+        <div class="tree-item" role="link" tabindex="0" aria-label="Organizations & Projects" :aria-current="$route.path === '/projects' ? 'page' : null" :class="{ active: $route.path === '/projects' }" @click="$router.push('/projects')" @keydown.enter.prevent="$router.push('/projects')" @keydown.space.prevent="$router.push('/projects')">
+          <span class="mdi mdi-domain"></span>
+          <span class="tree-label" v-if="!collapsed">Projects</span>
+        </div>
         <div class="tree-item" role="link" tabindex="0" aria-label="Governance" :aria-current="$route.path === '/governance' ? 'page' : null" :class="{ active: $route.path === '/governance' }" @click="$router.push('/governance')" @keydown.enter.prevent="$router.push('/governance')" @keydown.space.prevent="$router.push('/governance')">
           <span class="mdi mdi-shield-account-outline"></span>
           <span class="tree-label" v-if="!collapsed">Governance</span>
