@@ -1,10 +1,22 @@
-const crypto = require('crypto');
-const { settingsModel } = require('../models/connection');
+const workflowEngine = require('./workflow-engine');
 
-const SETTINGS_KEY = 'activity.remediationTasks';
-const MAX_TASKS = 250;
+const WORKFLOW_TYPE = 'remediation.task';
+const REF_PREFIX = 'OpaqueRef:remediation-';
 const TERMINAL_STATUSES = new Set(['success', 'warning', 'failure', 'cancelled']);
 const RECURRENCE_BLOCKING_STATUSES = new Set(['pending', 'queued', 'in_progress', 'success', 'warning']);
+
+// Remediation tasks are operator-worked tickets, not automated retry-driven work, so they
+// are never run through workflowEngine.execute() - this handler only exists to satisfy
+// workflowEngine.create()'s requirement that every workflow type have a registered handler.
+workflowEngine.register(WORKFLOW_TYPE, async () => ({}));
+
+function engineStatusFor(status) {
+  if (status === 'in_progress') return 'running';
+  if (status === 'success' || status === 'warning') return 'completed';
+  if (status === 'failure') return 'failed';
+  if (status === 'cancelled') return 'cancelled';
+  return 'pending';
+}
 
 function normalizeRecurrenceMode(value) {
   return String(value || 'manual').trim().toLowerCase();
@@ -154,19 +166,6 @@ function normalizeVmMigrationSeed(value = {}, fallback = null) {
   };
 }
 
-function readTasks() {
-  try {
-    const stored = JSON.parse(settingsModel.get(SETTINGS_KEY) || '[]');
-    return Array.isArray(stored) ? stored : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function writeTasks(tasks) {
-  settingsModel.set(SETTINGS_KEY, JSON.stringify(tasks.slice(0, MAX_TASKS)));
-}
-
 function normalizeTask(task = {}, current = {}) {
   const status = String(task.status || current.status || 'pending').trim().toLowerCase();
   const created = task.created || current.created || new Date().toISOString();
@@ -175,8 +174,8 @@ function normalizeTask(task = {}, current = {}) {
   const recurrenceScope = normalizeRecurrenceScope(task.recurrence_scope || task.recurrenceScope || current.recurrence_scope || 'object');
 
   return {
-    ref: current.ref || task.ref || `OpaqueRef:remediation-${crypto.randomUUID()}`,
-    uuid: current.uuid || task.uuid || crypto.randomUUID(),
+    ref: current.ref || task.ref || '',
+    uuid: current.uuid || task.uuid || '',
     name_label: String(task.name_label || task.nameLabel || current.name_label || '').trim(),
     name_description: String(task.name_description || task.nameDescription || current.name_description || '').trim(),
     status,
@@ -200,7 +199,7 @@ function normalizeTask(task = {}, current = {}) {
     workspace_summary: String(task.workspace_summary || task.workspaceSummary || current.workspace_summary || '').trim(),
     evidence_checklist: normalizeStringList(task.evidence_checklist || task.evidenceChecklist, current.evidence_checklist || current.evidenceChecklist),
     completion_criteria: normalizeStringList(task.completion_criteria || task.completionCriteria, current.completion_criteria || current.completionCriteria),
-    lifecycle_plan_seed: normalizeLifecyclePlanSeed(task.lifecycle_plan_seed || task.lifecyclePlanSeed, current.lifecycle_plan_seed || current.lifecyclePlanSeed),
+    lifecycle_plan_seed: normalizeLifecyclePlanSeed(task.lifecycle_plan_seed || task.lifecyclePlanSeed, current.lifecycle_plan_seed || current.lifecycleSeed),
     resilience_runbook_seed: normalizeResilienceRunbookSeed(task.resilience_runbook_seed || task.resilienceRunbookSeed, current.resilience_runbook_seed || current.resilienceRunbookSeed),
     vm_migration_seed: normalizeVmMigrationSeed(task.vm_migration_seed || task.vmMigrationSeed, current.vm_migration_seed || current.vmMigrationSeed),
     template_id: String(task.template_id || task.templateId || current.template_id || '').trim(),
@@ -226,9 +225,23 @@ function sortTasks(tasks = []) {
   );
 }
 
+function workflowToTask(workflow) {
+  if (!workflow || workflow.type !== WORKFLOW_TYPE) return null;
+  const stored = workflow.result && Object.keys(workflow.result).length ? workflow.result : workflow.input;
+  return { ...stored, ref: `${REF_PREFIX}${workflow.id}` };
+}
+
+function idFromRef(ref) {
+  return String(ref || '').startsWith(REF_PREFIX) ? String(ref).slice(REF_PREFIX.length) : '';
+}
+
 const remediationTaskService = {
   list() {
-    return sortTasks(readTasks().map((task) => normalizeTask(task, task)));
+    return sortTasks(
+      workflowEngine.list({ type: WORKFLOW_TYPE, limit: 500 })
+        .map(workflowToTask)
+        .filter(Boolean)
+    );
   },
 
   findRecurringConflict(payload = {}) {
@@ -262,7 +275,6 @@ const remediationTaskService = {
   },
 
   create(payload = {}, operator = 'system') {
-    const tasks = readTasks();
     const task = normalizeTask({
       ...payload,
       status: 'pending',
@@ -274,21 +286,32 @@ const remediationTaskService = {
       recurrence_window_key: buildRecurrenceWindowKey(payload),
     });
 
-    tasks.unshift(task);
-    writeTasks(tasks);
-    return task;
+    const { workflow } = workflowEngine.create({
+      type: WORKFLOW_TYPE,
+      input: task,
+      requestedBy: operator,
+      maxAttempts: 1,
+    });
+    const final = { ...task, ref: `${REF_PREFIX}${workflow.id}`, uuid: workflow.id };
+    workflowEngine.setState(workflow.id, {
+      status: engineStatusFor(final.status),
+      progress: final.progress,
+      result: final,
+      message: `Remediation task created: ${final.name_label || final.action_type}.`,
+    });
+    return final;
   },
 
   update(ref, payload = {}, operator = 'system') {
-    const tasks = readTasks();
-    const index = tasks.findIndex((task) => task.ref === ref);
-    if (index === -1) {
+    const id = idFromRef(ref);
+    const workflow = id ? workflowEngine.get(id, false) : null;
+    if (!workflow || workflow.type !== WORKFLOW_TYPE) {
       const error = new Error('REMEDIATION_TASK_NOT_FOUND');
       error.code = 'REMEDIATION_TASK_NOT_FOUND';
       throw error;
     }
 
-    const current = normalizeTask(tasks[index], tasks[index]);
+    const current = workflowToTask(workflowEngine.get(id, false));
     const status = String(payload.status || current.status || 'pending').trim().toLowerCase();
     const next = normalizeTask({
       ...current,
@@ -303,8 +326,12 @@ const remediationTaskService = {
       created_by: current.created_by || operator,
     }, current);
 
-    tasks[index] = next;
-    writeTasks(sortTasks(tasks));
+    workflowEngine.setState(id, {
+      status: engineStatusFor(next.status),
+      progress: next.progress,
+      result: next,
+      message: `Remediation task ${next.name_label || next.action_type} set to ${next.status}.`,
+    });
     return next;
   },
 };

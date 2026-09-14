@@ -1,3 +1,15 @@
+/**
+ * Encrypted credential vault (`data/vault.db`).
+ *
+ * Stores XenServer/XCP-ng usernames plus AES-GCM ciphertext (password,
+ * IV, auth tag). Encryption/decryption is performed by
+ * `services/credential-vault.js` using `VAULT_ENCRYPTION_KEY` — this module
+ * only owns the SQLite schema and CRUD. Credentials are owner-scoped
+ * (`private` vs `shared`) the same way saved targets are.
+ *
+ * Never log `encrypted_password` / `enc_iv` / `enc_tag`. Key rotation uses
+ * `VAULT_ENCRYPTION_KEY_PREVIOUS` in the vault service, not this file.
+ */
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');

@@ -6,8 +6,8 @@ const systemConfigService = require('./system-config');
 const logger = require('./logger');
 
 const AUDIT_SETTINGS_KEY = 'activity.audit';
-const TASK_SETTINGS_KEY = 'activity.remediationTasks';
-const TERMINAL_TASK_STATUSES = new Set(['success', 'warning', 'failure', 'cancelled']);
+const REMEDIATION_WORKFLOW_TYPE = 'remediation.task';
+const TERMINAL_TASK_WORKFLOW_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const TERMINAL_DEPLOYMENT_RUN_STATUSES = new Set(['success', 'failure', 'cancelled']);
 
 let schedulerTimer = null;
@@ -114,23 +114,16 @@ function filterRetainedAuditEntries(entries, cutoffTs) {
   return { purgedCount, retained };
 }
 
-function filterRetainedTaskEntries(entries, cutoffTs) {
-  const retained = [];
-  let purgedCount = 0;
-
-  for (const entry of entries) {
-    const status = String(entry?.status || '').trim().toLowerCase();
-    const ts = coerceTimestamp(entry?.finished || entry?.updated_at || entry?.updatedAt || entry?.created);
-
-    if (TERMINAL_TASK_STATUSES.has(status) && ts && ts < cutoffTs) {
-      purgedCount += 1;
-      continue;
-    }
-
-    retained.push(entry);
-  }
-
-  return { purgedCount, retained };
+function listRemediationWorkflowIdsForRetention(cutoffDate) {
+  return getDb().prepare(`
+    SELECT id
+    FROM workflows
+    WHERE type = ?
+      AND status IN (${Array.from(TERMINAL_TASK_WORKFLOW_STATUSES).map(() => '?').join(', ')})
+      AND datetime(COALESCE(finished_at, updated_at)) < datetime(?)
+  `).all(REMEDIATION_WORKFLOW_TYPE, ...Array.from(TERMINAL_TASK_WORKFLOW_STATUSES), cutoffDate)
+    .map((row) => String(row.id || '').trim())
+    .filter(Boolean);
 }
 
 function listDeploymentRunIdsForRetention(cutoffDate) {
@@ -155,9 +148,11 @@ function previewDomain(domain, policy) {
   }
 
   if (domain === 'remediation-tasks') {
-    const entries = readJsonArray(TASK_SETTINGS_KEY);
-    const { purgedCount } = filterRetainedTaskEntries(entries, cutoffTs);
-    return { domain, cutoffDate, candidateCount: purgedCount };
+    return {
+      domain,
+      cutoffDate,
+      candidateCount: listRemediationWorkflowIdsForRetention(cutoffDate).length,
+    };
   }
 
   if (domain === 'auth-events') {
@@ -212,10 +207,16 @@ function purgeDomain(domain, policy, actor = 'system') {
     writeJsonArray(AUDIT_SETTINGS_KEY, next.retained);
     purgedCount = next.purgedCount;
   } else if (domain === 'remediation-tasks') {
-    const entries = readJsonArray(TASK_SETTINGS_KEY);
-    const next = filterRetainedTaskEntries(entries, cutoffTs);
-    writeJsonArray(TASK_SETTINGS_KEY, next.retained);
-    purgedCount = next.purgedCount;
+    const workflowIds = listRemediationWorkflowIdsForRetention(cutoffDate);
+    if (workflowIds.length) {
+      const db = getDb();
+      const deleteWorkflow = db.prepare('DELETE FROM workflows WHERE id = ?');
+      const purgeWorkflows = db.transaction((ids) => {
+        ids.forEach((id) => deleteWorkflow.run(id));
+      });
+      purgeWorkflows(workflowIds);
+    }
+    purgedCount = workflowIds.length;
   } else if (domain === 'auth-events') {
     purgedCount = getSecurityDb().prepare(`
       DELETE FROM auth_events

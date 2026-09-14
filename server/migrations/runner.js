@@ -1,3 +1,16 @@
+/**
+ * Forward-only SQLite migration runner used by all four XenMange databases.
+ *
+ * Each model passes an ordered list of `{ version, name, checksum, up }`.
+ * Applied versions are recorded in `_schema_migrations` with a SHA-256 of
+ * the checksum string so a silently edited `up()` on an already-applied
+ * version fails fast instead of drifting production schemas.
+ *
+ * `adoptLegacySchema: true` on version 1 lets a pre-migration database
+ * (tables already created by an older `initializeSchema`) be stamped as
+ * applied without re-running DDL. Append new versions; never reuse or
+ * rewrite a version that may already be on disk.
+ */
 const crypto = require('crypto');
 
 const MIGRATION_TABLE = '_schema_migrations';

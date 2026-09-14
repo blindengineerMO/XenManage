@@ -1,3 +1,23 @@
+/**
+ * XenMange HTTP entry point.
+ *
+ * Boots the Express app that serves:
+ *   - the Vue SPA (`client/`) plus `/dist` bundles
+ *   - the session-authenticated `/api/*` control-plane surface used by the SPA
+ *   - the token-authenticated public `/api/v1` surface (see `routes/public-api.js`)
+ *
+ * Middleware order matters: security headers → body parsers → request logging →
+ * session → request-context → rate limit / CSRF on `/api` → routers → SPA
+ * fallback → error handler. Xen-backed routers (`/api/vms`, `/api/hosts`, …)
+ * require a live XAPI session (`requireXenConnection`); control-plane routers
+ * (`/api/governance`, `/api/credentials`, …) only require a local login.
+ *
+ * Background schedulers (metrics, retention, catalog leases, managed-target
+ * health, workflows, control-plane backups) start in `startServer()` and must
+ * be stopped via `stopRuntimeServices()` so Jest can import this module without
+ * leaving timers running. `module.exports = app` is the test handle;
+ * `startServer` is only called when this file is the process entry point.
+ */
 require('dotenv').config();
 const express = require('express');
 const path = require('path');

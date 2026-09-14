@@ -1,3 +1,11 @@
+/**
+ * `/api` rate limiter keyed by user id, then session id, then IP.
+ *
+ * Authenticated operators share a per-account bucket so a NAT of many
+ * operators is not treated as one noisy IP. Unauthenticated traffic
+ * (login) still falls back to IP via `ipKeyGenerator` (IPv6-safe).
+ * Login itself uses a tighter dedicated limiter in `server/index.js`.
+ */
 const { ipKeyGenerator, rateLimit } = require('express-rate-limit');
 
 function getApiRateLimitKey(req) {

@@ -1,3 +1,20 @@
+/**
+ * Primary control-plane SQLite store (`data/xenmange.db`).
+ *
+ * Owns persisted operator state that is not security-sensitive and not
+ * high-volume telemetry: saved pool/host targets, vFabrics, inventory
+ * workspaces, template-library folders/items, catalog entries, lifecycle
+ * plans, resilience runbooks, settings, deployment runs, and similar.
+ *
+ * Visibility is owner-aware: `private` records are scoped to `owner_user_id`,
+ * `shared` records are visible to every authenticated operator, and admins
+ * bypass the filter (`buildVisibilityFilter`). Pair with `security-db.js`
+ * for accounts and `vault-db.js` for encrypted Xen credentials — do not put
+ * passwords or session tokens in this database.
+ *
+ * Schema changes go through `migrations/runner.js` (append a versioned
+ * migration; never edit `initializeSchema` in place on a deployed DB).
+ */
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');

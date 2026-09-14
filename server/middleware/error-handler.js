@@ -1,3 +1,11 @@
+/**
+ * Terminal Express error handler (must be registered after all routers).
+ *
+ * API paths return a stable `{ error: CODE }` JSON body — never the raw
+ * exception message in production. HTML paths render `views/500.ejs`.
+ * 5xx errors are also handed to `error-tracking` for the in-app error
+ * inbox. If headers were already sent, we defer to Express's default.
+ */
 const config = require('../config');
 const logger = require('../services/logger');
 const errorTracking = require('../services/error-tracking');

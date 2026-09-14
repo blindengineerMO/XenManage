@@ -1,3 +1,12 @@
+/**
+ * Helmet + CSP for the SPA and API.
+ *
+ * Script execution is nonce-only (`res.locals.cspNonce` is injected into the
+ * EJS shell). `style-src 'unsafe-inline'` is required because Monaco injects
+ * unnoncable `<style>` tags for token colors; do not relax `script-src` to
+ * match. `workerSrc` includes `blob:` for Monaco's web workers. COEP is off
+ * because Xen console noVNC frames would otherwise be blocked.
+ */
 const helmet = require('helmet');
 const crypto = require('crypto');
 

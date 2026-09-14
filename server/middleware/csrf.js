@@ -1,3 +1,12 @@
+/**
+ * Double-submit CSRF for the session-authenticated `/api` surface.
+ *
+ * Token is stored on `req.session.csrfToken` and echoed as `X-CSRF-Token`.
+ * The SPA client (`client/assets/js/core/api.js`) must send that header on
+ * every mutating request. Safe methods and the token-authenticated public
+ * surfaces (`/api/v1`, `/api/terraform`) skip the check. Comparison is
+ * timing-safe; missing/mismatched tokens return `CSRF_TOKEN_INVALID`.
+ */
 const crypto = require('crypto');
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);

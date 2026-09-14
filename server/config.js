@@ -1,3 +1,13 @@
+/**
+ * Process-wide configuration loaded from environment variables.
+ *
+ * Consumed by the Express boot path, SQLite model layers, the credential vault,
+ * and background schedulers. Defaults are safe for local `npm run dev` only —
+ * production (`NODE_ENV=production`) refuses to boot without `SESSION_SECRET`
+ * and `XENMANGE_BOOTSTRAP_PASSWORD`. Vault and backup recovery keys are
+ * deliberately separate: a control-plane snapshot must remain restorable even
+ * if the live vault key is gone. See `.env.example` for the full variable list.
+ */
 require('dotenv').config();
 const path = require('path');
 

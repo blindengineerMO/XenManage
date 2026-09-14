@@ -1,21 +1,14 @@
-const { settingsModel } = require('../models/connection');
+const workflowEngine = require('./workflow-engine');
 
-const RUNBOOKS_KEY = 'resilience.runbooks';
-const DRILLS_KEY = 'resilience.drills';
+const RUNBOOK_TYPE = 'resilience.runbook';
+const DRILL_TYPE = 'resilience.drill';
 const MAX_DRILLS = 200;
 
-function readList(key) {
-  try {
-    const stored = JSON.parse(settingsModel.get(key) || '[]');
-    return Array.isArray(stored) ? stored : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function writeList(key, records) {
-  settingsModel.set(key, JSON.stringify(records));
-}
+// Runbooks are per-pool DR policy records and drills are an append-only execution log -
+// neither runs through workflowEngine.execute(), so these handlers only exist to satisfy
+// workflowEngine.create()'s requirement that every workflow type have a registered handler.
+workflowEngine.register(RUNBOOK_TYPE, async () => ({}));
+workflowEngine.register(DRILL_TYPE, async () => ({}));
 
 function sortByRecent(records, field = 'updatedAt') {
   return [...records].sort((left, right) =>
@@ -30,9 +23,23 @@ function normalizeSteps(steps = []) {
     .slice(0, 8);
 }
 
+function workflowToRunbook(workflow) {
+  if (!workflow || workflow.type !== RUNBOOK_TYPE) return null;
+  return workflow.result && Object.keys(workflow.result).length ? workflow.result : null;
+}
+
+function workflowToDrill(workflow) {
+  if (!workflow || workflow.type !== DRILL_TYPE) return null;
+  return workflow.result && Object.keys(workflow.result).length ? workflow.result : null;
+}
+
 const resilienceRunbookService = {
   getRunbooks() {
-    return sortByRecent(readList(RUNBOOKS_KEY));
+    return sortByRecent(
+      workflowEngine.list({ type: RUNBOOK_TYPE, limit: 500 })
+        .map(workflowToRunbook)
+        .filter(Boolean)
+    );
   },
 
   getRunbook(poolRef) {
@@ -40,7 +47,6 @@ const resilienceRunbookService = {
   },
 
   upsertRunbook(poolRef, payload) {
-    const runbooks = readList(RUNBOOKS_KEY);
     const nextRecord = {
       poolRef,
       recoveryTier: payload.recoveryTier || 'standard',
@@ -62,31 +68,39 @@ const resilienceRunbookService = {
       sourceTemplateName: payload.sourceTemplateName || '',
       updatedAt: new Date().toISOString(),
     };
-    const index = runbooks.findIndex((record) => record.poolRef === poolRef);
 
-    if (index === -1) {
-      runbooks.push(nextRecord);
-    } else {
-      runbooks[index] = nextRecord;
-    }
+    const existing = workflowEngine.getByIdempotencyKey(RUNBOOK_TYPE, poolRef);
+    const workflow = existing || workflowEngine.create({
+      type: RUNBOOK_TYPE,
+      idempotencyKey: poolRef,
+      requestedBy: payload.owner || 'system',
+    }).workflow;
 
-    writeList(RUNBOOKS_KEY, runbooks);
+    workflowEngine.setState(workflow.id, {
+      status: 'completed',
+      progress: 100,
+      result: nextRecord,
+      message: `Resilience runbook saved for ${poolRef}.`,
+    });
     return nextRecord;
   },
 
   removeRunbook(poolRef) {
-    const runbooks = readList(RUNBOOKS_KEY);
-    const nextRecords = runbooks.filter((record) => record.poolRef !== poolRef);
-    writeList(RUNBOOKS_KEY, nextRecords);
+    const existing = workflowEngine.getByIdempotencyKey(RUNBOOK_TYPE, poolRef);
+    if (existing) workflowEngine.remove(existing.id);
     return { success: true };
   },
 
   getDrills() {
-    return sortByRecent(readList(DRILLS_KEY), 'executedAt');
+    return sortByRecent(
+      workflowEngine.list({ type: DRILL_TYPE, limit: MAX_DRILLS })
+        .map(workflowToDrill)
+        .filter(Boolean),
+      'executedAt'
+    );
   },
 
   logDrill(poolRef, payload, operator = 'system') {
-    const drills = readList(DRILLS_KEY);
     const record = {
       id: payload.id || `drill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       poolRef,
@@ -102,8 +116,20 @@ const resilienceRunbookService = {
       createdAt: new Date().toISOString(),
     };
 
-    drills.unshift(record);
-    writeList(DRILLS_KEY, drills.slice(0, MAX_DRILLS));
+    const { workflow } = workflowEngine.create({ type: DRILL_TYPE, requestedBy: operator });
+    workflowEngine.setState(workflow.id, {
+      status: 'completed',
+      progress: 100,
+      result: record,
+      message: `Resilience drill logged for ${poolRef}.`,
+    });
+
+    const overflow = workflowEngine.list({ type: DRILL_TYPE, limit: 10000 })
+      .sort((left, right) => new Date(left.created_at || 0) - new Date(right.created_at || 0));
+    if (overflow.length > MAX_DRILLS) {
+      overflow.slice(0, overflow.length - MAX_DRILLS).forEach((stale) => workflowEngine.remove(stale.id));
+    }
+
     return record;
   },
 };

@@ -1,3 +1,15 @@
+/**
+ * Telemetry history store (`data/perf.db`).
+ *
+ * Isolated from the control-plane DB because metric samples are high-volume
+ * and retention-swept independently. `metrics-collector.js` writes host/VM/SR
+ * samples; Capacity, Alerts, and Metrics export read them. WAL + NORMAL
+ * synchronous mode is intentional — losing the last few samples on crash is
+ * preferable to stalling XAPI-facing request handlers.
+ *
+ * Do not join this database to `xenmange.db` in application code; query it
+ * through `services/metrics-history.js`.
+ */
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');

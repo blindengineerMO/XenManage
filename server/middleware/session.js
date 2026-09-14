@@ -1,3 +1,11 @@
+/**
+ * Cookie session (`xenmange.sid`) backed by `SqliteSessionStore`.
+ *
+ * Sessions live in `security.db`, not memory, so a process restart does not
+ * log everyone out. Cookie `maxAge` is re-read from system-config on every
+ * request so Settings → session timeout takes effect without a reboot.
+ * `secure` is production-only; local HTTP would otherwise drop the cookie.
+ */
 const session = require('express-session');
 const config = require('../config');
 const { SqliteSessionStore } = require('./session-store');

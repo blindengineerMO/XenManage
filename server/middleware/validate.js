@@ -1,3 +1,12 @@
+/**
+ * Shared Joi schemas and `validate(schema)` Express middleware.
+ *
+ * Every mutating `/api` route should validate `req.body` (and params/query
+ * where relevant) through this module rather than ad-hoc checks. Schemas
+ * here are the contract the SPA forms and Jest tests share — when you add
+ * a field to a form, add it here first. Unknown keys are stripped; failed
+ * validation returns 400 with Joi details, never a stack trace.
+ */
 const Joi = require('joi');
 
 const lifecyclePlanSeedSchema = Joi.object({

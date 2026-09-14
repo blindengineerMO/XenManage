@@ -1,19 +1,11 @@
-const { settingsModel } = require('../models/connection');
+const workflowEngine = require('./workflow-engine');
 
-const SETTINGS_KEY = 'lifecycle.plans';
+const WORKFLOW_TYPE = 'lifecycle.plan';
 
-function readPlans() {
-  try {
-    const stored = JSON.parse(settingsModel.get(SETTINGS_KEY) || '[]');
-    return Array.isArray(stored) ? stored : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function writePlans(plans) {
-  settingsModel.set(SETTINGS_KEY, JSON.stringify(plans));
-}
+// Lifecycle plans are per-host desired-state policy records, not automated retry-driven
+// work, so they are never run through workflowEngine.execute() - this handler only exists
+// to satisfy workflowEngine.create()'s requirement that every workflow type have a handler.
+workflowEngine.register(WORKFLOW_TYPE, async () => ({}));
 
 function sortPlans(plans) {
   return [...plans].sort((left, right) =>
@@ -21,34 +13,46 @@ function sortPlans(plans) {
   );
 }
 
+function workflowToPlan(workflow) {
+  if (!workflow || workflow.type !== WORKFLOW_TYPE) return null;
+  return workflow.result && Object.keys(workflow.result).length ? workflow.result : null;
+}
+
 const lifecyclePlanService = {
   getAll() {
-    return sortPlans(readPlans());
+    return sortPlans(
+      workflowEngine.list({ type: WORKFLOW_TYPE, limit: 500 })
+        .map(workflowToPlan)
+        .filter(Boolean)
+    );
   },
 
   upsert(hostRef, payload) {
-    const plans = readPlans();
     const nextRecord = {
       hostRef,
       ...payload,
       updatedAt: new Date().toISOString(),
     };
-    const index = plans.findIndex((plan) => plan.hostRef === hostRef);
 
-    if (index === -1) {
-      plans.push(nextRecord);
-    } else {
-      plans[index] = nextRecord;
-    }
+    const existing = workflowEngine.getByIdempotencyKey(WORKFLOW_TYPE, hostRef);
+    const workflow = existing || workflowEngine.create({
+      type: WORKFLOW_TYPE,
+      idempotencyKey: hostRef,
+      requestedBy: payload.owner || 'system',
+    }).workflow;
 
-    writePlans(plans);
+    workflowEngine.setState(workflow.id, {
+      status: 'completed',
+      progress: 100,
+      result: nextRecord,
+      message: `Lifecycle plan saved for ${hostRef}.`,
+    });
     return nextRecord;
   },
 
   remove(hostRef) {
-    const plans = readPlans();
-    const nextPlans = plans.filter((plan) => plan.hostRef !== hostRef);
-    writePlans(nextPlans);
+    const existing = workflowEngine.getByIdempotencyKey(WORKFLOW_TYPE, hostRef);
+    if (existing) workflowEngine.remove(existing.id);
     return { success: true };
   },
 };

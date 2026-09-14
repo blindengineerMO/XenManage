@@ -58,4 +58,72 @@ describe('workflow engine', () => {
     await workflowEngine.execute(workflow.id);
     expect(workflowEngine.get(workflow.id)).toEqual(expect.objectContaining({ status: 'failed', attempt_count: 2, error_text: 'UPSTREAM_UNAVAILABLE' }));
   });
+
+  it('tracks per-step status and fails a step that exceeds its own timeout', async () => {
+    workflowEngine.register('test.steps', async ({ step }) => {
+      await step('scan', 'Scan hosts', async () => 'scanned');
+      await step('apply', 'Apply patch', () => new Promise((resolve) => setTimeout(resolve, 50)), { timeoutMs: 5 });
+      return { ok: true };
+    });
+    const { workflow } = workflowEngine.create({ type: 'test.steps', maxAttempts: 1 });
+    await workflowEngine.execute(workflow.id);
+
+    const finished = workflowEngine.get(workflow.id);
+    expect(finished.status).toBe('failed');
+    expect(finished.error_text).toBe('STEP_TIMEOUT');
+    const stepStatuses = Object.fromEntries(finished.steps.map((s) => [s.step_key, s.status]));
+    expect(stepStatuses).toEqual({ scan: 'completed', apply: 'failed' });
+  });
+
+  it('fails the whole workflow once its overall timeout elapses', async () => {
+    workflowEngine.register('test.slow', () => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 50)));
+    const { workflow } = workflowEngine.create({ type: 'test.slow', maxAttempts: 1, timeoutMs: 5 });
+    await workflowEngine.execute(workflow.id);
+    expect(workflowEngine.get(workflow.id)).toEqual(expect.objectContaining({ status: 'failed', error_text: 'WORKFLOW_TIMEOUT' }));
+  });
+
+  it('rolls back via a registered compensation handler once retries are exhausted', async () => {
+    let compensated = false;
+    workflowEngine.register('test.compensated', async () => {
+      const error = new Error('PATCH_APPLY_FAILED');
+      error.code = 'PATCH_APPLY_FAILED';
+      throw error;
+    });
+    workflowEngine.registerCompensation('test.compensated', async () => {
+      compensated = true;
+    });
+    const { workflow } = workflowEngine.create({ type: 'test.compensated', maxAttempts: 1 });
+    await workflowEngine.execute(workflow.id);
+
+    expect(compensated).toBe(true);
+    const finished = workflowEngine.get(workflow.id);
+    expect(finished.status).toBe('rolled-back');
+    expect(finished.error_text).toBe('PATCH_APPLY_FAILED');
+  });
+
+  it('lets a non-executed workflow type manage its own status through setState', () => {
+    workflowEngine.register('test.manual', async () => ({}));
+    const { workflow } = workflowEngine.create({ type: 'test.manual', input: { note: 'ticket' } });
+
+    const updated = workflowEngine.setState(workflow.id, { status: 'running', progress: 40, result: { note: 'in progress' } });
+    expect(updated).toEqual(expect.objectContaining({ status: 'running', progress: 40 }));
+
+    const completed = workflowEngine.setState(workflow.id, { status: 'completed', progress: 100, result: { note: 'done' } });
+    expect(completed.finished_at).toBeTruthy();
+
+    const detail = workflowEngine.get(workflow.id);
+    expect(detail.events.map((event) => event.message)).toEqual(expect.arrayContaining([
+      'Workflow status set to running.', 'Workflow status set to completed.',
+    ]));
+  });
+
+  it('filters workflow listings by type', () => {
+    workflowEngine.register('test.type-a', async () => ({}));
+    workflowEngine.register('test.type-b', async () => ({}));
+    workflowEngine.create({ type: 'test.type-a' });
+    workflowEngine.create({ type: 'test.type-b' });
+
+    expect(workflowEngine.list({ type: 'test.type-a' }).every((w) => w.type === 'test.type-a')).toBe(true);
+    expect(workflowEngine.list({ type: 'test.type-a' })).toHaveLength(1);
+  });
 });

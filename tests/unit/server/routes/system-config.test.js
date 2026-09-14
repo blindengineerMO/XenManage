@@ -32,6 +32,7 @@ jest.mock('../../../../server/services/xenapi', () => {
 });
 
 const { getDb, settingsModel, deploymentRunModel } = require('../../../../server/models/connection');
+const remediationTaskService = require('../../../../server/services/remediation-tasks');
 const { authEventModel, getSecurityDb } = require('../../../../server/models/security-db');
 const { getPerfDb, metricSampleModel, toHourlyBucket } = require('../../../../server/models/perf-db');
 const config = require('../../../../server/config');
@@ -236,26 +237,23 @@ describe('System Config Routes', () => {
       },
     ]));
 
-    settingsModel.set('activity.remediationTasks', JSON.stringify([
-      {
-        ref: 'OpaqueRef:task-old',
-        name_label: 'Old closed task',
-        status: 'success',
-        finished: oldTimestamp,
-      },
-      {
-        ref: 'OpaqueRef:task-open',
-        name_label: 'Old open task',
-        status: 'in_progress',
-        updated_at: oldTimestamp,
-      },
-      {
-        ref: 'OpaqueRef:task-new',
-        name_label: 'Fresh closed task',
-        status: 'warning',
-        finished: freshTimestamp,
-      },
-    ]));
+    const oldClosedTask = remediationTaskService.create({ name_label: 'Old closed task' }, 'system');
+    remediationTaskService.update(oldClosedTask.ref, { status: 'success' }, 'system');
+    const oldClosedTaskId = oldClosedTask.ref.replace('OpaqueRef:remediation-', '');
+    getDb().prepare('UPDATE workflows SET finished_at = ?, updated_at = ? WHERE id = ?')
+      .run(oldTimestamp, oldTimestamp, oldClosedTaskId);
+
+    const oldOpenTask = remediationTaskService.create({ name_label: 'Old open task' }, 'system');
+    remediationTaskService.update(oldOpenTask.ref, { status: 'in_progress' }, 'system');
+    const oldOpenTaskId = oldOpenTask.ref.replace('OpaqueRef:remediation-', '');
+    getDb().prepare('UPDATE workflows SET updated_at = ? WHERE id = ?')
+      .run(oldTimestamp, oldOpenTaskId);
+
+    const freshClosedTask = remediationTaskService.create({ name_label: 'Fresh closed task' }, 'system');
+    remediationTaskService.update(freshClosedTask.ref, { status: 'warning' }, 'system');
+    const freshClosedTaskId = freshClosedTask.ref.replace('OpaqueRef:remediation-', '');
+    getDb().prepare('UPDATE workflows SET finished_at = ?, updated_at = ? WHERE id = ?')
+      .run(freshTimestamp, freshTimestamp, freshClosedTaskId);
 
     const event = authEventModel.create({
       username: 'root',
@@ -349,10 +347,10 @@ describe('System Config Routes', () => {
     expect(auditEntries.some((entry) => entry.id === 'audit-new')).toBe(true);
     expect(auditEntries.some((entry) => entry.action === 'retention_sweep_completed')).toBe(true);
 
-    const remediationTasks = JSON.parse(settingsModel.get('activity.remediationTasks'));
-    expect(remediationTasks.some((entry) => entry.ref === 'OpaqueRef:task-old')).toBe(false);
-    expect(remediationTasks.some((entry) => entry.ref === 'OpaqueRef:task-open')).toBe(true);
-    expect(remediationTasks.some((entry) => entry.ref === 'OpaqueRef:task-new')).toBe(true);
+    const remainingTaskIds = getDb().prepare("SELECT id FROM workflows WHERE type = 'remediation.task'").all().map((row) => row.id);
+    expect(remainingTaskIds).not.toContain(oldClosedTaskId);
+    expect(remainingTaskIds).toContain(oldOpenTaskId);
+    expect(remainingTaskIds).toContain(freshClosedTaskId);
 
     const removedAuthEvent = getSecurityDb().prepare('SELECT * FROM auth_events WHERE id = ?').get(event.id);
     expect(removedAuthEvent).toBeUndefined();

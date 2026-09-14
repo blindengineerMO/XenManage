@@ -1,3 +1,8 @@
+/**
+ * Assigns `req.requestId`, emits structured `request_completed` logs, and
+ * feeds latency/status into `runtime-metrics` for `/metrics` scrape.
+ * Attach this before routers so 4xx/5xx still get a duration sample.
+ */
 const crypto = require('crypto');
 const logger = require('../services/logger');
 const { recordRequest } = require('../services/runtime-metrics');

@@ -1,3 +1,12 @@
+/**
+ * Bearer-token gate for `/api/v1` (and any future machine-to-machine surface).
+ *
+ * Tokens are issued under Governance → API tokens, hashed in `security.db`,
+ * and resolved by `identityService.authenticateApiToken`. `req.principal`
+ * replaces `req.session` for permission checks — do not assume a cookie
+ * session exists on these routes. CSRF is skipped for `/api/v1` because
+ * the token is the credential.
+ */
 const identityService = require('../services/identity');
 
 function requireApiToken(req, res, next) {

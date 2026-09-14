@@ -1,3 +1,15 @@
+/**
+ * Route-level governance gate for mutating Xen / control-plane actions.
+ *
+ * `ensureMutationAllowed(req, res, { actionKey, entityType, entityRef })`
+ * is the function every destructive route must call before talking to XAPI.
+ * It enforces the session role ceiling, optional approval tokens, quotas,
+ * and the action catalog (`services/action-catalog.js`). A new mutating
+ * route without a catalog entry fails `governance-coverage.test.js`.
+ *
+ * Read-only sessions always 403. Missing/expired approvals return a payload
+ * the SPA uses to open the approval composer rather than a generic error.
+ */
 const governanceService = require('../services/governance');
 const identityService = require('../services/identity');
 const actionCatalog = require('../services/action-catalog');

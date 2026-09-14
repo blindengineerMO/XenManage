@@ -1,3 +1,11 @@
+/**
+ * express-session Store implementation on `security.db`.
+ *
+ * Survives process restarts (unlike MemoryStore) and is shared across
+ * clustered Node workers if they point at the same SQLite file. Expired
+ * rows are purged on `get`; do not add a separate janitor unless load
+ * testing shows purge-on-read is a hotspot.
+ */
 const session = require('express-session');
 const { sessionStoreModel } = require('../models/security-db');
 

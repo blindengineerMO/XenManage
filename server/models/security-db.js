@@ -1,3 +1,18 @@
+/**
+ * Identity store (`data/security.db`).
+ *
+ * Local users, groups, password hashes (bcrypt), TOTP secrets, API tokens,
+ * and role ceilings live here — isolated from `xenmange.db` so a leaked
+ * control-plane backup of inventory/settings does not include credentials.
+ *
+ * Roles are a strict ceiling: `read-only` < `operator` < `admin`. Group
+ * membership is a many-to-many join used by governance domain routing
+ * (Security vs Infrastructure approvals). Last-admin protection lives in
+ * the user-update/delete helpers: you cannot disable or demote the only
+ * remaining admin account.
+ *
+ * Schema changes go through `migrations/runner.js`.
+ */
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
