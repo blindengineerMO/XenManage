@@ -168,10 +168,14 @@ const InventoryView = {
           :connection-action-error="connectionActionError"
           :connection-health="connectionHealth"
           :managed-targets-by-connection-id="managedTargetsByConnectionId"
+          :managed-target-pending-id="managedTargetPendingId"
           @close="showConnectionAtlasWindow = false"
           @apply-tag="applyTag"
           @set-default-connection="setDefaultConnection"
-          @open-connection-target="openConnectionTarget">
+          @open-connection-target="openConnectionTarget"
+          @enable-managed-target="enableManagedTarget"
+          @disable-managed-target="disableManagedTarget"
+          @check-managed-target="checkManagedTargetNow">
         </inventory-connection-atlas-window>
       </template>
     </div>
@@ -223,6 +227,7 @@ const InventoryView = {
       connectionHealth: {},
       connectionHealthPendingIds: [],
       managedTargets: [],
+      managedTargetPendingId: null,
       columns: [
         { key: 'kind', label: 'Kind' },
         { key: 'name', label: 'Name' },
@@ -333,6 +338,51 @@ const InventoryView = {
         this.managedTargets = await api.getManagedTargets();
       } catch (error) {
         // Best-effort managed-target status; the atlas falls back to the generic "connect to view" placeholder.
+      }
+    },
+    async enableManagedTarget(connection) {
+      this.managedTargetPendingId = connection.id;
+      this.connectionActionError = '';
+      try {
+        const existing = this.managedTargetsByConnectionId?.[connection.id];
+        if (existing) {
+          await api.setManagedTargetEnabled(existing.id, true);
+        } else {
+          await api.registerManagedTarget(connection.id, { enabled: true });
+        }
+        await this.refreshManagedTargets();
+      } catch (error) {
+        this.connectionActionError = error.message || 'Failed to enable 24/7 management for this target.';
+      } finally {
+        this.managedTargetPendingId = null;
+      }
+    },
+    async disableManagedTarget(connection) {
+      const existing = this.managedTargetsByConnectionId?.[connection.id];
+      if (!existing) return;
+      this.managedTargetPendingId = connection.id;
+      this.connectionActionError = '';
+      try {
+        await api.setManagedTargetEnabled(existing.id, false);
+        await this.refreshManagedTargets();
+      } catch (error) {
+        this.connectionActionError = error.message || 'Failed to disable 24/7 management for this target.';
+      } finally {
+        this.managedTargetPendingId = null;
+      }
+    },
+    async checkManagedTargetNow(connection) {
+      const existing = this.managedTargetsByConnectionId?.[connection.id];
+      if (!existing) return;
+      this.managedTargetPendingId = connection.id;
+      this.connectionActionError = '';
+      try {
+        await api.checkManagedTarget(existing.id);
+        await this.refreshManagedTargets();
+      } catch (error) {
+        this.connectionActionError = error.message || 'Failed to check this managed target.';
+      } finally {
+        this.managedTargetPendingId = null;
       }
     },
     async refreshConnectionHealth() {

@@ -32,12 +32,19 @@ const InventoryConnectionAtlasWindow = {
       type: Object,
       default: () => ({}),
     },
+    managedTargetPendingId: {
+      type: Number,
+      default: null,
+    },
   },
   emits: [
     'close',
     'apply-tag',
     'set-default-connection',
     'open-connection-target',
+    'enable-managed-target',
+    'disable-managed-target',
+    'check-managed-target',
   ],
   template: `
     <floating-window :show="showConnectionAtlasWindow"
@@ -68,6 +75,10 @@ const InventoryConnectionAtlasWindow = {
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
                 <span class="badge" :class="connection.visibility === 'shared' ? 'badge-info' : 'badge-success'">{{ visibilityLabel(connection.visibility) }}</span>
                 <span class="badge badge-info" v-if="connection.owner_display_name || connection.owner_username">{{ ownershipLabel(connection) }}</span>
+                <span class="badge" :class="managedBadgeClass(connection)" v-if="isManaged(connection)">{{ managedTargetsByConnectionId?.[connection.id]?.state || 'Managed' }}</span>
+              </div>
+              <div class="text-muted" style="font-size:11px;margin-top:4px" v-if="!isManaged(connection) && !managedEligibility(connection).ok">
+                24/7 control-plane management requires a shared connection with a shared vault credential.
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
@@ -81,6 +92,24 @@ const InventoryConnectionAtlasWindow = {
               <button class="btn btn-sm" @click="$emit('open-connection-target', connection)">
                 <span class="mdi mdi-login-variant"></span>
                 Open Login
+              </button>
+              <button class="btn btn-sm" v-if="isManaged(connection)"
+                      @click="$emit('check-managed-target', connection)"
+                      :disabled="managedTargetPendingId === connection.id">
+                <span class="mdi mdi-refresh"></span>
+                {{ managedTargetPendingId === connection.id ? 'Checking...' : 'Check Now' }}
+              </button>
+              <button class="btn btn-sm" v-if="isManaged(connection)"
+                      @click="$emit('disable-managed-target', connection)"
+                      :disabled="managedTargetPendingId === connection.id || connection.can_manage === false">
+                <span class="mdi mdi-power-plug-off-outline"></span>
+                Disable Management
+              </button>
+              <button class="btn btn-sm" v-else
+                      @click="$emit('enable-managed-target', connection)"
+                      :disabled="managedTargetPendingId === connection.id || !managedEligibility(connection).ok || connection.can_manage === false">
+                <span class="mdi mdi-power-plug-outline"></span>
+                {{ managedTargetPendingId === connection.id ? 'Enabling...' : 'Enable 24/7 Management' }}
               </button>
             </div>
           </div>
@@ -127,6 +156,26 @@ const InventoryConnectionAtlasWindow = {
       const status = formatManagedTargetStatus(managedTarget);
       if (!status || !managedTarget?.lastCheckedAt) return status;
       return `${status} · checked ${this.formatDateTime(managedTarget.lastCheckedAt)}`;
+    },
+    isManaged(connection) {
+      const managedTarget = this.managedTargetsByConnectionId?.[connection.id];
+      return Boolean(managedTarget?.enabled);
+    },
+    managedEligibility(connection) {
+      if (connection.visibility !== 'shared' || connection.owner_user_id) {
+        return { ok: false, reason: 'MANAGED_TARGET_REQUIRES_SHARED_CONNECTION' };
+      }
+      if (!connection.vault_credential_id) {
+        return { ok: false, reason: 'MANAGED_TARGET_CREDENTIAL_REQUIRED' };
+      }
+      return { ok: true, reason: '' };
+    },
+    managedBadgeClass(connection) {
+      const state = this.managedTargetsByConnectionId?.[connection.id]?.state || '';
+      if (state === 'Healthy') return 'badge-success';
+      if (state === 'Degraded') return 'badge-warning';
+      if (state === 'Maintenance') return 'badge-info';
+      return 'badge-danger';
     },
   },
 };

@@ -20,7 +20,7 @@ const managedTarget = {
     username: { type: 'string' },
     port: { type: 'integer' },
     enabled: { type: 'boolean' },
-    state: { type: 'string', enum: ['Unknown', 'Connecting', 'Healthy', 'Degraded', 'Unreachable', 'Disabled'] },
+    state: { type: 'string', enum: ['Healthy', 'Degraded', 'Authentication Failed', 'Certificate Changed', 'Unsupported', 'Offline', 'Maintenance'] },
     lastError: { type: 'string' },
     lastCheckedAt: { type: 'string', format: 'date-time' },
     lastConnectedAt: { type: 'string', format: 'date-time' },

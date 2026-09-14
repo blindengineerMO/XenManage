@@ -5,8 +5,13 @@ const credentialVaultService = require('./credential-vault');
 const { XenAPI } = require('./xenapi');
 
 const HEALTHY = 'Healthy';
+const DEGRADED = 'Degraded';
 const DEFAULT_INTERVAL_MS = 60 * 1000;
 const MAX_RETRY_MS = 15 * 60 * 1000;
+// A target that drops mid-flight is reported Degraded for its first couple of
+// retries (transient blip - the last known-good session may still recover on
+// its own) before escalating to the error-specific failure state below.
+const DEGRADED_RETRY_THRESHOLD = 2;
 
 let timer = null;
 let started = false;
@@ -125,7 +130,7 @@ async function connect(id, { force = false } = {}) {
   } catch (error) {
     const retryCount = Number(target.retry_count || 0) + 1;
     return managedTargetModel.updateStatus(target.id, {
-      state: stateFromError(error),
+      state: retryCount <= DEGRADED_RETRY_THRESHOLD ? DEGRADED : stateFromError(error),
       lastError: error?.code || error?.message || 'TARGET_UNAVAILABLE',
       retryCount,
       nextRetryAt: nextRetryAt(retryCount),

@@ -79,4 +79,50 @@ describe('managed target service', () => {
       lastError: 'MANAGED_TARGET_REQUIRES_SHARED_CONNECTION',
     }));
   });
+
+  it('reports a transient session drop as Degraded before escalating to a hard failure state', async () => {
+    const credential = credentialVaultService.create(1, {
+      name: 'shared pool credential', scope: 'shared', targetType: 'pool', targetHint: 'pool-b',
+      username: 'root', password: 'secret',
+    });
+    const connection = connectionModel.create({
+      name: 'Pool B', host: '10.20.30.50', username: 'root', vaultCredentialId: credential.id,
+      port: 443, visibility: 'shared', ownerUserId: null,
+    });
+
+    let shouldFail = false;
+    managedTargetService.__setXenApiFactory(class FlakyXenApi {
+      constructor(host) { this.host = host; }
+      async login() {
+        if (shouldFail) {
+          const error = new Error('ECONNRESET');
+          error.code = 'OFFLINE';
+          throw error;
+        }
+        this.sessionRef = 'OpaqueRef:managed';
+      }
+      async call() {
+        if (shouldFail) {
+          const error = new Error('ECONNRESET');
+          error.code = 'OFFLINE';
+          throw error;
+        }
+        return [];
+      }
+      async logout() { this.sessionRef = null; }
+    });
+
+    const registered = managedTargetService.register(connection.id);
+    await managedTargetService.check(registered.id);
+    shouldFail = true;
+
+    const firstFailure = await managedTargetService.check(registered.id);
+    expect(firstFailure.state).toBe('Degraded');
+
+    const secondFailure = await managedTargetService.check(registered.id);
+    expect(secondFailure.state).toBe('Degraded');
+
+    const thirdFailure = await managedTargetService.check(registered.id);
+    expect(thirdFailure.state).toBe('Offline');
+  });
 });

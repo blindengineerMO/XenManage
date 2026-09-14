@@ -853,6 +853,7 @@ const demoDb = {
       port: 443,
       owner_user_id: 1,
       visibility: 'shared',
+      vault_credential_id: 1,
       is_default: 1,
       last_connected_at: '2026-08-19T15:00:00.000Z',
     },
@@ -1133,6 +1134,9 @@ const demoDb = {
       created_at: '2026-08-22T09:05:00.000Z',
     },
   ],
+  managedTargetOverrides: {
+    1: { enabled: true, state: 'Healthy', lastError: '', lastCheckedAt: '2026-09-14T06:00:00.000Z' },
+  },
   resilienceRunbooks: [
     {
       poolRef: 'OpaqueRef:pool-demo-1',

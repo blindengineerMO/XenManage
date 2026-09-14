@@ -1,14 +1,34 @@
 const DEMO_MANAGED_TARGET_SCOPES = ['demo-fabric', 'demo-edge'];
 
+function demoManagedTargetEligibility(connection) {
+  if (!connection || connection.visibility !== 'shared' || connection.owner_user_id) {
+    return { ok: false, code: 'MANAGED_TARGET_REQUIRES_SHARED_CONNECTION' };
+  }
+  if (!connection.vault_credential_id) {
+    return { ok: false, code: 'MANAGED_TARGET_CREDENTIAL_REQUIRED' };
+  }
+  return { ok: true };
+}
+
 function getDemoManagedTargets() {
-  return demoDb.connections.map((connection, index) => ({
-    id: connection.id,
-    targetKey: DEMO_MANAGED_TARGET_SCOPES[index] || DEMO_MANAGED_TARGET_SCOPES[0],
-    connectionId: connection.id,
-    name: connection.name,
-    host: connection.host,
-    enabled: true,
-  }));
+  return Object.entries(demoDb.managedTargetOverrides)
+    .map(([connectionId, override]) => {
+      const connection = demoDb.connections.find((entry) => entry.id === Number(connectionId));
+      if (!connection) return null;
+      const index = demoDb.connections.indexOf(connection);
+      return {
+        id: connection.id,
+        targetKey: DEMO_MANAGED_TARGET_SCOPES[index] || DEMO_MANAGED_TARGET_SCOPES[0],
+        connectionId: connection.id,
+        name: connection.name,
+        host: connection.host,
+        enabled: Boolean(override.enabled),
+        state: override.state || 'Offline',
+        lastError: override.lastError || '',
+        lastCheckedAt: override.lastCheckedAt || '',
+      };
+    })
+    .filter(Boolean);
 }
 
 function getDemoManagedTargetIdForTargetKey(targetKey) {
@@ -134,6 +154,46 @@ function handleDemoProjectsRoutes(method, path, body = {}) {
   if (method === 'GET' && path === '/api/managed-targets') {
     const data = getDemoManagedTargets();
     return { total: data.length, data };
+  }
+
+  if (method === 'POST' && path === '/api/managed-targets') {
+    ensureDemoMutationAllowed({ actionKey: 'managed_target_register', entityType: 'managed-target', entityRef: String(body.connectionId) });
+    const connection = demoDb.connections.find((entry) => entry.id === Number(body.connectionId));
+    if (!connection) throw new Error('CONNECTION_NOT_FOUND');
+    const eligibility = demoManagedTargetEligibility(connection);
+    if (!eligibility.ok) {
+      const error = new Error(eligibility.code);
+      error.code = eligibility.code;
+      throw error;
+    }
+    demoDb.managedTargetOverrides[connection.id] = {
+      enabled: body.enabled !== false,
+      state: 'Healthy',
+      lastError: '',
+      lastCheckedAt: new Date().toISOString(),
+    };
+    return getDemoManagedTargets().find((entry) => entry.connectionId === connection.id);
+  }
+
+  if (method === 'PUT' && /^\/api\/managed-targets\/\d+$/.test(path)) {
+    const connectionId = Number(path.split('/')[3]);
+    ensureDemoMutationAllowed({ actionKey: 'managed_target_update', entityType: 'managed-target', entityRef: String(connectionId) });
+    const existing = demoDb.managedTargetOverrides[connectionId];
+    if (!existing) throw new Error('MANAGED_TARGET_NOT_FOUND');
+    existing.enabled = Boolean(body.enabled);
+    existing.state = existing.enabled ? 'Healthy' : 'Maintenance';
+    existing.lastError = '';
+    existing.lastCheckedAt = new Date().toISOString();
+    return getDemoManagedTargets().find((entry) => entry.connectionId === connectionId);
+  }
+
+  if (method === 'POST' && /^\/api\/managed-targets\/\d+\/check$/.test(path)) {
+    const connectionId = Number(path.split('/')[3]);
+    const existing = demoDb.managedTargetOverrides[connectionId];
+    if (!existing) throw new Error('MANAGED_TARGET_NOT_FOUND');
+    existing.lastCheckedAt = new Date().toISOString();
+    if (existing.enabled) existing.state = 'Healthy';
+    return getDemoManagedTargets().find((entry) => entry.connectionId === connectionId);
   }
 
   if (method === 'GET' && path === '/api/projects/organizations') {
