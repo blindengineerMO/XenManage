@@ -127,6 +127,7 @@ const VMMigrationForm = {
     'saving',
     'submitLabel',
     'activeTargetKey',
+    'placementRecommendations',
   ],
   emits: ['submit', 'destination-target-change'],
   template: `
@@ -140,6 +141,24 @@ const VMMigrationForm = {
       </div>
 
       <template v-if="draft.mode === 'same-pool'">
+        <div class="stack-list" v-if="normalizedRecommendations.length" style="margin-bottom:14px">
+          <div class="text-muted mono" style="font-size:11px;margin-bottom:2px">Recommended Placement</div>
+          <div class="stack-item" v-for="rec in normalizedRecommendations" :key="rec.hostRef" style="align-items:flex-start">
+            <div style="min-width:0;flex:1">
+              <strong>{{ rec.name_label || rec.hostRef }}</strong>
+              <div class="text-muted mono" style="font-size:11px">
+                {{ rec.eligible ? rec.factors.map((f) => f.label + ' ' + f.score).join(' · ') : 'Not enough free memory to host this workload.' }}
+              </div>
+            </div>
+            <span class="badge" :class="rec.eligible ? 'badge-running' : 'badge-warning'" style="margin-right:8px">
+              score {{ rec.score }}
+            </span>
+            <button type="button" class="form-btn" style="padding:4px 10px" :disabled="!rec.eligible || draft.hostRef === rec.hostRef" @click="applyRecommendedHost(rec.hostRef)">
+              {{ draft.hostRef === rec.hostRef ? 'Selected' : 'Use This Host' }}
+            </button>
+          </div>
+        </div>
+
         <div class="form-group">
           <label for="vm-migration-host">Destination Host</label>
           <select id="vm-migration-host" class="form-input" v-model="draft.hostRef" required>
@@ -273,6 +292,13 @@ const VMMigrationForm = {
     normalizedHostOptions() {
       return Array.isArray(this.hostOptions) ? this.hostOptions : [];
     },
+    normalizedRecommendations() {
+      const hostRefs = new Set(this.normalizedHostOptions.map((host) => host.ref));
+      const entries = Array.isArray(this.placementRecommendations?.recommendations)
+        ? this.placementRecommendations.recommendations
+        : [];
+      return entries.filter((rec) => hostRefs.has(rec.hostRef));
+    },
     normalizedTargets() {
       return normalizeMigrationTargets(this.destinationTargets, this.activeTargetKey);
     },
@@ -384,6 +410,9 @@ const VMMigrationForm = {
     syncDraft(options = {}) {
       const preserveCurrentDraft = options.preserveCurrentDraft !== false;
       this.draft = buildVmMigrationDraft(this.$props, preserveCurrentDraft ? this.draft : null);
+    },
+    applyRecommendedHost(hostRef) {
+      this.draft.hostRef = String(hostRef || '').trim();
     },
     handleSubmit() {
       if (this.draft.mode === 'cross-pool') {

@@ -1,4 +1,131 @@
+const DEMO_PERMISSION_TEMPLATES = [
+  { key: 'vm-operator', label: 'VM Operator', description: 'Day-to-day VM lifecycle and power operations without host, network, or storage administration.', permissions: ['vm.read', 'vm.list', 'vm.create', 'vm.power.*', 'vm.snapshot.create', 'vm.migration.*', 'vm.update'] },
+  { key: 'backup-operator', label: 'Backup Operator', description: 'Snapshot and restore access for backup workflows, without power or configuration control.', permissions: ['vm.read', 'vm.list', 'vm.snapshot.*', 'vm.backup.*', 'vm.restore'] },
+  { key: 'storage-administrator', label: 'Storage Administrator', description: 'Manage storage repositories and virtual disks across the scoped pool or project.', permissions: ['storage.*', 'sr.*', 'vdi.*', 'vm.read', 'vm.list'] },
+  { key: 'network-administrator', label: 'Network Administrator', description: 'Manage networks, VIFs, VLANs, and bonds without VM or storage administration.', permissions: ['network.*', 'vif.*', 'vlan.*', 'bond.*', 'vm.read', 'vm.list'] },
+  { key: 'auditor', label: 'Auditor', description: 'Read-only visibility across every resource type, including governance and audit trails.', permissions: ['*.read', '*.list'] },
+  { key: 'dr-operator', label: 'DR Operator', description: 'Failover, migration, and resilience operations for disaster-recovery runbooks.', permissions: ['vm.read', 'vm.list', 'vm.migration.*', 'vm.power.*', 'resilience.*', 'vm.snapshot.revert'] },
+  { key: 'template-administrator', label: 'Template Administrator', description: 'Manage the template library and self-service catalog without production VM control.', permissions: ['template.*', 'template-library-folder.*', 'template-library-item.*', 'catalog_role.*'] },
+  { key: 'project-administrator', label: 'Project Administrator', description: 'Full control scoped to a single project - VM, quota, and membership management.', permissions: ['vm.*', 'project.*', 'host.maintenance', 'governance.approve'] },
+];
+
+const DEMO_ROLE_TEMPLATES = {
+  'read-only': ['*.read', '*.list'],
+  operator: ['*.read', '*.list', 'vm.*', 'host.*', 'pool.*', 'network.*', 'storage.*', '*'],
+  admin: ['*'],
+};
+
 function handleDemoGovernanceRoutes(method, path, body) {
+  if (method === 'GET' && path === '/api/governance/permission-templates') {
+    return { data: DEMO_PERMISSION_TEMPLATES.map((template) => clone(template)) };
+  }
+
+  if (method === 'GET' && path.startsWith('/api/governance/permissions/') && !path.includes('/apply-template')) {
+    const userId = Number(path.split('/')[4] || 0);
+    const user = demoDb.users.find((entry) => Number(entry.id) === userId);
+    if (!user) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    return {
+      user: clone(user),
+      grants: demoDb.permissionGrants.filter((entry) => Number(entry.user_id) === userId).map((entry) => clone(entry)),
+      roleTemplate: DEMO_ROLE_TEMPLATES[user.role] || [],
+    };
+  }
+
+  if (method === 'PUT' && path.startsWith('/api/governance/permissions/') && !path.includes('/apply-template')) {
+    const userId = Number(path.split('/')[4] || 0);
+    const user = demoDb.users.find((entry) => Number(entry.id) === userId);
+    if (!user) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    const existing = demoDb.permissionGrants.find((entry) => Number(entry.user_id) === userId
+      && entry.permission === body.permission && entry.scope_type === (body.scopeType || 'global') && entry.scope_ref === (body.scopeRef || '*'));
+    const record = existing || {
+      id: demoDb.permissionGrants.length ? Math.max(...demoDb.permissionGrants.map((entry) => entry.id)) + 1 : 1,
+      user_id: userId,
+      permission: body.permission,
+      scope_type: body.scopeType || 'global',
+      scope_ref: body.scopeRef || '*',
+      created_at: new Date().toISOString(),
+    };
+    record.effect = body.effect || 'allow';
+    record.created_by = store.user?.id || null;
+    if (!existing) demoDb.permissionGrants.push(record);
+    recordDemoAudit({
+      category: 'governance',
+      action: 'permission_grant_saved',
+      actionLabel: 'Saved permission grant for',
+      entityType: 'user',
+      entityRef: String(userId),
+      entityName: user.username,
+      route: '/governance',
+      before: null,
+      after: clone(record),
+      detail: `${record.effect} ${record.permission} at ${record.scope_type}:${record.scope_ref}.`,
+    });
+    return clone(record);
+  }
+
+  if (method === 'POST' && path.includes('/apply-template')) {
+    const userId = Number(path.split('/')[4] || 0);
+    const user = demoDb.users.find((entry) => Number(entry.id) === userId);
+    if (!user) {
+      const error = new Error('USER_NOT_FOUND');
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+    const template = DEMO_PERMISSION_TEMPLATES.find((entry) => entry.key === body.templateKey);
+    if (!template) {
+      const error = new Error('PERMISSION_TEMPLATE_NOT_FOUND');
+      error.code = 'PERMISSION_TEMPLATE_NOT_FOUND';
+      throw error;
+    }
+    const scopeType = body.scopeType || 'global';
+    const scopeRef = body.scopeRef || '*';
+    const grants = template.permissions.map((permission) => {
+      const existing = demoDb.permissionGrants.find((entry) => Number(entry.user_id) === userId
+        && entry.permission === permission && entry.scope_type === scopeType && entry.scope_ref === scopeRef);
+      const record = existing || {
+        id: demoDb.permissionGrants.length ? Math.max(...demoDb.permissionGrants.map((entry) => entry.id)) + 1 : 1,
+        user_id: userId, permission, scope_type: scopeType, scope_ref: scopeRef, created_at: new Date().toISOString(),
+      };
+      record.effect = 'allow';
+      record.created_by = store.user?.id || null;
+      if (!existing) demoDb.permissionGrants.push(record);
+      return record;
+    });
+    recordDemoAudit({
+      category: 'governance',
+      action: 'permission_template_applied',
+      actionLabel: 'Applied permission template to',
+      entityType: 'user',
+      entityRef: String(userId),
+      entityName: user.username,
+      route: '/governance',
+      before: null,
+      after: { template: template.key, grants: grants.length },
+      detail: `Applied the "${template.label}" permission template (${grants.length} grants) at ${scopeType}:${scopeRef}.`,
+    });
+    return { template: template.key, grants: grants.map((entry) => clone(entry)) };
+  }
+
+  if (method === 'DELETE' && path.startsWith('/api/governance/permissions/grants/')) {
+    const grantId = Number(path.split('/')[5] || 0);
+    const index = demoDb.permissionGrants.findIndex((entry) => entry.id === grantId);
+    if (index === -1) {
+      const error = new Error('PERMISSION_GRANT_NOT_FOUND');
+      error.code = 'PERMISSION_GRANT_NOT_FOUND';
+      throw error;
+    }
+    demoDb.permissionGrants.splice(index, 1);
+    return { success: true };
+  }
+
   if (method === 'GET' && path === '/api/governance') {
     const approvals = listDemoGovernanceApprovals();
     const quotaRows = buildDemoQuotaRows();

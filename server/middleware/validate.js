@@ -199,6 +199,11 @@ const schemas = {
   permissionGrantId: Joi.object({
     id: Joi.number().integer().min(1).required(),
   }),
+  permissionTemplateApply: Joi.object({
+    templateKey: Joi.string().trim().required(),
+    scopeType: Joi.string().valid('global', 'organization', 'project', 'target', 'pool', 'resource', 'tag').default('global'),
+    scopeRef: Joi.string().trim().max(255).default('*'),
+  }),
   apiTokenCreate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     permissions: Joi.array().items(Joi.string().trim().pattern(/^[a-z*][a-z0-9.*-]*$/)).max(100).default([]),

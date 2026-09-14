@@ -558,6 +558,25 @@ describe('Governance Routes', () => {
     expect(elevatedEntry).toBeTruthy();
     expect(elevatedEntry.breakGlassElevated).toBe(true);
 
+    // The break-glass flag now propagates to every audited route via
+    // server/middleware/request-context.js, not just the 6 requireAdminSession
+    // routes in this file that manually pass it - prove it on an unrelated
+    // route (credential creation) that never sets req.breakGlassElevated itself.
+    const credentialWhileElevated = await request('POST', '/api/credentials', {
+      name: `break-glass-credential-${Date.now()}`,
+      targetType: 'host',
+      username: 'root',
+      password: 'ElevatedCredential123!',
+    }, operatorAuth.cookie);
+    expect(credentialWhileElevated.status).toBe(201);
+
+    const auditLogAfterCredential = await request('GET', '/api/audit', null, operatorAuth.cookie);
+    const elevatedCredentialEntry = auditLogAfterCredential.body.data.find(
+      (entry) => entry.action === 'credential_created' && entry.operator === operatorUsername
+    );
+    expect(elevatedCredentialEntry).toBeTruthy();
+    expect(elevatedCredentialEntry.breakGlassElevated).toBe(true);
+
     const deactivation = await request('POST', '/api/governance/break-glass/deactivate', null, operatorAuth.cookie);
     expect(deactivation.status).toBe(200);
     expect(deactivation.body.active).toBe(false);
@@ -572,5 +591,49 @@ describe('Governance Routes', () => {
     }, operatorAuth.cookie);
     expect(blockedAgain.status).toBe(403);
     expect(blockedAgain.body.error).toBe('ADMIN_ROLE_REQUIRED');
+  });
+
+  it('lets an admin scope a granular permission grant to an operator and layer a role template on top', async () => {
+    const auth = await login();
+
+    const username = `granular-operator-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const created = await request('POST', '/api/users', {
+      username, password: 'GranularOperator123!', displayName: 'Granular Operator', role: 'operator', active: true,
+    }, auth.cookie);
+    expect(created.status).toBe(201);
+    const userId = created.body.id;
+
+    const templates = await request('GET', '/api/governance/permission-templates', null, auth.cookie);
+    expect(templates.status).toBe(200);
+    expect(templates.body.data.some((entry) => entry.key === 'storage-administrator')).toBe(true);
+
+    const grant = await request('PUT', `/api/governance/permissions/${userId}`, {
+      permission: 'network.manage',
+      scopeType: 'project',
+      scopeRef: '1',
+      effect: 'deny',
+    }, auth.cookie);
+    expect(grant.status).toBe(200);
+    expect(grant.body.effect).toBe('deny');
+    expect(grant.body.scope_type).toBe('project');
+
+    const applied = await request('POST', `/api/governance/permissions/${userId}/apply-template`, {
+      templateKey: 'storage-administrator',
+      scopeType: 'global',
+      scopeRef: '*',
+    }, auth.cookie);
+    expect(applied.status).toBe(200);
+    expect(applied.body.template).toBe('storage-administrator');
+    expect(applied.body.grants.length).toBeGreaterThan(0);
+
+    const listing = await request('GET', `/api/governance/permissions/${userId}`, null, auth.cookie);
+    expect(listing.status).toBe(200);
+    expect(listing.body.roleTemplate).toEqual(expect.arrayContaining(['*']));
+    expect(listing.body.grants.some((entry) => entry.permission === 'network.manage' && entry.effect === 'deny')).toBe(true);
+    expect(listing.body.grants.some((entry) => entry.permission === 'storage.*')).toBe(true);
+
+    const removal = await request('DELETE', `/api/governance/permissions/grants/${listing.body.grants[0].id}`, null, auth.cookie);
+    expect(removal.status).toBe(200);
+    expect(removal.body.success).toBe(true);
   });
 });

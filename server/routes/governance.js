@@ -6,6 +6,7 @@ const webPushService = require('../services/web-push');
 const { userModel } = require('../models/security-db');
 const identityService = require('../services/identity');
 const profileService = require('../services/profile');
+const permissionTemplates = require('../services/permission-templates');
 
 const router = express.Router();
 
@@ -357,6 +358,35 @@ router.put('/permissions/:id', requireAdminSession, validate(schemas.userIdParam
 router.delete('/permissions/grants/:id', requireAdminSession, validate(schemas.permissionGrantId, 'params'), (req, res) => {
   if (!identityService.permissionGrantModel.remove(req.params.id)) return res.status(404).json({ error: 'PERMISSION_GRANT_NOT_FOUND' });
   res.json({ success: true });
+});
+
+router.get('/permission-templates', requireAdminSession, (req, res) => {
+  res.json({ data: permissionTemplates.list() });
+});
+
+router.post('/permissions/:id/apply-template', requireAdminSession, validate(schemas.userIdParam, 'params'), validate(schemas.permissionTemplateApply), (req, res) => {
+  const user = userModel.getById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+  const template = permissionTemplates.get(req.body.templateKey);
+  if (!template) return res.status(404).json({ error: 'PERMISSION_TEMPLATE_NOT_FOUND' });
+
+  const grants = template.permissions.map((permission) => identityService.permissionGrantModel.upsert({
+    userId: user.id,
+    permission,
+    scopeType: req.body.scopeType,
+    scopeRef: req.body.scopeRef || '*',
+    effect: 'allow',
+    createdBy: req.session.userId,
+  }));
+
+  auditLogService.record({
+    category: 'governance', action: 'permission_template_applied', actionLabel: 'Applied permission template to',
+    entityType: 'user', entityRef: String(user.id), entityName: user.username, operator: currentOperator(req),
+    route: '/governance', status: 'success', breakGlassElevated: Boolean(req.breakGlassElevated), before: null, after: { template: template.key, grants: grants.length },
+    detail: `Applied the "${template.label}" permission template (${grants.length} grants) at ${req.body.scopeType}:${req.body.scopeRef || '*'}.`,
+  });
+
+  res.json({ template: template.key, grants });
 });
 
 router.get('/api-tokens/:id', requireAdminSession, validate(schemas.userIdParam, 'params'), (req, res) => {

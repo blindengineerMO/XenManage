@@ -216,6 +216,7 @@ const VMsView = {
       relatedNetworks: [],
       relatedVdis: [],
       vmCompatibility: { hosts: [], lastBootCpuFlags: {}, possibleHostRefs: [], hardwarePlatformVersion: 0, maskingApiAvailable: false },
+      vmPlacementRecommendations: { evaluatedHostCount: 0, weights: {}, recommendations: [], excludedHostCount: 0, notes: '' },
       vmConsoles: [],
       vmSnapshots: [],
       vmMetricHistory: { metrics: [] },

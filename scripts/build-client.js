@@ -181,6 +181,7 @@ function buildAppBundle() {
     'assets/js/components/forms/LocalUserForm.js',
     'assets/js/components/forms/LocalGroupForm.js',
     'assets/js/components/forms/ApiTokenForm.js',
+    'assets/js/components/forms/GovernancePermissionForm.js',
     'assets/js/components/forms/LifecyclePlanForm.js',
     'assets/js/components/forms/ResilienceRunbookForm.js',
     'assets/js/components/forms/ResilienceDrillForm.js',

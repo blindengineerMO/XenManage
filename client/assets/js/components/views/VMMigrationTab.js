@@ -24,6 +24,7 @@ const VMMigrationTab = {
             :initial-value="model.vm"
             :initial-draft="model.initialDraft"
             :host-options="model.hostOptions"
+            :placement-recommendations="model.placementRecommendations"
             :destination-targets="model.destinationTargets"
             :destination-hosts="model.destinationHosts"
             :destination-storage-options="model.destinationStorageOptions"

@@ -205,3 +205,111 @@ function buildDemoVmCompatibility(vm = {}, targetKey = 'demo-fabric') {
     maskingApiAvailable: false,
   };
 }
+
+function buildDemoVmPlacementRecommendations(vm = {}, targetKey = 'demo-fabric') {
+  const WEIGHTS = { memory: 0.4, cpu: 0.3, network: 0.15, storage: 0.15 };
+  const clampPercent = (value) => Math.max(0, Math.min(100, value));
+
+  const compatibility = buildDemoVmCompatibility(vm, targetKey);
+  const baseline = buildDemoCapacityBaseline();
+  const hostMetricsMap = new Map((baseline.hosts || []).map((entry) => [entry.entityRef, entry]));
+
+  const allVdis = Object.values(demoDb.vdis).flat();
+  const vmSrRefs = [...new Set(
+    demoDb.vbds
+      .filter((vbd) => vbd.VM === vm.ref && vbd.type === 'Disk')
+      .map((vbd) => allVdis.find((vdi) => vdi.ref === vbd.VDI)?.SR)
+      .filter(Boolean)
+  )];
+
+  const srByRef = new Map(demoDb.srs.map((sr) => [sr.ref, sr]));
+  const hostSrMap = new Map();
+  demoDb.pbds.forEach((pbd) => {
+    if (!pbd.currently_attached) return;
+    if (!hostSrMap.has(pbd.host)) hostSrMap.set(pbd.host, new Set());
+    hostSrMap.get(pbd.host).add(pbd.SR);
+  });
+
+  const vmMemoryBytes = Number(vm.memory_dynamic_max || vm.memory_static_max || 0);
+  const candidateHosts = compatibility.hosts.filter((host) =>
+    host.compatible && host.enabled && !host.maintenance_mode && !host.currentResident
+  );
+
+  const recommendations = candidateHosts.map((host) => {
+    const metrics = hostMetricsMap.get(host.ref) || {};
+    const memoryTotal = Number(metrics.memory_total_bytes || 0);
+    const memoryFree = Number(metrics.memory_free_bytes || 0);
+    let memoryScore = 0;
+    let fits = false;
+    let memoryDetail = 'No memory telemetry available for this host yet.';
+    if (memoryTotal) {
+      const projectedFree = memoryFree - vmMemoryBytes;
+      fits = projectedFree >= 0;
+      const projectedUsagePercent = clampPercent(((memoryTotal - projectedFree) / memoryTotal) * 100);
+      memoryScore = fits ? clampPercent(100 - projectedUsagePercent) : 0;
+      memoryDetail = fits
+        ? `Projected memory usage after placement: ${Math.round(projectedUsagePercent)}%.`
+        : `Not enough free memory (${Math.round(memoryFree / (1024 ** 3))} GiB free, ${Math.round(vmMemoryBytes / (1024 ** 3))} GiB required).`;
+    }
+
+    const cpuUsagePercent = metrics.cpu_usage_percent;
+    const cpuScore = cpuUsagePercent === undefined ? 50 : clampPercent(100 - Number(cpuUsagePercent));
+    const cpuDetail = cpuUsagePercent === undefined
+      ? 'No recent CPU utilization sample; assumed neutral.'
+      : `Current host CPU utilization: ${Math.round(Number(cpuUsagePercent))}%.`;
+
+    const totalKibPerSec = Number(metrics.network_rx_kib_per_s || 0) + Number(metrics.network_tx_kib_per_s || 0);
+    const networkScore = clampPercent(100 - (totalKibPerSec / (1024 * 1024)) * 100);
+    const networkDetail = `Combined host network throughput: ${Math.round(totalKibPerSec)} KiB/s.`;
+
+    let storageScore = 100;
+    let storageDetail = 'This workload has no attached disks to relocate.';
+    if (vmSrRefs.length) {
+      const attachedSrs = hostSrMap.get(host.ref) || new Set();
+      const localCount = vmSrRefs.filter((srRef) => attachedSrs.has(srRef)).length;
+      if (localCount === vmSrRefs.length) {
+        storageScore = 100;
+        storageDetail = 'All attached storage is already reachable from this host.';
+      } else {
+        const sharedCount = vmSrRefs.filter((srRef) => srByRef.get(srRef)?.shared).length;
+        if (sharedCount === vmSrRefs.length) {
+          storageScore = 90;
+          storageDetail = 'All attached storage is on shared repositories reachable pool-wide.';
+        } else {
+          const missing = vmSrRefs.length - localCount;
+          storageScore = clampPercent(100 - (missing / vmSrRefs.length) * 100);
+          storageDetail = `${missing} of ${vmSrRefs.length} attached disk(s) are on storage not reachable from this host.`;
+        }
+      }
+    }
+
+    const score = fits ? Math.round(
+      (memoryScore * WEIGHTS.memory) + (cpuScore * WEIGHTS.cpu) + (networkScore * WEIGHTS.network) + (storageScore * WEIGHTS.storage)
+    ) : 0;
+
+    return {
+      hostRef: host.ref,
+      name_label: host.name_label,
+      readiness: host.readiness,
+      eligible: fits,
+      score,
+      factors: [
+        { key: 'memory', label: 'Memory Headroom', score: Math.round(memoryScore), detail: memoryDetail },
+        { key: 'cpu', label: 'CPU Headroom', score: Math.round(cpuScore), detail: cpuDetail },
+        { key: 'network', label: 'Network Capacity', score: Math.round(networkScore), detail: networkDetail },
+        { key: 'storage', label: 'Storage Locality', score: Math.round(storageScore), detail: storageDetail },
+      ],
+    };
+  });
+
+  recommendations.sort((left, right) => right.score - left.score);
+
+  return {
+    vmRef: vm.ref || '',
+    evaluatedHostCount: candidateHosts.length,
+    weights: WEIGHTS,
+    recommendations: recommendations.slice(0, 5),
+    excludedHostCount: compatibility.hosts.length - candidateHosts.length,
+    notes: 'Scoring currently covers memory headroom, CPU utilization, network throughput, and storage locality. Disk/storage latency, NUMA topology, GPU-aware placement, VM-to-VM anti-affinity, licensing zone, and administrative placement policy are not modeled yet.',
+  };
+}

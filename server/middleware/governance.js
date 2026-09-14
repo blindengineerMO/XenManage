@@ -1,6 +1,22 @@
 const governanceService = require('../services/governance');
 const identityService = require('../services/identity');
 const actionCatalog = require('../services/action-catalog');
+const { projectModel } = require('../models/connection');
+const managedTargetService = require('../services/managed-targets');
+
+function resolveProjectScope(req) {
+  try {
+    const managedId = managedTargetService.parseManagedTargetKey(req.xenTarget?.targetKey || '');
+    if (!managedId) return { project: '', organization: '' };
+    const project = projectModel.listProjects().find((entry) => entry.target_ids.includes(managedId));
+    return {
+      project: project ? String(project.id) : '',
+      organization: project ? String(project.organization_id) : '',
+    };
+  } catch {
+    return { project: '', organization: '' };
+  }
+}
 
 function getGovernanceSnapshot(session = {}) {
   const policy = governanceService.getPolicy();
@@ -44,6 +60,7 @@ function ensureMutationAllowed(req, res, options = {}) {
   const destructive = options.destructive ?? catalogEntry?.destructive ?? false;
   const permission = options.permission || identityService.actionPermission(options.actionKey || 'resource.update');
   const entityRef = options.entityRef || req.body?.ref || req.params?.ref || '';
+  const projectScope = resolveProjectScope(req);
   const hasPermission = identityService.hasPermission({
     session: req.session,
     principal: req.principal,
@@ -51,6 +68,8 @@ function ensureMutationAllowed(req, res, options = {}) {
     global: '*',
     target: req.xenTarget?.connectionId || '',
     pool: req.xenTarget?.connectionId || '',
+    organization: projectScope.organization,
+    project: projectScope.project,
     resource: entityRef,
     [entityType]: entityRef,
   });

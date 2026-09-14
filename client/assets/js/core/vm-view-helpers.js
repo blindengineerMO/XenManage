@@ -944,6 +944,7 @@ function buildVmMigrationModel({
   runtimeModeSummary = '',
   runtimeModeBadge = '',
   destinationFabricSummary = '',
+  placementRecommendations = null,
 }) {
   if (!vm) return null;
 
@@ -951,6 +952,7 @@ function buildVmMigrationModel({
     vm,
     initialDraft,
     hostOptions,
+    placementRecommendations,
     destinationTargets,
     destinationHosts,
     destinationStorageOptions,

@@ -12,6 +12,16 @@ function createEmptyVmCompatibility() {
   };
 }
 
+function createEmptyVmPlacementRecommendations() {
+  return {
+    evaluatedHostCount: 0,
+    weights: {},
+    recommendations: [],
+    excludedHostCount: 0,
+    notes: '',
+  };
+}
+
 function createEmptyVmInventoryContext() {
   return {
     relatedHosts: [],
@@ -31,6 +41,7 @@ function createEmptyVmDetailContext() {
     vmMetricHistory: createEmptyVmMetricHistory(),
     vmSnapshots: [],
     vmCompatibility: createEmptyVmCompatibility(),
+    vmPlacementRecommendations: createEmptyVmPlacementRecommendations(),
     vmConsoles: [],
   };
 }
@@ -54,13 +65,14 @@ async function loadVmInventoryContext(api, targetKey = '') {
 
 async function loadVmDetailContext(api, ref) {
   const inventoryPromise = loadVmInventoryContext(api);
-  const [vm, appliances, snapshotSchedules, metricHistory, snapshots, compatibility, consoles, inventory] = await Promise.all([
+  const [vm, appliances, snapshotSchedules, metricHistory, snapshots, compatibility, placementRecommendations, consoles, inventory] = await Promise.all([
     api.getVM(ref),
     api.getVMAppliances().catch(() => ({ data: [] })),
     api.getVMSnapshotSchedules().catch(() => ({ data: [] })),
     api.getVmMetricHistory(ref).catch(() => createEmptyVmMetricHistory()),
     api.getVMSnapshots(ref).catch(() => ({ data: [] })),
     api.getVMCompatibility(ref).catch(() => createEmptyVmCompatibility()),
+    api.getVMPlacementRecommendations(ref).catch(() => createEmptyVmPlacementRecommendations()),
     api.getVMConsoles(ref).catch(() => ({ data: [] })),
     inventoryPromise,
   ]);
@@ -85,6 +97,7 @@ async function loadVmDetailContext(api, ref) {
       .map((entry) => normalizeVmSnapshotRecord(entry))
       .sort((left, right) => new Date(right.snapshot_time || 0) - new Date(left.snapshot_time || 0)),
     vmCompatibility: compatibility || createEmptyVmCompatibility(),
+    vmPlacementRecommendations: placementRecommendations || createEmptyVmPlacementRecommendations(),
     vmConsoles: (consoles.data || []).map((entry) => normalizeVmConsoleRecord(entry)),
   };
 }

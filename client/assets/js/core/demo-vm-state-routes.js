@@ -122,6 +122,13 @@ function handleDemoVmStateRoutes(method, path, body, parsedUrl, targetKey) {
     return clone(buildDemoVmCompatibility(vm, targetKey));
   }
 
+  if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/placement-recommendations')) {
+    const ref = decodeURIComponent(path.split('/')[3] || '');
+    const vm = buildDemoVmInventory(targetKey).find((entry) => entry.ref === ref);
+    if (!vm) throw new Error('VM_NOT_FOUND');
+    return clone(buildDemoVmPlacementRecommendations(vm, targetKey));
+  }
+
   if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/consoles')) {
     const ref = decodeURIComponent(path.split('/')[3] || '');
     const vm = buildDemoVmInventory(targetKey).find((entry) => entry.ref === ref);

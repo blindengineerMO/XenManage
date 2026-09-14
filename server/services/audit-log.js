@@ -1,4 +1,5 @@
 const { settingsModel } = require('../models/connection');
+const requestContext = require('./request-context');
 
 const SETTINGS_KEY = 'activity.audit';
 const MAX_ENTRIES = 500;
@@ -96,7 +97,9 @@ const auditLogService = {
       operator: entry.operator || 'system',
       route: entry.route || '',
       status: entry.status || 'success',
-      breakGlassElevated: Boolean(entry.breakGlassElevated),
+      breakGlassElevated: entry.breakGlassElevated !== undefined
+        ? Boolean(entry.breakGlassElevated)
+        : Boolean(requestContext.get().breakGlassElevated),
       before,
       after,
       changedFields,

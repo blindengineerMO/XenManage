@@ -98,6 +98,7 @@ function createVmDetailLoadingState() {
     vmMetricHistory: emptyDetail.vmMetricHistory,
     vmSnapshots: emptyDetail.vmSnapshots,
     vmCompatibility: emptyDetail.vmCompatibility,
+    vmPlacementRecommendations: emptyDetail.vmPlacementRecommendations,
     vmConsoles: emptyDetail.vmConsoles,
   };
 }
@@ -115,6 +116,7 @@ function buildVmDetailWorkspaceState(detailContext = {}, selectedVM = null) {
     vmMetricHistory: detailContext.vmMetricHistory || createEmptyVmMetricHistory(),
     vmSnapshots: detailContext.vmSnapshots || [],
     vmCompatibility: detailContext.vmCompatibility || createEmptyVmCompatibility(),
+    vmPlacementRecommendations: detailContext.vmPlacementRecommendations || createEmptyVmPlacementRecommendations(),
     vmConsoles: detailContext.vmConsoles || [],
   };
 }

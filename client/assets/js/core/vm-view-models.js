@@ -263,6 +263,7 @@ function buildVmTabModels(view) {
         view?.migrationDestinationPools,
         view?.migrationDestinationStorage
       ),
+      placementRecommendations: view?.vmPlacementRecommendations || null,
     }),
     portability: buildVmPortabilityModel({
       vm,

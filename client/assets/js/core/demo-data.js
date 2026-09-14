@@ -1121,6 +1121,18 @@ const demoDb = {
       revoked_at: '',
     },
   ],
+  permissionGrants: [
+    {
+      id: 1,
+      user_id: 2,
+      permission: 'vm.snapshot.*',
+      scope_type: 'project',
+      scope_ref: '1',
+      effect: 'allow',
+      created_by: 1,
+      created_at: '2026-08-22T09:05:00.000Z',
+    },
+  ],
   resilienceRunbooks: [
     {
       poolRef: 'OpaqueRef:pool-demo-1',

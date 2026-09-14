@@ -13,6 +13,7 @@ const { createErrorHandler } = require('./middleware/error-handler');
 const logger = require('./services/logger');
 const errorTracking = require('./services/error-tracking');
 const sessionMiddleware = require('./middleware/session');
+const requestContextMiddleware = require('./middleware/request-context');
 const { router: authRouter, requireAuth, requireXenConnection, buildStatusPayload } = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
 const vmRoutes = require('./routes/vms');
@@ -83,6 +84,7 @@ const apiCsrfProtection = csrfProtection({ skip: () => config.env === 'test' });
 
 // Session
 sessionMiddleware(app);
+app.use(requestContextMiddleware);
 
 // View engine for error pages
 app.set('view engine', 'ejs');

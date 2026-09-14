@@ -8,6 +8,7 @@ const GovernanceControlPanel = {
     LocalGroupForm,
     UserPasswordForm,
     ApiTokenForm,
+    GovernancePermissionForm,
     StatusBadge,
   },
   props: {
@@ -44,8 +45,14 @@ const GovernanceControlPanel = {
     tokenSaving: { type: Boolean, default: false },
     tokenError: { type: String, default: '' },
     newTokenSecret: { type: String, default: '' },
+    permissionTemplates: { type: Array, default: () => [] },
+    selectedPermissionUser: { type: Object, default: null },
+    permissionGrants: { type: Array, default: () => [] },
+    permissionRoleTemplate: { type: Array, default: () => [] },
+    permissionSaving: { type: Boolean, default: false },
+    permissionError: { type: String, default: '' },
   },
-  emits: ['close', 'select-tab', 'save-policy', 'select-quota', 'save-quota', 'delete-quota', 'save-approval', 'decide-approval', 'new-user', 'select-user', 'save-user', 'open-password-reset', 'close-password-reset', 'save-password', 'new-group', 'select-group', 'save-group', 'remove-group', 'select-token-user', 'save-token', 'revoke-token', 'dismiss-new-token-secret'],
+  emits: ['close', 'select-tab', 'save-policy', 'select-quota', 'save-quota', 'delete-quota', 'save-approval', 'decide-approval', 'new-user', 'select-user', 'save-user', 'open-password-reset', 'close-password-reset', 'save-password', 'new-group', 'select-group', 'save-group', 'remove-group', 'select-token-user', 'save-token', 'revoke-token', 'dismiss-new-token-secret', 'select-permission-user', 'save-permission-grant', 'remove-permission-grant', 'apply-permission-template'],
   template: `
     <floating-window :show="show" title="Governance Control Panel" :width="980" :height="700" @close="$emit('close')">
       <div class="detail-section" style="margin-top:0">
@@ -99,7 +106,7 @@ const GovernanceControlPanel = {
           <div class="governance-panel-editor" v-if="canManageUsers"><div class="detail-title">{{ selectedGroup && !showGroupComposer ? 'Edit Local Group' : 'Create Local Group' }}</div><local-group-form :initial-value="showGroupComposer ? emptyGroupDraft : (selectedGroup || {})" :saving="groupSaving" :submit-label="showGroupComposer ? 'Create Group' : 'Save Group'" :user-options="users" @submit="$emit('save-group', $event)"></local-group-form><button v-if="selectedGroup && !showGroupComposer" class="btn" :disabled="groupSaving" @click="$emit('remove-group', selectedGroup)">Remove Group</button><div class="form-error" v-if="groupError">{{ groupError }}</div></div>
         </div>
 
-        <div v-else class="governance-panel-grid">
+        <div v-else-if="activeTab === 'tokens'" class="governance-panel-grid">
           <div class="stack-list"><button v-for="user in users" :key="user.id" class="stack-item stack-item-button" :class="{ active: selectedTokenUser?.id === user.id }" @click="$emit('select-token-user', user)"><div><strong>{{ user.display_name || user.username }}</strong><div class="text-muted mono" style="font-size:11px">{{ user.username }} · {{ user.role }}</div></div></button></div>
           <div class="governance-panel-editor" v-if="selectedTokenUser">
             <div class="detail-title">API Tokens for {{ selectedTokenUser.display_name || selectedTokenUser.username }}</div>
@@ -120,9 +127,42 @@ const GovernanceControlPanel = {
           </div>
           <div v-else class="empty-state">Select a user to manage their API tokens.</div>
         </div>
+
+        <div v-else class="governance-panel-grid">
+          <div class="stack-list"><button v-for="user in users" :key="user.id" class="stack-item stack-item-button" :class="{ active: selectedPermissionUser?.id === user.id }" @click="$emit('select-permission-user', user)"><div><strong>{{ user.display_name || user.username }}</strong><div class="text-muted mono" style="font-size:11px">{{ user.username }} · {{ user.role }}</div></div></button></div>
+          <div class="governance-panel-editor" v-if="selectedPermissionUser">
+            <div class="detail-title">Permissions for {{ selectedPermissionUser.display_name || selectedPermissionUser.username }}</div>
+            <p class="text-muted" style="font-size:12px">Default role template ({{ selectedPermissionUser.role }}): <span class="mono">{{ permissionRoleTemplate.join(', ') || 'none' }}</span></p>
+
+            <div class="form-group">
+              <label>Apply a role template</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button v-for="template in permissionTemplates" :key="template.key" type="button" class="btn btn-sm" :disabled="permissionSaving" :title="template.description" @click="$emit('apply-permission-template', { templateKey: template.key, scopeType: 'global', scopeRef: '*' })">
+                  {{ template.label }}
+                </button>
+              </div>
+              <p class="text-muted" style="font-size:11px;margin-top:6px">Templates grant a curated permission bundle scoped globally to this user. Add a scoped grant below to narrow it to an organization, project, pool, or resource.</p>
+            </div>
+
+            <div class="stack-list" style="margin-bottom:10px">
+              <div v-for="grant in permissionGrants" :key="grant.id" class="stack-item">
+                <div>
+                  <strong>{{ grant.effect === 'deny' ? 'Deny' : 'Allow' }} {{ grant.permission }}</strong>
+                  <div class="text-muted mono" style="font-size:11px">{{ grant.scope_type }}:{{ grant.scope_ref }}</div>
+                </div>
+                <button class="btn btn-sm" :disabled="permissionSaving" @click="$emit('remove-permission-grant', grant)">Remove</button>
+              </div>
+              <div v-if="!permissionGrants.length" class="empty-state">No scoped grants yet — this user relies entirely on their role template.</div>
+            </div>
+
+            <governance-permission-form :saving="permissionSaving" submit-label="Add Grant" @submit="$emit('save-permission-grant', $event)"></governance-permission-form>
+            <div class="form-error" v-if="permissionError">{{ permissionError }}</div>
+          </div>
+          <div v-else class="empty-state">Select a user to manage their scoped permission grants.</div>
+        </div>
       </div>
     </floating-window>
   `,
-  data() { return { emptyUserDraft: {}, emptyGroupDraft: {}, tabs: [{ key: 'policy', label: 'Policy', icon: 'mdi-shield-cog-outline' }, { key: 'quotas', label: 'Quotas', icon: 'mdi-gauge' }, { key: 'users', label: 'Users', icon: 'mdi-account-multiple-outline' }, { key: 'groups', label: 'Groups', icon: 'mdi-account-group-outline' }, { key: 'approvals', label: 'Approvals', icon: 'mdi-clipboard-check-outline' }, { key: 'tokens', label: 'API Tokens', icon: 'mdi-key-outline' }] }; },
+  data() { return { emptyUserDraft: {}, emptyGroupDraft: {}, tabs: [{ key: 'policy', label: 'Policy', icon: 'mdi-shield-cog-outline' }, { key: 'quotas', label: 'Quotas', icon: 'mdi-gauge' }, { key: 'users', label: 'Users', icon: 'mdi-account-multiple-outline' }, { key: 'groups', label: 'Groups', icon: 'mdi-account-group-outline' }, { key: 'approvals', label: 'Approvals', icon: 'mdi-clipboard-check-outline' }, { key: 'tokens', label: 'API Tokens', icon: 'mdi-key-outline' }, { key: 'permissions', label: 'Permissions', icon: 'mdi-shield-key-outline' }] }; },
   methods: { mapApprovalStatus: mapGovernanceApprovalStatus, formatApprovalAction: formatGovernanceApprovalAction },
 };

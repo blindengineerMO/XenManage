@@ -15,6 +15,7 @@ const { planCompose, executeCompose } = require('../services/deployment-engine')
 const { buildBundledOsProfiles } = require('../services/os-profiles');
 const { deployTemplate } = require('../services/template-deployment');
 const { enforcePoolQuota } = require('../services/pool-quota');
+const placementEngine = require('../services/placement-engine');
 
 async function safeGetVmRecord(xenApi, ref) {
   try {
@@ -787,6 +788,16 @@ router.post('/:ref/migrate', validate(schemas.opaqueRefParam, 'params'), validat
 router.get('/:ref/compatibility', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
   try {
     const report = await req.xenApi.getVMCompatibility(req.params.ref);
+    res.json(report);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.code || err.message });
+  }
+});
+
+router.get('/:ref/placement-recommendations', validate(schemas.opaqueRefParam, 'params'), async (req, res) => {
+  try {
+    const targetKey = req.xenTarget?.targetKey || req.session?.activeXenTargetKey || '';
+    const report = await placementEngine.getRecommendations(req.xenApi, req.params.ref, { targetKey });
     res.json(report);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.code || err.message });

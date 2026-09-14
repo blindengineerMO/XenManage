@@ -407,12 +407,14 @@ const GovernanceView = {
           :can-manage-users="canManageUsers" :users="users" :groups="groups" :selected-user="selectedUser" :show-user-composer="showUserComposer" :user-saving="userSaving" :user-error="userError" :show-password-reset="showPasswordReset" :password-saving="passwordSaving" :password-error="passwordError"
           :selected-group="selectedGroup" :show-group-composer="showGroupComposer" :group-saving="groupSaving" :group-error="groupError"
           :api-tokens="apiTokens" :selected-token-user="selectedTokenUser" :token-saving="tokenSaving" :token-error="tokenError" :new-token-secret="newTokenSecret"
+          :permission-templates="permissionTemplates" :selected-permission-user="selectedPermissionUser" :permission-grants="permissionGrants" :permission-role-template="permissionRoleTemplate" :permission-saving="permissionSaving" :permission-error="permissionError"
           @close="closeGovernancePanel" @select-tab="selectGovernancePanelTab" @save-policy="savePolicy"
           @select-quota="openQuotaEditor" @save-quota="saveQuota" @delete-quota="deleteQuota"
           @save-approval="saveApprovalRequest" @decide-approval="decideApproval"
           @new-user="openUserComposer" @select-user="openUserEditor" @save-user="showUserComposer ? saveNewUser($event) : saveExistingUser($event)" @open-password-reset="openPasswordReset" @save-password="submitPasswordReset"
           @new-group="openGroupComposer" @select-group="openGroupEditor" @save-group="showGroupComposer ? saveNewGroup($event) : saveExistingGroup($event)" @remove-group="removeGroup"
-          @select-token-user="selectTokenUser" @save-token="saveApiToken" @revoke-token="revokeApiToken" @dismiss-new-token-secret="newTokenSecret = ''">
+          @select-token-user="selectTokenUser" @save-token="saveApiToken" @revoke-token="revokeApiToken" @dismiss-new-token-secret="newTokenSecret = ''"
+          @select-permission-user="selectPermissionUser" @save-permission-grant="savePermissionGrant" @remove-permission-grant="removePermissionGrant" @apply-permission-template="applyPermissionTemplate">
         </governance-control-panel>
       </template>
     </div>
@@ -478,6 +480,12 @@ const GovernanceView = {
       tokenSaving: false,
       tokenError: '',
       newTokenSecret: '',
+      permissionTemplates: [],
+      selectedPermissionUser: null,
+      permissionGrants: [],
+      permissionRoleTemplate: [],
+      permissionSaving: false,
+      permissionError: '',
     };
   },
   setup() {
@@ -542,7 +550,7 @@ const GovernanceView = {
     async loadGovernance() {
       this.loading = true;
       try {
-        const [governanceResults, usersResult, groupsResult, vFabricQuotaEvaluation] = await Promise.all([
+        const [governanceResults, usersResult, groupsResult, vFabricQuotaEvaluation, permissionTemplatesResult] = await Promise.all([
           this.loadGovernanceAcrossScope(),
           this.canManageUsers
             ? api.getUsers().catch((error) => {
@@ -559,7 +567,11 @@ const GovernanceView = {
           hasVFabricScope()
             ? api.getVFabricQuota(store.vFabricScope.scope.id).catch(() => null)
             : Promise.resolve(null),
+          this.canManageUsers
+            ? api.getPermissionTemplates().catch(() => null)
+            : Promise.resolve(null),
         ]);
+        this.permissionTemplates = permissionTemplatesResult?.data || this.permissionTemplates;
 
         const result = governanceResults[0] || {};
         this.summary = mergeGovernanceScopeSummaries(governanceResults, this.summary);
@@ -958,6 +970,62 @@ const GovernanceView = {
         this.tokenError = error.message || 'Unable to revoke API token';
       } finally {
         this.tokenSaving = false;
+      }
+    },
+    async loadPermissionGrantsForUser(user) {
+      if (!user?.id) { this.permissionGrants = []; this.permissionRoleTemplate = []; return; }
+      try {
+        const response = await api.getPermissionGrants(user.id);
+        this.permissionGrants = response?.grants || [];
+        this.permissionRoleTemplate = response?.roleTemplate || [];
+      } catch (error) {
+        this.permissionError = error.message || 'Unable to load permission grants';
+      }
+    },
+    async selectPermissionUser(user) {
+      this.selectedPermissionUser = user;
+      this.permissionError = '';
+      this.permissionGrants = [];
+      this.permissionRoleTemplate = [];
+      await this.loadPermissionGrantsForUser(user);
+    },
+    async savePermissionGrant(payload) {
+      if (!this.selectedPermissionUser?.id) return;
+      this.permissionSaving = true;
+      this.permissionError = '';
+      try {
+        await api.savePermissionGrant(this.selectedPermissionUser.id, payload);
+        await this.loadPermissionGrantsForUser(this.selectedPermissionUser);
+      } catch (error) {
+        this.permissionError = error.message || 'Unable to save permission grant';
+      } finally {
+        this.permissionSaving = false;
+      }
+    },
+    async removePermissionGrant(grant) {
+      if (!grant?.id) return;
+      this.permissionSaving = true;
+      this.permissionError = '';
+      try {
+        await api.removePermissionGrant(grant.id);
+        await this.loadPermissionGrantsForUser(this.selectedPermissionUser);
+      } catch (error) {
+        this.permissionError = error.message || 'Unable to remove permission grant';
+      } finally {
+        this.permissionSaving = false;
+      }
+    },
+    async applyPermissionTemplate(payload) {
+      if (!this.selectedPermissionUser?.id) return;
+      this.permissionSaving = true;
+      this.permissionError = '';
+      try {
+        await api.applyPermissionTemplate(this.selectedPermissionUser.id, payload);
+        await this.loadPermissionGrantsForUser(this.selectedPermissionUser);
+      } catch (error) {
+        this.permissionError = error.message || 'Unable to apply permission template';
+      } finally {
+        this.permissionSaving = false;
       }
     },
     async submitPasswordReset(payload) {
