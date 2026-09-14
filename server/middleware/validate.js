@@ -9,6 +9,10 @@
  */
 const Joi = require('joi');
 
+// Shared with projects.defaultRecoveryTier so a project's declared backup
+// policy is always a value the resilience-runbook system actually recognizes.
+const RECOVERY_TIERS = ['tier-1', 'tier-2', 'standard', 'edge'];
+
 const lifecyclePlanSeedSchema = Joi.object({
   enabled: Joi.boolean().default(false),
   baselineStatus: Joi.string().valid('compliant', 'drifted', 'unknown').default('unknown'),
@@ -29,7 +33,7 @@ const lifecyclePlanSeedSchema = Joi.object({
 
 const resilienceRunbookSeedSchema = Joi.object({
   enabled: Joi.boolean().default(false),
-  recoveryTier: Joi.string().valid('tier-1', 'tier-2', 'standard', 'edge').default('standard'),
+  recoveryTier: Joi.string().valid(...RECOVERY_TIERS).default('standard'),
   haPolicy: Joi.string().valid('auto-failover', 'priority-restart', 'manual', 'disabled').default('manual'),
   restartPriority: Joi.string().valid('highest', 'high', 'medium', 'low', 'best-effort').default('medium'),
   backupWindowHours: Joi.number().integer().min(1).max(720).default(24),
@@ -236,18 +240,20 @@ const schemas = {
     name: Joi.string().trim().required().min(1).max(120),
     description: Joi.string().allow('').max(500).default(''),
     costCenter: Joi.string().allow('').max(120).default(''),
-    defaultRecoveryTier: Joi.string().allow('').max(120).default(''),
+    defaultRecoveryTier: Joi.string().allow('').valid(...RECOVERY_TIERS, '').default(''),
     ownerUserId: Joi.number().integer().min(1).allow(null).default(null),
     targetIds: Joi.array().items(Joi.number().integer().min(1)).max(100).default([]),
+    networkRefs: Joi.array().items(Joi.string().trim().max(255)).max(200).default([]),
   }),
   projectUpdate: Joi.object({
     name: Joi.string().trim().required().min(1).max(120),
     description: Joi.string().allow('').max(500).default(''),
     costCenter: Joi.string().allow('').max(120).default(''),
-    defaultRecoveryTier: Joi.string().allow('').max(120).default(''),
+    defaultRecoveryTier: Joi.string().allow('').valid(...RECOVERY_TIERS, '').default(''),
     ownerUserId: Joi.number().integer().min(1).allow(null).default(null),
     enabled: Joi.boolean().default(true),
     targetIds: Joi.array().items(Joi.number().integer().min(1)).max(100).default([]),
+    networkRefs: Joi.array().items(Joi.string().trim().max(255)).max(200).default([]),
   }),
   projectQuotaUpdate: Joi.object({
     enabled: Joi.boolean().default(true),
@@ -257,6 +263,7 @@ const schemas = {
     maxStorageGiB: Joi.number().min(0).default(0),
     maxGpuCount: Joi.number().integer().min(0).default(0),
     maxNetworkCount: Joi.number().integer().min(0).default(0),
+    approvalThresholdMemoryGiB: Joi.number().min(0).default(0),
   }),
   projectMemberUpdate: Joi.object({ role: Joi.string().valid('owner', 'member', 'viewer').default('member') }),
   credentialCreate: Joi.object({
@@ -945,7 +952,7 @@ const schemas = {
     }),
   }),
   resilienceRunbookUpdate: Joi.object({
-    recoveryTier: Joi.string().valid('tier-1', 'tier-2', 'standard', 'edge').default('standard'),
+    recoveryTier: Joi.string().valid(...RECOVERY_TIERS).default('standard'),
     haPolicy: Joi.string().valid('auto-failover', 'priority-restart', 'manual', 'disabled').default('manual'),
     restartPriority: Joi.string().valid('highest', 'high', 'medium', 'low', 'best-effort').default('medium'),
     backupWindowHours: Joi.number().integer().min(1).max(720).default(24),

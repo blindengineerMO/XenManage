@@ -1,3 +1,12 @@
+// Pure catalog-entry validators and helpers: naming patterns, subscriber fields,
+// approval policies, leases, cost rates, and target-pool refs. Persistence lives
+// in catalogModel; this module does not touch the DB. Consumed by routes/catalog.js
+// and catalog-approval-hooks (renderGeneratedName after a webhook approve).
+// Naming patterns need exactly one contiguous run of X (zero-padded sequence).
+// Approval modes: manual | auto | threshold | webhook | multi-step. Webhook
+// URL/credential checks happen in catalog-approval-hooks, not here. To add a
+// field type or approval mode, extend FIELD_TYPES / APPROVAL_MODES and the
+// matching normalizer.
 const NAMING_PATTERN = /^(.*?)(X+)(.*?)$/;
 const FIELD_TYPES = new Set(['string', 'number', 'boolean', 'select']);
 const APPROVAL_MODES = new Set(['manual', 'auto', 'threshold', 'webhook', 'multi-step']);

@@ -135,6 +135,11 @@ function getDb() {
     checksum: 'control-plane-baseline-2026-09-02',
     adoptLegacySchema: true,
     up: initializeSchema,
+  }, {
+    version: 2,
+    name: 'project-networks-and-approval-threshold',
+    checksum: 'project-networks-and-approval-threshold-2026-09-14',
+    up: addProjectNetworksAndApprovalThreshold,
   }]);
   ensureDefaultOrganizationProject(db);
   return db;
@@ -694,6 +699,22 @@ function initializeSchema() {
   });
 }
 
+function addProjectNetworksAndApprovalThreshold(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS project_networks (
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      network_ref TEXT NOT NULL,
+      PRIMARY KEY(project_id, network_ref)
+    );
+  `);
+  const quotaColumns = new Set(
+    database.prepare('PRAGMA table_info(project_quotas)').all().map((column) => column.name)
+  );
+  if (!quotaColumns.has('approval_threshold_memory_gib')) {
+    database.exec('ALTER TABLE project_quotas ADD COLUMN approval_threshold_memory_gib REAL NOT NULL DEFAULT 0');
+  }
+}
+
 // Connection CRUD
 const connectionModel = {
   getAll() {
@@ -1117,13 +1138,22 @@ const projectModel = {
     `).all().map((project) => ({
       ...project, id: Number(project.id), organization_id: Number(project.organization_id), owner_user_id: normalizeOwnerUserId(project.owner_user_id),
       enabled: Boolean(Number(project.enabled)), target_ids: String(project.target_ids || '').split(',').map(Number).filter(Boolean),
+      network_refs: this.listNetworkRefs(project.id),
       quota: this.getQuota(project.id), members: this.listMembers(project.id),
     }));
   },
   getProject(id) {
     return this.listProjects().find((project) => project.id === Number(id)) || null;
   },
-  createProject({ organizationId, name, description = '', costCenter = '', defaultRecoveryTier = '', ownerUserId = null, targetIds = [] }) {
+  listNetworkRefs(projectId) {
+    return getDb().prepare('SELECT network_ref FROM project_networks WHERE project_id = ? ORDER BY network_ref').all(projectId).map((row) => row.network_ref);
+  },
+  replaceNetworkRefs(database, projectId, networkRefs = []) {
+    database.prepare('DELETE FROM project_networks WHERE project_id = ?').run(projectId);
+    const networkInsert = database.prepare('INSERT OR IGNORE INTO project_networks (project_id, network_ref) VALUES (?, ?)');
+    [...new Set((networkRefs || []).map((ref) => String(ref || '').trim()).filter(Boolean))].forEach((ref) => networkInsert.run(projectId, ref));
+  },
+  createProject({ organizationId, name, description = '', costCenter = '', defaultRecoveryTier = '', ownerUserId = null, targetIds = [], networkRefs = [] }) {
     const database = getDb();
     const transaction = database.transaction(() => {
       const result = database.prepare(`
@@ -1133,11 +1163,12 @@ const projectModel = {
       const projectId = Number(result.lastInsertRowid);
       const targetInsert = database.prepare('INSERT OR IGNORE INTO project_targets (project_id, managed_target_id) VALUES (?, ?)');
       (targetIds || []).forEach((targetId) => targetInsert.run(projectId, Number(targetId)));
+      this.replaceNetworkRefs(database, projectId, networkRefs);
       return projectId;
     });
     return this.getProject(transaction());
   },
-  updateProject(id, { name, description = '', costCenter = '', defaultRecoveryTier = '', ownerUserId = null, enabled = true, targetIds = [] }) {
+  updateProject(id, { name, description = '', costCenter = '', defaultRecoveryTier = '', ownerUserId = null, enabled = true, targetIds = [], networkRefs = [] }) {
     const database = getDb();
     const transaction = database.transaction(() => {
       database.prepare(`
@@ -1147,6 +1178,7 @@ const projectModel = {
       database.prepare('DELETE FROM project_targets WHERE project_id = ?').run(id);
       const targetInsert = database.prepare('INSERT OR IGNORE INTO project_targets (project_id, managed_target_id) VALUES (?, ?)');
       (targetIds || []).forEach((targetId) => targetInsert.run(Number(id), Number(targetId)));
+      this.replaceNetworkRefs(database, Number(id), networkRefs);
     });
     transaction();
     return this.getProject(id);
@@ -1164,12 +1196,13 @@ const projectModel = {
   },
   upsertQuota(projectId, quota = {}) {
     getDb().prepare(`
-      INSERT INTO project_quotas (project_id, enabled, max_vm_count, max_vcpus, max_memory_gib, max_storage_gib, max_gpu_count, max_network_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO project_quotas (project_id, enabled, max_vm_count, max_vcpus, max_memory_gib, max_storage_gib, max_gpu_count, max_network_count, approval_threshold_memory_gib)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, max_vm_count = excluded.max_vm_count,
         max_vcpus = excluded.max_vcpus, max_memory_gib = excluded.max_memory_gib, max_storage_gib = excluded.max_storage_gib,
-        max_gpu_count = excluded.max_gpu_count, max_network_count = excluded.max_network_count, updated_at = CURRENT_TIMESTAMP
-    `).run(projectId, quota.enabled !== false ? 1 : 0, Number(quota.maxVmCount || 0), Number(quota.maxVcpus || 0), Number(quota.maxMemoryGiB || 0), Number(quota.maxStorageGiB || 0), Number(quota.maxGpuCount || 0), Number(quota.maxNetworkCount || 0));
+        max_gpu_count = excluded.max_gpu_count, max_network_count = excluded.max_network_count,
+        approval_threshold_memory_gib = excluded.approval_threshold_memory_gib, updated_at = CURRENT_TIMESTAMP
+    `).run(projectId, quota.enabled !== false ? 1 : 0, Number(quota.maxVmCount || 0), Number(quota.maxVcpus || 0), Number(quota.maxMemoryGiB || 0), Number(quota.maxStorageGiB || 0), Number(quota.maxGpuCount || 0), Number(quota.maxNetworkCount || 0), Number(quota.approvalThresholdMemoryGiB || 0));
     return this.getQuota(projectId);
   },
   listAssignments(projectId) { return getDb().prepare('SELECT * FROM project_resource_assignments WHERE project_id = ? ORDER BY assigned_at DESC').all(projectId); },

@@ -1,3 +1,12 @@
+// Operator alert state and policies over Xen `message` records (plus callers
+// that already merged telemetry alerts). State/policies persist in settings
+// (alerts.state / alerts.policies). Consumed by routes/alerts.js, dashboard.js,
+// and log-center. listAlerts() / enrichAlertRecords() attach severity, target
+// route, and operator state (ack/snooze/…). Severity falls back to keyword
+// matching when XAPI does not supply one. Policy match is best-effort by class
+// and name; saveAlertState/saveAlertPolicy are the mutating entry points used
+// by governed alert_* actions. Subobject classes (VDI, VIF, …) map to parent
+// inventory routes via ALERT_SUBOBJECT_CLASS_MAP.
 const { settingsModel } = require('../models/connection');
 const crypto = require('crypto');
 

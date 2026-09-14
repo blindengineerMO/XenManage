@@ -1,3 +1,12 @@
+// Encrypted credential vault. Each secret is AES-256-GCM under a per-record DEK;
+// DEKs are wrapped by a 32-byte master key (VAULT_ENCRYPTION_KEY, base64) stored
+// in security.db.vault_key_material. Production refuses to start without that key;
+// non-production derives one from session.secret. Rotation uses
+// VAULT_PREVIOUS_ENCRYPTION_KEY + rewrapAll(). Consumed by routes/credentials.js,
+// auth/managed-targets (Xen passwords), catalog-approval-hooks (webhook bearer
+// tokens), profile (sealed MFA), and system-config. Never log or return plaintext
+// from list/get — only getPassword() / getSharedIntegrationSecret() unwrap.
+// Shared-scope credentials are required for managed targets and integration hooks.
 const crypto = require('crypto');
 const config = require('../config');
 const { getSecurityDb } = require('../models/security-db');

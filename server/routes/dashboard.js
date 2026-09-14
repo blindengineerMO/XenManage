@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/dashboard via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: home-page pool summary plus a short alert strip.
+ * Invariants: /messages merges XAPI messages with telemetry alerts, then caps at 50.
+ * Client: DashboardView.
+ */
 const express = require('express');
 const router = express.Router();
 const { enrichAlertRecords, listAlerts } = require('../services/alerts');

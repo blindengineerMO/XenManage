@@ -1,3 +1,13 @@
+// Control-plane governance: approval policy, pool/vFabric quotas, and the
+// approval queue. Policy and quota maps live in settings (xenmange.db), not
+// XAPI. Consumed by server/middleware/governance.js (ensureMutationAllowed),
+// routes/governance.js, pool-quota, vfabric-quota, deployment-engine, and
+// resource-ownership (role ranking). Entity types outside SECURITY_ /
+// INFRASTRUCTURE_APPROVAL_ENTITY_TYPES are ungated. Approval windows are UTC.
+// consumeApproval() is one-shot: a used ticket cannot be replayed. getSessionRole()
+// auto-reverts expired break-glass elevation as a side effect. To gate a new
+// mutating action, add it to action-catalog.js and keep entityType in one of
+// the two domain sets if it should require approval.
 const { settingsModel } = require('../models/connection');
 const { groupModel, userModel } = require('../models/security-db');
 

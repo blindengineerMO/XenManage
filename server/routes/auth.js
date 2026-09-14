@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/auth (login/xen-login also sit behind authLimiter in server/index.js).
+ * Auth: public for login, MFA, xen-login, logout, status; requireAuth for target switching.
+ * Workflow: local control-plane login (optional TOTP), then xen-login to bind an XAPI session.
+ * Invariants: xen-login requires an existing local session; a revoked local account is destroyed
+ * on later requireAuth/requireXenConnection. Multi-target keys live on the session.
+ * Client: LoginView; shell uses /status and /targets to switch the active Xen host.
+ */
 const express = require('express');
 const router = express.Router();
 const {

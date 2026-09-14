@@ -1,3 +1,13 @@
+// Always-on Xen targets owned by the control plane, not a browser session.
+// Each row is a shared connection + shared vault credential; private/owner-scoped
+// connections are rejected (MANAGED_TARGET_REQUIRES_SHARED_*). A background loop
+// (started from server/index.js) keeps a live XenAPI in `liveConnections` and
+// classifies health: first DEGRADED_RETRY_THRESHOLD failures stay Degraded, then
+// Authentication Failed / Certificate Changed / Unsupported / Offline. targetKey
+// is `managed:<id>` — parseManagedTargetKey() is the only parser. Consumed by
+// routes/managed-targets.js, middleware/governance.js, metrics-collector,
+// workflows/public-api, vms (project target checks), and projects. Call start()
+// once at boot; tests use __setXenApiFactory / __resetForTests.
 const crypto = require('crypto');
 const { connectionModel, managedTargetModel } = require('../models/connection');
 const { credentialModel } = require('../models/vault-db');

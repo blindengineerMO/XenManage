@@ -67,6 +67,12 @@ async function evaluateProjectQuota({ projectId, actor, xenApi, targetKey = '', 
   if (!canAccessProject(project, actor)) {
     const error = new Error('PROJECT_FORBIDDEN'); error.code = 'PROJECT_FORBIDDEN'; error.status = 403; throw error;
   }
+  if (project.network_refs.length && requestedVm) {
+    const requestedNetworkRefs = (requestedVm.networkInterfaces || []).map((nic) => nic.networkRef).filter(Boolean);
+    if (requestedNetworkRefs.some((ref) => !project.network_refs.includes(ref))) {
+      const error = new Error('PROJECT_NETWORK_FORBIDDEN'); error.code = 'PROJECT_NETWORK_FORBIDDEN'; error.status = 403; throw error;
+    }
+  }
   const managedTargetId = managedTargetService.parseManagedTargetKey(targetKey);
   if (project.target_ids.length && (!managedTargetId || !project.target_ids.includes(managedTargetId))) {
     const error = new Error('PROJECT_TARGET_FORBIDDEN'); error.code = 'PROJECT_TARGET_FORBIDDEN'; error.status = 403; throw error;

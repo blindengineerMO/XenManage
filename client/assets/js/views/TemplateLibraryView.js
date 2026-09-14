@@ -313,6 +313,13 @@ const TemplateLibraryView = {
         confirm-label="Deploy"
         @close="deployConfirm.show = false"
         @confirm="confirmDeploy">
+        <div v-if="projects.length" class="form-group" style="text-align:left;margin:0 0 14px">
+          <label for="deploy-project">Project (optional)</label>
+          <select id="deploy-project" class="form-input" v-model.number="deployConfirm.projectId">
+            <option :value="null">No project</option>
+            <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.organization_name }} / {{ project.name }}</option>
+          </select>
+        </div>
       </confirm-window>
 
       <confirm-window
@@ -354,7 +361,8 @@ const TemplateLibraryView = {
       },
       discardConfirm: { show: false, pendingNode: null },
       deleteConfirm: { show: false, message: '', targetNode: null },
-      deployConfirm: { show: false, message: '', spec: null },
+      deployConfirm: { show: false, message: '', spec: null, projectId: null },
+      projects: [],
       historyVisible: false,
       historyLoading: false,
       historyPreviewLoading: false,
@@ -371,6 +379,12 @@ const TemplateLibraryView = {
   },
   async mounted() {
     await this.loadTree();
+    try {
+      const response = await api.getProjects();
+      this.projects = response.data || [];
+    } catch {
+      this.projects = [];
+    }
   },
   beforeUnmount() {
     if (this.editorInstance) {
@@ -565,6 +579,7 @@ const TemplateLibraryView = {
         this.deployConfirm = {
           show: true,
           spec,
+          projectId: spec.projectId || null,
           message: `This will deploy ${vmCount} VM(s):\n\n${summary}`,
         };
       } catch (error) {
@@ -575,13 +590,14 @@ const TemplateLibraryView = {
     },
     async confirmDeploy() {
       const spec = this.deployConfirm.spec;
-      this.deployConfirm = { show: false, message: '', spec: null };
+      const projectId = this.deployConfirm.projectId || null;
+      this.deployConfirm = { show: false, message: '', spec: null, projectId: null };
       if (!spec) return;
 
       this.errorMessage = '';
       this.deploying = true;
       try {
-        const run = await api.deployCompose(spec);
+        const run = await api.deployCompose(projectId ? { ...spec, projectId } : spec);
         this.deployMessage = run.result || `Compose deployment "${spec.name}" submitted.`;
       } catch (error) {
         this.errorMessage = error.message || 'Unable to deploy this compose spec.';

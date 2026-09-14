@@ -1,3 +1,8 @@
+// Catalog-specific RBAC on top of governance roles. Assignments live in
+// security.db (catalogRoleModel). Rank is viewer < subscriber < admin.
+// routes/catalog.js mounts requireCatalogRole('subscriber'|'admin') as Express
+// middleware. Inactive users fail the check even if an assignment exists.
+// This is not a substitute for action-catalog / identity.hasPermission.
 const { catalogRoleModel, userModel } = require('../models/security-db');
 
 const ROLE_ORDER = { viewer: 0, subscriber: 1, admin: 2 };

@@ -1,3 +1,11 @@
+// Turns an approved catalog request + template-library source into a deploy
+// payload. routes/catalog.js calls one of the three builders then hands off to
+// template-deployment.deployTemplate or deployment-engine.executeCompose.
+// Kind must match: deployment-template → template deploy, snippet → compose
+// (spec.vms required, and JSON must contain ${catalogName}), guest-script →
+// cloud-init #cloud-config plus fixed templateRef/vcpus/memoryStaticMax.
+// Overlay order is source options, then entry.fixedVariables, then request
+// parameters, then generated_name as nameLabel/catalogName. Does not call XAPI.
 const { buildGuestScriptXenstoreData } = require('./guest-script');
 
 function createCatalogDeploymentError(code, message = code) {

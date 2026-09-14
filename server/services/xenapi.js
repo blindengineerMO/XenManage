@@ -1,3 +1,13 @@
+// XAPI JSON-RPC client plus the in-process connection manager. XenAPI wraps
+// session.login_with_password / class.method calls against https://<host>/jsonrpc
+// (TLS verify is off: XenServer certs are commonly self-signed). The Map at the
+// bottom of this file keys live XenAPI instances by control-plane session id, then
+// by targetKey (connection:<id>, host-target:<id>, managed:<id>, or host|user|port).
+// Routes (auth, vms, pools, hosts, …) and services (managed-targets, metrics-collector,
+// vfabric-scope/quota) look up sessions via getConnection() / rehydrateConnection() —
+// never construct a second XenAPI for an already-attached target. TLS fingerprint
+// pinning lives on managed-targets, not here. To add a Xen class helper, put it on
+// XenAPI and keep the connection-manager functions session-scoped.
 const axios = require('axios');
 const config = require('../config');
 const { findBundledOsProfile } = require('./os-profiles');

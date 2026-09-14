@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/lifecycle via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi) even though plans are stored locally.
+ * Workflow: per-host lifecycle/baseline plans (stage, patch window).
+ * Invariants: writes use ensureMutationAllowed with actionKey lifecycle_plan_save/delete.
+ * Client: LifecycleView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const lifecyclePlanService = require('../services/lifecycle-plans');

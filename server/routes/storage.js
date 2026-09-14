@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/storage via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: SR/VDI/PBD inventory, attach/import, VDI ops, ISO file browser.
+ * Invariants: mutations use ensureMutationAllowed. forget removes inventory only;
+ * destroy deletes backing storage and requires an empty SR. File download streams.
+ * Client: StorageView.
+ */
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();

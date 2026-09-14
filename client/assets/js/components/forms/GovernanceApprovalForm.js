@@ -32,6 +32,7 @@ const GovernanceApprovalForm = {
             <option value="inventory_workspace_delete">Delete Inventory Workspace</option>
             <option value="lifecycle_plan_delete">Delete Lifecycle Plan</option>
             <option value="resilience_runbook_delete">Delete Recovery Runbook</option>
+            <option value="project_capacity_approval">Project Capacity Threshold (VM Memory)</option>
           </select>
         </div>
 
@@ -48,6 +49,7 @@ const GovernanceApprovalForm = {
             <option value="workspace">Workspace</option>
             <option value="host">Host</option>
             <option value="pool">Pool</option>
+            <option value="project">Project</option>
           </select>
         </div>
       </div>

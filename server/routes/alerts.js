@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/alerts via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: triage XAPI messages + telemetry alerts; manage alert policies.
+ * Invariants: list merges xen messages with telemetry. State/policy writes use
+ * ensureMutationAllowed. Bulk-state applies one triage value to many refs.
+ * Client: AlertsView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const {

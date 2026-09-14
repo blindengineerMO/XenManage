@@ -1,3 +1,8 @@
+// Background worker that expires due catalog deployment leases. Started from
+// server/index.js (60s interval, unref'd). Marks due rows expired, writes an
+// audit entry, and web-pushes the requester (category 'catalog'). Does not
+// destroy VMs — operators decommission from the catalog UI. processDueLeases()
+// is re-entrancy guarded; call start() once at boot.
 const { catalogModel } = require('../models/connection');
 const auditLogService = require('./audit-log');
 const logger = require('./logger');

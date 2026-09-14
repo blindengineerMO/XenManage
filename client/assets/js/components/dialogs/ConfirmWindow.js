@@ -25,6 +25,7 @@ const ConfirmWindow = {
           <div class="app-modal-body confirm-window-body">
             <div class="confirm-window-marker" aria-hidden="true"><span class="mdi" :class="danger ? 'mdi-alert' : 'mdi-shield-check-outline'"></span></div>
             <p class="confirm-window-message">{{ message }}</p>
+            <slot></slot>
             <div class="confirm-window-actions">
               <button ref="cancelButton" class="btn btn-sm" type="button" @click="$emit('close')">Cancel</button>
               <button :class="danger ? 'btn btn-sm btn-danger' : 'btn btn-sm btn-primary'" type="button" @click="$emit('confirm')">{{ confirmLabel }}</button>

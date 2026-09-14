@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/tasks via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: unified task list plus operator-owned remediation tickets/templates.
+ * Invariants: GET merges XAPI tasks, remediation tasks, and template-deployment runs
+ * (newest 200). Remediation writes use ensureMutationAllowed.
+ * Client: ActivityView (tasks tab).
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');

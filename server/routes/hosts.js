@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/hosts via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: host inventory, maintenance, power, multipathing.
+ * Invariants: mutations use ensureMutationAllowed. Reboot/shutdown assume the host
+ * has already been evacuated/disabled on the XAPI side.
+ * Client: HostsView.
+ */
 const express = require('express');
 const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');

@@ -1,3 +1,13 @@
+// Durable workflow queue in xenmange.db (workflows / workflow_steps / workflow_events).
+// Types must register() a handler before create(); execute() runs pending/retrying/
+// scheduled rows with retries, timeouts, and optional compensation. Started from
+// server/index.js. Consumed by routes/workflows.js, public-api.js, and by services
+// that persist records as workflow rows (lifecycle-plans, resilience-runbooks,
+// remediation-tasks). Those record-only types register a no-op handler and MUST
+// use setState() — never execute() — so they are not retried as jobs. Idempotency
+// is (type, idempotency_key). On process start, rows left 'running' are marked
+// retrying with CONTROL_PLANE_RESTART. To add a real job type: register(handler),
+// optionally registerCompensation(), then create({ type, input, steps }).
 const crypto = require('crypto');
 const { getDb } = require('../models/connection');
 

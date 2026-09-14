@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/vms via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: VM inventory, lifecycle, templates, compose, import/export, consoles.
+ * Invariants: mutations go through ensureMutationAllowed; create/deploy also enforce
+ * vFabric, pool, and project quotas. Export/import stream XVA bytes, they are not JSON.
+ * Client: VMsView, TemplatesView, ApplicationsView (compose).
+ */
 const express = require('express');
 const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');
@@ -10,7 +18,7 @@ const { enforceVFabricQuotas } = require('../services/vfabric-quota');
 const { enforceProjectQuota } = require('../services/projects');
 const { projectModel } = require('../models/connection');
 const { resolveActor } = require('../services/resource-ownership');
-const { ensureMutationAllowed } = require('../middleware/governance');
+const { ensureMutationAllowed, ensureProjectCapacityApproval, assertProjectCapacityApproval } = require('../middleware/governance');
 const { planCompose, executeCompose } = require('../services/deployment-engine');
 const { buildBundledOsProfiles } = require('../services/os-profiles');
 const { deployTemplate } = require('../services/template-deployment');
@@ -192,13 +200,14 @@ router.post('/', validate(schemas.vmCreate), async (req, res) => {
     if (!nameLabel) return res.status(400).json({ error: 'nameLabel is required' });
     if (!ensureMutationAllowed(req, res, { actionKey: 'vm_create', entityType: 'vm', entityRef: 'new' })) return;
     if (req.body.projectId) {
-      await enforceProjectQuota({
+      const quotaResult = await enforceProjectQuota({
         projectId: req.body.projectId,
         actor: resolveActor(req),
         xenApi: req.xenApi,
         targetKey: req.xenTarget?.targetKey || '',
         requestedVm: req.body,
       });
+      if (!ensureProjectCapacityApproval(req, res, { project: quotaResult.project, requestedVm: req.body })) return;
     }
     const vm = await req.xenApi.provisionVM({ ...req.body, nameLabel });
     if (req.body.projectId) {
@@ -452,13 +461,14 @@ router.post('/compose/deploy', validate(schemas.composeDeploy), async (req, res)
           memoryStaticMax: plan.memoryStaticMax,
         });
         if (req.body.projectId) {
-          await enforceProjectQuota({
+          const quotaResult = await enforceProjectQuota({
             projectId: req.body.projectId,
             actor: resolveActor(req),
             xenApi: req.xenApi,
             targetKey: req.xenTarget?.targetKey || '',
             requestedVm: plan,
           });
+          assertProjectCapacityApproval(req, { project: quotaResult.project, requestedVm: plan });
         }
       },
       afterDeploy: async (plan, vm) => {

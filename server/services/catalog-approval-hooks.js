@@ -1,3 +1,11 @@
+// Delivers catalog approval webhooks and applies approved/rejected decisions.
+// Started from server/index.js (15s poll). HTTPS-only, host must match
+// config.catalog.approvalHookAllowlist, no URL credentials, Bearer token from
+// a shared vault credential of target_type 'webhook'. Fail-closed: non-JSON or
+// unknown decision stays pending and retries with exponential backoff
+// (retryDelay) up to approvalHookMaxAttempts. On approve, catalogModel.approveRequestWithNextName
+// uses catalog.renderGeneratedName. wake() after enqueueing a pending request
+// from routes/catalog.js so the operator does not wait for the next tick.
 const config = require('../config');
 const { catalogModel } = require('../models/connection');
 const credentialVaultService = require('./credential-vault');

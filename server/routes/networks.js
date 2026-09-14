@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/networks via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: networks, PIFs/uplinks, bonds, VLANs, VIF config.
+ * Invariants: mutations use ensureMutationAllowed. Destroy is refused while PIFs or VIFs remain.
+ * Client: NetworkingView.
+ */
 const express = require('express');
 const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');

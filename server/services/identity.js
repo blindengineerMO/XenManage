@@ -1,3 +1,11 @@
+// Fine-grained identity: role templates, per-user allow/deny grants, and API
+// tokens (`xm_` prefix, SHA-256 hashed). hasPermission() is the single check used
+// by middleware/governance.js and routes/governance.js. Deny grants win, then
+// explicit allow, then ROLE_TEMPLATES[role]; API tokens further AND against
+// tokenPermissions. Operator still includes `*` during migration — narrow with
+// scoped deny grants, do not drop that wildcard without an audit. authenticateApiToken()
+// also enforces allowedIps (IPv4 or CIDR; ::ffff: mapped). actionPermission()
+// maps action-catalog keys (underscores/hyphens) onto dotted permission names.
 const crypto = require('crypto');
 const { apiTokenModel, permissionGrantModel, userModel } = require('../models/security-db');
 

@@ -61,6 +61,12 @@ const ProjectsView = {
                 </span>
                 <span v-if="!project.target_ids.length" class="text-muted mono">No pool access bound</span>
               </div>
+              <div class="vfabric-members" aria-label="Project network access" style="margin-top:6px">
+                <span v-for="ref in project.network_refs" :key="ref" class="vfabric-member-pill">
+                  <span class="mdi mdi-lan"></span>{{ networkName(ref) }}
+                </span>
+                <span v-if="!project.network_refs.length" class="text-muted mono">No network access bound</span>
+              </div>
               <div class="capacity-callout" style="margin-top:14px">
                 <strong>Cost Center: {{ project.cost_center || 'Unassigned' }}</strong>
                 <div class="text-muted" style="font-size:12px;margin-top:5px">Recovery tier: {{ project.default_recovery_tier || 'None' }} &middot; {{ project.members.length }} member{{ project.members.length === 1 ? '' : 's' }}</div>
@@ -106,7 +112,14 @@ const ProjectsView = {
           <div class="form-group"><label for="project-description">Description</label><textarea id="project-description" class="form-input vfabric-textarea" v-model="projectDraft.description" maxlength="500" placeholder="Purpose of this project"></textarea></div>
           <div class="vfabric-form-grid">
             <div class="form-group"><label for="project-cost-center">Cost Center</label><input id="project-cost-center" class="form-input" v-model.trim="projectDraft.costCenter" maxlength="120" placeholder="CC-4021"></div>
-            <div class="form-group"><label for="project-recovery-tier">Default Recovery Tier</label><input id="project-recovery-tier" class="form-input" v-model.trim="projectDraft.defaultRecoveryTier" maxlength="120" placeholder="Tier 1 - 4hr RTO"></div>
+            <div class="form-group">
+              <label for="project-recovery-tier">Default Recovery Tier</label>
+              <select id="project-recovery-tier" class="form-input" v-model="projectDraft.defaultRecoveryTier">
+                <option value="">None</option>
+                <option v-for="tier in recoveryTiers" :key="tier" :value="tier">{{ tier }}</option>
+              </select>
+              <p class="field-help">Bound to the same recovery-tier vocabulary used by Resilience Runbooks.</p>
+            </div>
           </div>
           <div class="form-group">
             <label for="project-owner">Owner</label>
@@ -126,6 +139,17 @@ const ProjectsView = {
               </button>
             </div>
             <div v-else class="vfabric-selector-empty">No managed pool targets are registered yet.</div>
+          </section>
+
+          <section class="detail-section vfabric-selector-section">
+            <div class="detail-section-title">Network Access</div>
+            <p class="text-muted">Select the networks/VLANs this project's VMs may attach to. Leave empty to allow every network.</p>
+            <div class="vfabric-target-grid" v-if="networks.length">
+              <button v-for="network in networks" :key="network.ref" type="button" class="vfabric-target-option" :class="{ active: projectDraft.networkRefs.includes(network.ref) }" @click="toggleNetwork(network.ref)">
+                <span class="mdi mdi-lan"></span><span><strong>{{ network.name_label || network.ref }}</strong><small>{{ network.bridge || network.ref }}</small></span><span class="mdi vfabric-target-check" :class="projectDraft.networkRefs.includes(network.ref) ? 'mdi-check-circle' : 'mdi-circle-outline'"></span>
+              </button>
+            </div>
+            <div v-else class="vfabric-selector-empty">No networks visible on the active connection yet.</div>
           </section>
 
           <div v-if="projectEditorError" class="form-error" style="text-align:left">{{ projectEditorError }}</div>
@@ -152,6 +176,11 @@ const ProjectsView = {
             <div class="vm-inline-form-grid">
               <div class="form-group"><label>Max GPUs</label><input class="form-input" type="number" min="0" v-model.number="quotaDraft.maxGpuCount"></div>
               <div class="form-group"><label>Max Networks</label><input class="form-input" type="number" min="0" v-model.number="quotaDraft.maxNetworkCount"></div>
+            </div>
+            <div class="form-group">
+              <label>Approval Threshold - Memory (GiB)</label>
+              <input class="form-input" type="number" min="0" v-model.number="quotaDraft.approvalThresholdMemoryGiB">
+              <p class="field-help">VMs requesting more than this much memory require a governance approval before they can be created in this project. 0 disables the threshold.</p>
             </div>
             <div v-if="quotaError" class="form-error" style="text-align:left">{{ quotaError }}</div>
             <div class="vfabric-form-actions"><button type="button" class="btn" :disabled="quotaSaving" @click="closeQuotaEditor">Cancel</button><button type="submit" class="btn btn-primary" :disabled="quotaSaving"><span class="mdi mdi-content-save-outline"></span>{{ quotaSaving ? 'Saving...' : 'Save Quota' }}</button></div>
@@ -216,7 +245,9 @@ const ProjectsView = {
       organizations: [],
       projects: [],
       managedTargets: [],
+      networks: [],
       users: [],
+      recoveryTiers: ['tier-1', 'tier-2', 'standard', 'edge'],
       showOrgEditor: false,
       orgSaving: false,
       orgEditorError: '',
@@ -260,10 +291,10 @@ const ProjectsView = {
   },
   methods: {
     emptyProjectDraft() {
-      return { organizationId: null, name: '', description: '', costCenter: '', defaultRecoveryTier: '', ownerUserId: null, enabled: true, targetIds: [] };
+      return { organizationId: null, name: '', description: '', costCenter: '', defaultRecoveryTier: '', ownerUserId: null, enabled: true, targetIds: [], networkRefs: [] };
     },
     emptyQuotaDraft() {
-      return { enabled: true, maxVmCount: 0, maxVcpus: 0, maxMemoryGiB: 0, maxStorageGiB: 0, maxGpuCount: 0, maxNetworkCount: 0 };
+      return { enabled: true, maxVmCount: 0, maxVcpus: 0, maxMemoryGiB: 0, maxStorageGiB: 0, maxGpuCount: 0, maxNetworkCount: 0, approvalThresholdMemoryGiB: 0 };
     },
     responseData(response) {
       return Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
@@ -273,6 +304,9 @@ const ProjectsView = {
     },
     managedTargetName(targetId) {
       return this.managedTargets.find((target) => Number(target.id) === Number(targetId))?.name || `Target ${targetId}`;
+    },
+    networkName(ref) {
+      return this.networks.find((network) => network.ref === ref)?.name_label || ref;
     },
     ownerName(ownerUserId) {
       if (!ownerUserId) return 'Unassigned';
@@ -285,15 +319,17 @@ const ProjectsView = {
       this.loading = true;
       this.error = '';
       try {
-        const [organizations, projects, managedTargets, users] = await Promise.all([
+        const [organizations, projects, managedTargets, networks, users] = await Promise.all([
           api.getOrganizations(),
           api.getProjects(),
           api.getManagedTargets().catch(() => ({ data: [] })),
+          api.getNetworks().catch(() => ({ data: [] })),
           api.getUsers().catch(() => ({ data: [] })),
         ]);
         this.organizations = this.responseData(organizations);
         this.projects = this.responseData(projects);
         this.managedTargets = this.responseData(managedTargets);
+        this.networks = this.responseData(networks);
         this.users = this.responseData(users);
       } catch (error) {
         this.error = error.message || 'Unable to load organizations and projects.';
@@ -347,6 +383,7 @@ const ProjectsView = {
         ownerUserId: project.owner_user_id || null,
         enabled: Boolean(project.enabled),
         targetIds: [...project.target_ids],
+        networkRefs: [...project.network_refs],
       } : { ...this.emptyProjectDraft(), organizationId: org?.id || this.organizations[0]?.id || null };
       this.showProjectEditor = true;
     },
@@ -358,6 +395,10 @@ const ProjectsView = {
     toggleTarget(id) {
       const values = this.projectDraft.targetIds;
       this.projectDraft.targetIds = values.includes(id) ? values.filter((value) => value !== id) : [...values, id];
+    },
+    toggleNetwork(ref) {
+      const values = this.projectDraft.networkRefs;
+      this.projectDraft.networkRefs = values.includes(ref) ? values.filter((value) => value !== ref) : [...values, ref];
     },
     async saveProject() {
       this.projectSaving = true;
@@ -401,6 +442,7 @@ const ProjectsView = {
         maxStorageGiB: Number(project.quota.max_storage_gib || 0),
         maxGpuCount: Number(project.quota.max_gpu_count || 0),
         maxNetworkCount: Number(project.quota.max_network_count || 0),
+        approvalThresholdMemoryGiB: Number(project.quota.approval_threshold_memory_gib || 0),
       } : this.emptyQuotaDraft();
       this.showQuotaEditor = true;
       try {

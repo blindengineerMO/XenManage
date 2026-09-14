@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/pools via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: pool inventory, HA, join a host, eject a member.
+ * Invariants: mutations use ensureMutationAllowed. Join may pull passwords from the
+ * credential vault (local user required). The pool master cannot be ejected.
+ * Client: PoolsView.
+ */
 const express = require('express');
 const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');

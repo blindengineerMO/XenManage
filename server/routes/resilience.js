@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/resilience via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: HA/DR overview, runbook plans, drill logging.
+ * Invariants: GET fans out to pools/hosts/VMs/tasks/messages. Drill POST records a
+ * tabletop result; it does not execute failover. Plan writes use ensureMutationAllowed.
+ * Client: ResilienceView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { buildResilienceOverview } = require('../services/resilience');
