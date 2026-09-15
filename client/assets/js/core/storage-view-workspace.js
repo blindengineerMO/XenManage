@@ -1,7 +1,16 @@
-/* ============================================
-   Storage View Workspace Helpers
-   ============================================ */
-
+/**
+ * XenMange client — StorageView workspace (selection / layout state).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: workspace = selected SR, open windows, bulk refs, ISO
+ * browser path, focused VDI/VBD; service = API; focus = route deep-link.
+ *
+ * Purpose: factory for StorageView reactive state and window/detail patches.
+ * Consumers: StorageView.
+ * Gotchas: file-browser fields are workspace state, not a separate module.
+ * Add new dialog flags here so they stay reactive.
+ */
 function createStorageViewState() {
   return {
     loading: true,

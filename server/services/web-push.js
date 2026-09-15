@@ -1,3 +1,8 @@
+// Web Push (VAPID) delivery to stored subscriptions in security.db. No-ops
+// when WEB_PUSH public/private keys are unset (notifyUser/notifyAll return
+// {sent:0,failed:0}). Categories map to subscription flags: alerts, approvals,
+// catalog. 404/410 responses drop that endpoint. Consumed by catalog-leases,
+// routes/catalog.js, governance approvals, and profile (subscribe/test).
 const webpush = require('web-push');
 const config = require('../config');
 const { pushSubscriptionModel } = require('../models/security-db');

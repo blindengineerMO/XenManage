@@ -1,3 +1,9 @@
+/*
+ * Colored state pill used across inventory tables and property panes.
+ * Maps power/health strings (running, halted, maintenance, critical, …)
+ * to badge-* classes and MDI icons. Unknown values fall back to info.
+ * Presentational only.
+ */
 const StatusBadge = {
   props: ['status'],
   template: `

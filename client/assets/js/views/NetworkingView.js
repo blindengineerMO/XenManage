@@ -1,3 +1,12 @@
+/*
+ * Networks workspace: bridges, VLANs, bonds, host uplinks, and VM VIF paths.
+ * APIs: GET /api/networks, /api/hosts, /api/vms, network interfaces/uplinks/
+ * bonds/vlans; POST create network/VLAN/bond and add VM NIC; PUT network
+ * config and VIF QoS; DELETE/disconnect VIFs; DELETE /api/networks/:ref.
+ * Gotcha: destroy is blocked until uplinks and workload interfaces detach.
+ * Create/properties/VIF dialogs are FloatingWindows. Bulk destroy may need
+ * a governance approvalId.
+ */
 const NetworkingView = {
   components: {
     DataTable,

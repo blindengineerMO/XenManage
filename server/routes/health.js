@@ -1,3 +1,11 @@
+/**
+ * Mount: app root (no /api prefix) — GET /healthz and GET /readyz.
+ * Auth: none (probes must work before login).
+ * Workflow: liveness vs readiness for orchestrators.
+ * Invariants: healthz is always 200. readyz is 503 if any control-plane DB fails;
+ * managed-target counts are informational and do not fail readiness.
+ * Client: k8s/load-balancer probes, not a Vue view.
+ */
 const express = require('express');
 const { getDb, managedTargetModel } = require('../models/connection');
 const { getSecurityDb } = require('../models/security-db');
@@ -15,10 +23,12 @@ function checkDatabase(name, getDatabase) {
   }
 }
 
+// Liveness only — must not touch DBs so a wedged SQLite still restarts the process.
 router.get('/healthz', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Readiness: 503 if any control-plane DB cannot SELECT 1. Target health is reported, not gating.
 router.get('/readyz', (_req, res) => {
   const databases = [
     checkDatabase('controlPlane', getDb),

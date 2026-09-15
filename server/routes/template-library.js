@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/template-library via requireAuth.
+ * Auth: local login (XAPI not required — library is control-plane storage).
+ * Workflow: folder/item tree for deployment templates, guest scripts, snippets.
+ * Invariants: owner-scoped. Writes use ensureMutationAllowed. Item saves version content;
+ * restore copies a prior version forward rather than deleting history.
+ * Client: TemplateLibraryView.
+ */
 const express = require('express');
 const router = express.Router();
 const { templateLibraryModel } = require('../models/connection');
@@ -224,6 +232,7 @@ router.get('/items/:id/versions/:version', validate(schemas.templateLibraryItemV
   res.json(record);
 });
 
+// Copies historical content forward as a new current version; history rows are kept.
 router.post('/items/:id/versions/:version/restore', validate(schemas.templateLibraryItemVersionId, 'params'), (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'template_library_item_save', entityType: 'template-library-item', entityRef: String(req.params.id) })) return;

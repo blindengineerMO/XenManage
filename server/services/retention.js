@@ -1,3 +1,10 @@
+// Cross-database retention sweeper. DOMAIN_DEFINITIONS/DEFAULT_POLICIES list
+// the purgeable stores (audit-log settings blob, closed remediation workflows,
+// auth-events, template-deployment-runs, metric samples/rollups). Started from
+// server/index.js; interval from system-config retention.sweepIntervalHours.
+// routes/system-config.js exposes policy CRUD and dry-run/runSweep. Only
+// terminal/closed rows are deleted. Adding a domain: extend DOMAIN_DEFINITIONS,
+// DEFAULT_POLICIES, and the matching purge helper in runSweep.
 const { getDb, settingsModel, retentionPolicyModel } = require('../models/connection');
 const { getSecurityDb } = require('../models/security-db');
 const { getPerfDb } = require('../models/perf-db');

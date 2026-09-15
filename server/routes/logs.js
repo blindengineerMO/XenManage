@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/logs via requireAuth (XAPI optional — uses req.xenApi when present).
+ * Auth: local login, not requireXenConnection.
+ * Workflow: paginated log-center browse and export.
+ * Invariants: export is gated with ensureMutationAllowed (log_export) even though it
+ * is a download, because it can dump host logs off-box.
+ * Client: ActivityView (logs tab).
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');
@@ -22,6 +30,7 @@ router.get('/', validate(schemas.logsListQuery, 'query'), async (req, res) => {
   }
 });
 
+// Treated as a mutation because it can dump host logs off-box.
 router.post('/export', validate(schemas.logsExport), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, {

@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo auth/shell/metrics routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: logout, live-target list/activate/detach, dashboard, cluster
+ * metrics, and capacity baseline — the chrome around workspaces.
+ * Consumers: demo-request.js (`handleDemoShellRoutes`).
+ * Gotchas: activate mutates `store.connectedTargets` / `store.currentTargetKey`
+ * in place so TopNav stays in sync without a real session cookie.
+ */
 function handleDemoShellRoutes(method, path, body, range) {
   if (method === 'POST' && path === '/api/auth/logout') {
     return { success: true };

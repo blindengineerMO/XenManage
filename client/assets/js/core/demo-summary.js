@@ -1,3 +1,16 @@
+/**
+ * XenMange client — demo dashboard/resilience summaries (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: fold `demoDb` into the shapes DashboardView and ResilienceView
+ * expect from /api/dashboard and /api/resilience.
+ * Consumers: demo-shell-routes.js, demo-planning-routes.js.
+ * Gotchas: counts templates vs VMs via `is_a_template`; clones before return.
+ */
 function buildDemoDashboard() {
   const vms = demoDb.vms.filter((vm) => !vm.is_a_template);
   const templates = demoDb.vms.filter((vm) => vm.is_a_template);

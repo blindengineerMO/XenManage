@@ -1,3 +1,9 @@
+// Per-template lifecycle metadata and post-deploy validation records, stored in
+// settings (templates.governance, governanceHistory, deployments). Stages:
+// draft/staged/stable/deprecated; validation: untested/review/validated/failed.
+// Consumed by template-deployment (recordDeployment on clone) and routes/vms +
+// templates UIs. History is capped at MAX_HISTORY. This is operator process
+// state, not XAPI — deleting a Xen template does not auto-purge these maps.
 const { settingsModel } = require('../models/connection');
 
 const GOVERNANCE_KEY = 'templates.governance';

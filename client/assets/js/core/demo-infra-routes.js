@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo pool/host/network infra routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: /api/pools, /api/hosts, pool updates/HA, host maintenance — the
+ * PoolsView and HostsView inventory APIs, scoped by `getDemoTargetScope`.
+ * Consumers: demo-request.js (`handleDemoInfraRoutes`).
+ * Gotchas: `scope` is already target-filtered; do not read `demoDb.pools`
+ * unfiltered from here.
+ */
 function handleDemoInfraRoutes(method, path, body, scope) {
   if (method === 'GET' && path === '/api/pools') {
     return { total: scope.pools.length, data: clone(scope.pools) };

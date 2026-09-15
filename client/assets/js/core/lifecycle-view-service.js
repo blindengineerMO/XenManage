@@ -1,7 +1,16 @@
-/* ============================================
-   Lifecycle View Service Helpers
-   ============================================ */
-
+/**
+ * XenMange client — LifecycleView service (API calls).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: service = parallel load of hosts, tasks, messages, plans,
+ * and related inventory; plus planner source-task status sync.
+ *
+ * Purpose: `loadLifecycleContext` and remediation-task follow-through.
+ * Consumers: LifecycleView.
+ * Gotchas: plans/pools/VMs/storage/networks catch to empty — the workspace
+ * still renders hosts+tasks if those fail.
+ */
 async function loadLifecycleContext(apiClient) {
   const [hostsResult, tasksResult, messagesResult, plansResult, poolsResult, vmsResult, storageResult, networksResult] = await Promise.all([
     apiClient.getHosts(),

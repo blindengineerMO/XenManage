@@ -1,7 +1,16 @@
-/* ============================================
-   Demo Settings Routes
-   ============================================ */
-
+/**
+ * XenMange client — demo /api/settings routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: in-memory system config, vault credentials, and retention sweeps
+ * for SettingsView.
+ * Consumers: demo-request.js (`handleDemoSettingsRoutes`).
+ * Gotchas: restart-required vs live-applied flags are illustrative only.
+ */
 const demoSystemConfig = {
   general: { appName: 'XenMange', timezone: 'UTC' },
   network: { publicBaseUrl: '', trustProxy: false },

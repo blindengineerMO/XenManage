@@ -1,3 +1,9 @@
+// Aggregate VM/memory quotas across a vFabric's member targets. Usage is summed
+// only from session-attached, currently connected members; incomplete coverage
+// cannot be enforced (VFABRIC_QUOTA_SCOPE_INCOMPLETE). Consumed by routes/vfabrics.js
+// (evaluate) and vms/catalog (enforceVFabricQuotas on the active xenTarget).
+// Limits live in governance.vfabricQuotas. enforce:true on evaluate skips
+// visibility filtering so a deploy cannot dodge a quota via private members.
 const { vFabricModel } = require('../models/connection');
 const governanceService = require('./governance');
 const { getConnection, rehydrateConnection } = require('./xenapi');
@@ -136,6 +142,10 @@ async function evaluateVFabricQuota(req, vFabricId, options = {}) {
   };
 }
 
+/**
+ * Enforce every enabled vFabric quota that includes req.xenTarget. Throws 409 on
+ * incomplete member coverage or a projected breach. No-op when xenTarget is unset.
+ */
 async function enforceVFabricQuotas(req, requestedVm = {}) {
   const activeTarget = req.xenTarget;
   if (!activeTarget) return null;

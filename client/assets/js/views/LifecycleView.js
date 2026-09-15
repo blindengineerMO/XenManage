@@ -1,3 +1,12 @@
+/*
+ * Lifecycle workspace: host compliance, desired-state plans, maintenance
+ * orchestration, and remediation queues (vCenter/SCVMM-inspired).
+ * APIs: PUT/DELETE /api/lifecycle/plans/:ref; POST
+ * /api/hosts/:ref/maintenance/enter|exit. Inventory/alerts/tasks are loaded
+ * via host-view helpers, not directly here.
+ * Gotcha: plan delete and bulk maintenance can require a governance
+ * approvalId. Planner UI is LifecycleWorkspaceDialogs (FloatingWindow).
+ */
 const LifecycleView = {
   components: {
     DataTable,

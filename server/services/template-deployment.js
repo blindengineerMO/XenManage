@@ -1,3 +1,9 @@
+// Single entry point for deploying a Xen VM template. Clones via xenApi.deployTemplate,
+// optional guest-script xenstore (library item must start with #cloud-config), then
+// records template-governance + template-deployment-runs + audit. Consumed by
+// routes/vms.js and catalog.js. beforeDeploy is an async hook for quota/policy
+// checks — run those there, not after clone. Returns the XAPI VM record plus
+// deploymentAudit and deploymentRun. Does not start the VM unless payload.startAfter.
 const templateGovernanceService = require('./template-governance');
 const templateDeploymentRunService = require('./template-deployment-runs');
 const auditLogService = require('./audit-log');

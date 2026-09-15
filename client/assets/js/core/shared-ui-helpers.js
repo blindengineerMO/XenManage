@@ -1,7 +1,16 @@
-/* ============================================
-   Shared UI Helpers
-   ============================================ */
-
+/**
+ * XenMange client — shared formatters and floating-window z-index.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: byte/throughput/date formatters, task SLA/due metadata, message
+ * severity helpers, and `windowManager.next()` for dialog stacking.
+ * Consumers: all workspace views, dialogs, DataTable, StatusBadge, Capacity
+ * and Activity view-models.
+ * Gotchas: `formatBytes` uses KiB (1024). `getTaskDueMeta` is the source of
+ * SLA badges — do not reimplement per view. Pure-ish; `windowManager` is
+ * the only mutable singleton.
+ */
 const windowManager = {
   zIndex: 550,
   next() {

@@ -2277,6 +2277,10 @@ function getConnectionRegistry(sessionId, create = false) {
   return registry;
 }
 
+/**
+ * Live XenAPI for this control-plane session. Empty targetKey returns the first
+ * attached target — pass an explicit key whenever the session may have several.
+ */
 function getConnection(sessionId, targetKey = '') {
   const registry = getConnectionRegistry(sessionId);
   if (!registry) return null;
@@ -2306,6 +2310,11 @@ function listAllConnections() {
   );
 }
 
+/**
+ * Rebuild a XenAPI from a stored sessionRef without logging in again. Accepts
+ * (sessionId, descriptor) or legacy (sessionId, host, sessionRef, targetKey).
+ * Returns null if host/sessionRef are missing; reuses getConnection when present.
+ */
 function rehydrateConnection(sessionId, descriptorOrHost, sessionRef, targetKey = '') {
   const descriptor = typeof descriptorOrHost === 'object' && descriptorOrHost
     ? descriptorOrHost

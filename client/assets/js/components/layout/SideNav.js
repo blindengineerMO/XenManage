@@ -1,3 +1,11 @@
+/*
+ * Left navigation tree with live inventory counts (pools/templates/VMs/
+ * hosts/SRs/networks). Collapsed mode hides labels/counts.
+ * APIs: GET /api/pools, /api/vms/templates, /api/vms, /api/hosts, /api/srs,
+ * /api/networks — refreshed on store connection/target changes.
+ * Gotcha: counts are from the active live target, not vFabric-aggregated.
+ * Catalog path is /catalog (public storefront), Applications is curator-only.
+ */
 const SideNav = {
   props: ['collapsed'],
   template: `

@@ -13,6 +13,10 @@ function hasCatalogRole(userId, minimumRole) {
   return Boolean(account?.active && assignment && ROLE_ORDER[assignment.role] >= ROLE_ORDER[minimumRole]);
 }
 
+/**
+ * Express middleware: 401 if unauthenticated, 403 CATALOG_ROLE_REQUIRED if the
+ * session user is below minimumRole (viewer < subscriber < admin).
+ */
 function requireCatalogRole(minimumRole) {
   return (req, res, next) => {
     if (!req.session?.authenticated || !req.session?.userId) {

@@ -1,3 +1,8 @@
+// RFC 6238 TOTP (SHA1, 6 digits, 30s step) used for operator MFA. Consumed by
+// profile.js (enroll/verify) — secrets are stored sealed, not here. verifyToken
+// accepts ±window steps (default 1). generateSecret is 20 random bytes, base32.
+// No npm authenticator dependency; keep hotp() bit-compatible with Google/
+// Microsoft Authenticator (otpauth:// URI from buildOtpAuthUri).
 const crypto = require('crypto');
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';

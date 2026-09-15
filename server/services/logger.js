@@ -1,3 +1,8 @@
+// Process stdout JSON logger. Level from LOG_LEVEL (debug|info|warn|error, default
+// info). Silent when config.env === 'test' so unit tests stay quiet. Consumed
+// across middleware (error-handler, request-logging) and background workers.
+// Errors are serialized as {name,message,stack}. Not a log shipper — use
+// Sentry via error-tracking for exceptions you want off-box.
 const config = require('../config');
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };

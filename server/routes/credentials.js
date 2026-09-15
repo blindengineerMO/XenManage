@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/credentials via requireAuth, then requireLocalUser (session.userId).
+ * Auth: local account — xen-only sessions cannot open the vault.
+ * Workflow: encrypted credential vault used by xen-login, pool join, catalog webhooks.
+ * Invariants: listVisible is owner-scoped. Writes use ensureMutationAllowed.
+ * Client: SettingsView (credentials).
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');

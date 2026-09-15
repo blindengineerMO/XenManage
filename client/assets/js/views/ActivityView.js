@@ -1,3 +1,13 @@
+/*
+ * Activity workspace: task history, centralized logs, operator audit, and
+ * exportable records. Modes: tasks / logs / audit.
+ * APIs: GET /api/tasks (per vFabric target), /api/logs, /api/audit;
+ * PUT /api/tasks/remediation/:ref; log export via POST /api/logs/export
+ * (raw fetch with CSRF — not api.request, because it returns a file).
+ * Gotcha: vFabric read-scope disables task updates and server exports.
+ * Demo mode hides the live server export button. Dialogs in
+ * ActivityWorkspaceDialogs.
+ */
 const ActivityView = {
   components: {
     DataTable,

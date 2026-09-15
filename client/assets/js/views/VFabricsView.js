@@ -1,3 +1,13 @@
+/*
+ * vFabrics workspace: logical operational groupings across registered pools
+ * and standalone hosts. Membership is additive and never changes XenServer
+ * clustering.
+ * APIs: GET/POST/PUT/DELETE /api/vfabrics; GET /api/connections and
+ * /api/host-targets for membership pickers; GET/PUT/DELETE
+ * /api/vfabrics/:id/quota (reuses GovernanceQuotaForm).
+ * Gotcha: creating a vFabric does not attach live targets — TopNav scope
+ * switch does that. Quota is control-plane only. Editors are FloatingWindows.
+ */
 const VFabricsView = {
   components: {
     FloatingWindow,

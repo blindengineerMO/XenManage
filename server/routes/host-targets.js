@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/host-targets via requireAuth.
+ * Auth: local login.
+ * Workflow: named Xen host endpoints that a connection can bind to (multi-host pools).
+ * Invariants: owner-scoped via resource-ownership. Writes use ensureMutationAllowed.
+ * Client: SettingsView / LoginView alongside connections.
+ */
 const express = require('express');
 const router = express.Router();
 const { hostTargetModel } = require('../models/connection');

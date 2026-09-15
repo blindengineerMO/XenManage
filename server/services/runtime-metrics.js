@@ -1,3 +1,8 @@
+// In-memory Prometheus counters for this process: HTTP totals by method/status
+// class and cumulative duration. middleware/request-logging.js records each
+// request; routes/metrics-export.js renders the text exposition, injecting
+// workflow queue depth and managed-target gauges. Process restart zeros the
+// counters. Label cardinality is intentionally coarse (2xx/4xx/5xx, not per-path).
 const requestTotals = new Map();
 let requestDurationSeconds = 0;
 

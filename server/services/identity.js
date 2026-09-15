@@ -52,6 +52,10 @@ function resolvePrincipal(input = {}) {
   };
 }
 
+/**
+ * Deny grants win, then explicit allow, then ROLE_TEMPLATES[role]. API tokens
+ * must also match tokenPermissions. Inactive users and missing userId are false.
+ */
 function hasPermission(input, permission, scope = {}) {
   const principal = resolvePrincipal(input);
   if (!principal.userId) return false;
@@ -113,6 +117,10 @@ function isIpAllowed(allowedIps, clientIp) {
   return allowedIps.some((entry) => ipMatchesEntry(normalized, entry));
 }
 
+/**
+ * Resolve a raw `xm_…` token to a principal, or null. Hashes the token, checks
+ * expiry/active user, then allowedIps (empty list means any IP).
+ */
 function authenticateApiToken(rawToken, clientIp = '') {
   const raw = String(rawToken || '').trim();
   if (!raw.startsWith('xm_')) return null;

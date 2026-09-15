@@ -1,3 +1,16 @@
+/**
+ * XenMange client — demo alert matching (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: map XAPI message classes to workspace routes, apply alert policies,
+ * and synthesize telemetry alerts from demo metrics.
+ * Consumers: demo-alert-routes.js, AlertsView via the shimmed /api/alerts.
+ * Gotchas: policy matching is string/class based, not Xen message-code based.
+ */
 function mapDemoTargetRoute(cls = '') {
   const value = String(cls).toLowerCase();
   if (value === 'host') return '/hosts';

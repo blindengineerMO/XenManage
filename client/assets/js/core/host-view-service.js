@@ -1,7 +1,17 @@
-/* ============================================
-   Host View Service Helpers
-   ============================================ */
-
+/**
+ * XenMange client — HostsView service (API calls).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: service = API calls; workspace = selection/layout;
+ * focus = detail pane; helpers = pure formatters; models = UI objects.
+ *
+ * Purpose: load host list, saved host-targets, connections, credentials, and
+ * parallel detail context (metrics, pools, VMs, storage, networks).
+ * Consumers: HostsView.
+ * Gotchas: detail fetch uses Promise.allSettled — partial failures become
+ * empty arrays plus `metricsError` / `inventoryError`, not thrown.
+ */
 async function loadHostRecords(apiClient) {
   const result = await apiClient.getHosts();
   return result.data || [];

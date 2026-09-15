@@ -1,3 +1,13 @@
+/*
+ * Settings workspace: runtime config sections, credential vault, proxy
+ * posture, logging defaults, and retention sweeps.
+ * APIs: GET/PUT /api/settings and /api/settings/:section; vault credentials
+ * CRUD; GET /api/settings/retention/preview, PUT .../policies/:domain,
+ * POST .../retention/run, POST /api/settings/vault/rewrap.
+ * Gotcha: dirty-section tracking lets Save All persist multiple sections.
+ * Credential delete and retention run are approval-gated. Dialogs live in
+ * SettingsWorkspaceDialogs (FloatingWindow), not native modals.
+ */
 const SettingsView = {
   components: {
     DataTable,

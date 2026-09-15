@@ -1,3 +1,18 @@
+/**
+ * XenMange client — demo vFabric routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: multi-target vFabric membership, attach-scope, and quota
+ * enforcement for VFabricsView.
+ * Consumers: demo-request.js (`handleDemoVFabricRoutes`); quota checks also
+ * run from VM-create paths.
+ * Gotchas: a vFabric is a XenMange grouping of saved connections/host targets,
+ * not a Xen object.
+ */
 function getDemoVFabricMembers(record, actor = getDemoActor()) {
   const connectionIds = Array.isArray(record.connection_ids) ? record.connection_ids : [];
   const hostTargetIds = Array.isArray(record.host_target_ids) ? record.host_target_ids : [];

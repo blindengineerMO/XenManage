@@ -1,3 +1,16 @@
+/**
+ * XenMange client — demo alerts/tasks/audit routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: dashboard messages, alert CRUD/policies, remediation tasks and
+ * templates, and the audit log for AlertsView / ActivityView.
+ * Consumers: demo-request.js (`handleDemoAlertActivityRoutes`).
+ * Gotchas: alert state is stored in `demoDb.alertStates` keyed by message ref.
+ */
 function handleDemoAlertActivityRoutes(method, path, body) {
   if (method === 'GET' && path === '/api/dashboard/messages') {
     return clone(listDemoAlertMessages().map((message) => buildDemoAlert(message)));

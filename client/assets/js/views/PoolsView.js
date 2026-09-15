@@ -1,3 +1,14 @@
+/*
+ * Pools workspace: live topology, HA/config, join/eject, and registered
+ * pool-target administration for multi-pool sessions.
+ * APIs: GET /api/pools, /api/hosts, /api/srs, /api/connections,
+ * /api/credentials, /api/pools/:ref/updates; PUT pool config/HA;
+ * POST /api/pools/join, eject host, /api/auth/xen-login,
+ * /api/auth/targets/activate|DELETE.
+ * Gotcha: control-plane login ≠ live Xen attach. Empty guidance card
+ * appears until a registered target is connected. Join/eject/delete may
+ * require a governance approvalId.
+ */
 const PoolsView = {
   components: {
     DataTable,

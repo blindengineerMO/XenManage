@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo VM snapshot/power-state routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: snapshots, revert, and power actions (start/shutdown/reboot/…)
+ * for VMsView.
+ * Consumers: demo-request.js (`handleDemoVmStateRoutes`).
+ * Gotchas: snapshots are extra rows in `demoDb.vmSnapshots`; revert does not
+ * roll back disks. Power state is a string flip, not a guest agent.
+ */
 function handleDemoVmStateRoutes(method, path, body, parsedUrl, targetKey) {
   if (method === 'GET' && path.startsWith('/api/vms/') && path.endsWith('/snapshots')) {
     const ref = decodeURIComponent(path.split('/')[3] || '');

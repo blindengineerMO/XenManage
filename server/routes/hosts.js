@@ -81,6 +81,7 @@ router.put(
   }
 );
 
+// Evacuate-or-refuse: XAPI returns HOST_STILL_HAS_RUNNING_VMS as 409 rather than trapping workloads.
 router.post(
   '/:ref/maintenance/enter',
   validate(schemas.opaqueRefParam, 'params'),
@@ -148,6 +149,7 @@ router.post(
   }
 );
 
+// Destructive: host reboot after XAPI disablement/evacuation checks.
 router.post(
   '/:ref/reboot',
   validate(schemas.opaqueRefParam, 'params'),
@@ -181,6 +183,7 @@ router.post(
   }
 );
 
+// Destructive: host shutdown after XAPI disablement/evacuation checks.
 router.post(
   '/:ref/shutdown',
   validate(schemas.opaqueRefParam, 'params'),

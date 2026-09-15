@@ -1,3 +1,13 @@
+/*
+ * Templates workspace: golden-image inventory, OS-profile vs deployable
+ * create, governance metadata, deploy, promotion, and validation history.
+ * APIs: GET /api/vms/templates, creation-sources, governance, deployments,
+ * template-library tree, hosts/srs/networks; POST create/deploy/promote/
+ * restore-history; PUT governance and deployment validation.
+ * Gotcha: "New OS Profile" vs "Create Golden Template" are different
+ * creationMode values on the same form. Editors are FloatingWindows in
+ * TemplateWorkspaceDialogs.
+ */
 const TemplatesView = {
   components: {
     DataTable,

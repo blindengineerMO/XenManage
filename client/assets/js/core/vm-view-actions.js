@@ -1,3 +1,17 @@
+/**
+ * XenMange client — VMsView actions (mutations).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: actions = power/config/device/migrate/import/export
+ * mutations (and bulk wrappers); service = reads; workspace = layout.
+ *
+ * Purpose: wrap `api.vmAction` / config / attach / migrate with governance
+ * approval ids and post-mutation list refresh helpers.
+ * Consumers: VMsView, VMPropertiesWindow, VM*Tab components.
+ * Gotchas: `resolveVmActionApprovalId` throws APPROVAL_REQUIRED for operators.
+ * Bulk power stops at first failure and attaches `.completed`.
+ */
 function findVmRecordByRef(vms = [], ref = '') {
   const normalizedRef = String(ref || '').trim();
   if (!normalizedRef) return null;

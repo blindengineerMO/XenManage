@@ -16,6 +16,10 @@ const { renderGeneratedName } = require('./catalog');
 let schedulerTimer = null;
 let processing = false;
 
+/**
+ * HTTPS URL whose hostname matches config.catalog.approvalHookAllowlist
+ * (`*.example.com` suffix or exact host). Rejects embedded userinfo.
+ */
 function allowedHookUrl(value) {
   try {
     const url = new URL(String(value || ''));

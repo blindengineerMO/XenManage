@@ -1,3 +1,10 @@
+// SQLite-consistent snapshots of xenmange.db, security.db, vault.db, and perf.db.
+// Writes under config.backup.directory; files are AES-GCM encrypted with
+// CONTROL_PLANE_BACKUP_RECOVERY_KEY (32-byte base64). Production requires that
+// key; non-production derives one from session.secret. Started from server/index.js
+// when system-config controlPlaneBackup.enabled is true. restorePreview() is
+// read-only — restore is not implemented. Consumed by routes/system-config.js.
+// After changing interval/enabled, call refreshScheduler().
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

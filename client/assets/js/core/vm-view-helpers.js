@@ -1,3 +1,18 @@
+/**
+ * XenMange client — VMsView helpers (pure formatters).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: helpers = pure formatters; service = API; actions =
+ * mutations; workspace = selection/layout; focus = detail pane; models =
+ * UI-ready objects.
+ *
+ * Purpose: normalize power/affinity, summarize maps, snapshot/console
+ * records, and governance-approval request builders for VM rows.
+ * Consumers: VMsView, vm-view-models.js, vm-view-actions.js, VM*Tab components.
+ * Gotchas: `OpaqueRef:NULL` affinity is treated as empty. Power state compares
+ * are always lowercased.
+ */
 function collectVmRecordEntries(record = {}) {
   return Object.entries(record || {})
     .filter(([key, value]) => String(key || '').trim() && String(value || '').trim());

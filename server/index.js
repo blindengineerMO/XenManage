@@ -129,6 +129,8 @@ app.use('/api/catalog', catalogRoutes);
 app.use('/api/terraform', terraformRoutes);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/xen-login', authLimiter);
+app.use('/api/auth/oidc/start', authLimiter);
+app.use('/api/auth/oidc/callback', authLimiter);
 app.use('/api/auth', authRouter);
 app.use('/api/dashboard', requireXenConnection, dashboardRoutes);
 app.use('/api/vms', requireXenConnection, vmRoutes);

@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/connections via requireAuth (file is api.js).
+ * Auth: local login.
+ * Workflow: saved Xen connection records (host/user/port), default-connection flag.
+ * Invariants: list/mutate are owner-scoped via resource-ownership. Writes use
+ * ensureMutationAllowed. This is not the public /api/v1 surface.
+ * Client: SettingsView (connections) and LoginView target picker.
+ */
 const express = require('express');
 const router = express.Router();
 const { connectionModel } = require('../models/connection');

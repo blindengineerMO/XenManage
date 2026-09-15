@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo governance/audit helpers (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: audit log, visibility/ownership, break-glass, quotas, and
+ * `ensureDemoMutationAllowed` (throws APPROVAL_REQUIRED like live policy).
+ * Consumers: every mutating demo-*-routes.js handler.
+ * Gotchas: `getDemoActor` reads `store.user`; shared vs private visibility
+ * is a demo convention, not Xen RBAC.
+ */
 function getDemoChangedFields(before = null, after = null) {
   const left = before && typeof before === 'object' ? before : {};
   const right = after && typeof after === 'object' ? after : {};

@@ -29,6 +29,9 @@ function validateNamingPattern(value) {
   return pattern;
 }
 
+/**
+ * Replace the single X-run in pattern with a zero-padded sequence (NODE-XXXX + 7 → NODE-0007).
+ */
 function renderGeneratedName(pattern, sequence) {
   const validated = validateNamingPattern(pattern);
   const number = Number(sequence);

@@ -1,3 +1,9 @@
+/*
+ * Global delayed-action toast hosted by AppShell. Shows a countdown and
+ * emits undo so the parent can cancel a queued destructive API call
+ * (forget SR, delete policy, etc.) before the timer fires. Presentational
+ * only — timing lives in the caller.
+ */
 const UndoBar = {
   props: {
     show: { type: Boolean, default: false },

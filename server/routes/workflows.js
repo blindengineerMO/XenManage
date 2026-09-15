@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/workflows via requireAuth.
+ * Auth: local login.
+ * Workflow: queued/idempotent jobs (target checks, etc.) with optional approval.
+ * Invariants: create is idempotent on key (201 vs 200 + idempotent:true). Approve
+ * then execute. Writes use ensureMutationAllowed.
+ * Client: ProjectsView / Activity workflows; public /api/v1/workflows is the token twin.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const workflowEngine = require('../services/workflow-engine');
@@ -20,6 +28,7 @@ router.get('/:id', validate(schemas.workflowId, 'params'), (req, res) => {
   res.json(workflow);
 });
 
+// Idempotent on the engine key: repeat creates return 200 + idempotent:true instead of a duplicate job.
 router.post('/', validate(schemas.workflowCreate), async (req, res) => {
   if (!ensureMutationAllowed(req, res, { actionKey: 'workflow_create', entityType: 'workflow', entityRef: req.body.type })) return;
   try {
@@ -34,6 +43,7 @@ router.post('/', validate(schemas.workflowCreate), async (req, res) => {
   }
 });
 
+// Approval unblocks the engine, then execute() runs immediately.
 router.post('/:id/approve', validate(schemas.workflowId, 'params'), validate(schemas.workflowApproval), async (req, res) => {
   if (!ensureMutationAllowed(req, res, { actionKey: 'workflow_approve', entityType: 'workflow', entityRef: req.params.id })) return;
   const workflow = workflowEngine.approve(req.params.id, req.body.approvalId);

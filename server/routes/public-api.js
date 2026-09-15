@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/v1 (no session gate in server/index.js).
+ * Auth: GET /openapi.json is public; remaining routes requireApiToken + requireApiPermission.
+ * Workflow: token-authenticated subset of managed-targets and workflows for CLI/automation.
+ * Invariants: keep in sync with server/openapi/v1.js. Session SPA traffic stays on /api/*.
+ * Client: external API consumers, not a Vue view.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { requireApiToken, requireApiPermission } = require('../middleware/api-token');

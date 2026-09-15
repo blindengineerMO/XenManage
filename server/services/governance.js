@@ -449,6 +449,10 @@ const governanceService = {
     return approvals[index];
   },
 
+  /**
+   * One-shot consume of an approved ticket. Marks it used; mismatches on
+   * actionKey/entityRef/entityType return APPROVAL_SCOPE_MISMATCH without consuming.
+   */
   consumeApproval({ id, actionKey, entityRef, entityType, usedBy = 'system' }) {
     const approvals = this.listApprovals();
     const index = approvals.findIndex((record) => record.id === id);

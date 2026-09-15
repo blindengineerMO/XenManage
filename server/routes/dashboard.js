@@ -19,6 +19,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Merge XAPI messages with telemetry so the home strip is not xen-only.
 router.get('/messages', async (req, res) => {
   try {
     const [messages, telemetryAlerts] = await Promise.all([

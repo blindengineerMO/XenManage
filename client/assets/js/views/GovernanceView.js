@@ -1,3 +1,13 @@
+/*
+ * Governance workspace: session role, local users/groups, pool quotas,
+ * permission grants/tokens, break-glass, and approval-gated actions.
+ * APIs: GET /api/governance (scoped), /api/users, /api/groups,
+ * permission templates/grants, API tokens; PUT policy/role/quotas;
+ * POST /api/governance/approvals and .../decision; break-glass activate/
+ * deactivate. vFabric scope uses GET /api/vfabrics/:id/quota (read-only).
+ * Gotcha: openApprovalComposer is the approval request composer — destructive
+ * ops elsewhere pass the resulting approvalId. vFabric scope disables writes.
+ */
 const GovernanceView = {
   components: {
     StatusBadge,

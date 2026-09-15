@@ -1,3 +1,11 @@
+/*
+ * Authenticated application chrome: boot splash until store.ready, then
+ * TopNav + SideNav + workspace-tab strip + routed view + StatusBar.
+ * Unauthenticated routes render the router-view only (Login/Catalog).
+ * Hosts ConfirmWindow and UndoBar globally so any workspace can queue a
+ * delayed destructive action. Workspace tabs track recently visited
+ * routes — closing the last tab does not log out.
+ */
 const AppShell = {
   components: { TopNav, SideNav, StatusBar, ConfirmWindow, UndoBar },
   template: `

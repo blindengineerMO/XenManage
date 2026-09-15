@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/managed-targets via requireAuth.
+ * Auth: local login; visibility follows the underlying connection's ownership.
+ * Workflow: register connections for background health checks used by xen-login/workflows.
+ * Invariants: register immediately runs a check. Writes use ensureMutationAllowed.
+ * Client: ProjectsView / Settings managed-targets pane; public API mirrors a subset.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { connectionModel } = require('../models/connection');
@@ -12,6 +19,7 @@ router.get('/', (req, res) => {
   res.json(managedTargetService.list(resolveActor(req)));
 });
 
+// Register then check immediately so the UI never shows an unprobed target.
 router.post('/', validate(schemas.managedTargetCreate), async (req, res) => {
   if (!ensureMutationAllowed(req, res, { actionKey: 'managed_target_register', entityType: 'managed-target', entityRef: String(req.body.connectionId) })) return;
   const actor = resolveActor(req);

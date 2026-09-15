@@ -1,3 +1,11 @@
+// Compose-spec planner and executor. Interpolates ${var} against spec.variables,
+// topological-sorts VM keys via dependsOn, resolves name/uuid/OpaqueRef to XAPI
+// refs, then clones/configures VMs. Consumed by routes/vms.js and catalog.js
+// (snippet catalog sources). planCompose() is dry-run; executeCompose() mutates
+// and writes a deployment_runs row (runKind 'compose'). Unknown ${var} throws
+// COMPOSE_UNKNOWN_VARIABLE. Quota checks belong to the caller (pool-quota /
+// vfabric-quota / projects), not this engine. To add a compose field, update
+// interpolation + the per-VM apply path together.
 const { deploymentRunModel } = require('../models/connection');
 const governanceService = require('./governance');
 

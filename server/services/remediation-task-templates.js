@@ -1,3 +1,8 @@
+// Saved remediation-task presets (checklist, lifecycle/runbook/migration seeds)
+// in settings (`alerts.remediationTaskTemplates`), capped at MAX_TEMPLATES.
+// Consumed by routes/tasks.js when operators spawn a task from a template.
+// Seeds are optional objects with enabled:false meaning "do not apply". This is
+// not the task queue — live tickets live in remediation-tasks.js.
 const crypto = require('crypto');
 const { settingsModel } = require('../models/connection');
 

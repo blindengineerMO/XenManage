@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/terraform (no session gate in server/index.js).
+ * Auth: requireApiToken on the router; per-route terraform.state.read / .write.
+ * Workflow: HTTP remote-state backend (get/save/lock/unlock) for Terraform.
+ * Invariants: 423 on lock conflict returns the existing lock JSON. Not used by the SPA.
+ * Client: Terraform CLI http backend, not a Vue view.
+ */
 const express = require('express');
 const { terraformStateModel } = require('../models/connection');
 const { requireApiToken, requireApiPermission } = require('../middleware/api-token');
@@ -25,6 +32,7 @@ router.post('/:name', requireApiPermission('terraform.state.write'), (req, res) 
   res.status(200).end();
 });
 
+// HTTP backend lock: 423 + existing lock JSON when another Terraform process holds the state.
 router.post('/:name/lock', requireApiPermission('terraform.state.write'), (req, res) => {
   const name = stateName(req);
   const lockId = String(req.body?.ID || '').trim();

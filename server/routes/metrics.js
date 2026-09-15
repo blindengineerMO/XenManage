@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/metrics via requireXenConnection.
+ * Auth: live XAPI session (req.xenApi).
+ * Workflow: historical series for cluster/host/VM/SR plus live RRD and manual collect.
+ * Invariants: GETs refresh a snapshot unless /rrd-updates, which talks to XAPI RRD
+ * directly. POST /collect forces a snapshot (source=manual).
+ * Client: DashboardView, CapacityView, HostsView/VMsView/StorageView metric panes.
+ */
 const express = require('express');
 const router = express.Router();
 const { validate, schemas } = require('../middleware/validate');
@@ -37,6 +45,7 @@ router.get('/capacity-baseline', async (req, res) => {
   }
 });
 
+// Live XAPI RRD, not the local history store used by /cluster and /hosts/:ref.
 router.get('/rrd-updates', validate(schemas.metricRrdQuery, 'query'), async (req, res) => {
   try {
     const start = req.query.start !== undefined
@@ -54,6 +63,7 @@ router.get('/rrd-updates', validate(schemas.metricRrdQuery, 'query'), async (req
   }
 });
 
+// Force a snapshot now (source=manual) instead of waiting for the background collector.
 router.post('/collect', async (req, res) => {
   try {
     const result = await ensureRecentSnapshot(req, true);

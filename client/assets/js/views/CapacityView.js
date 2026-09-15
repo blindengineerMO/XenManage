@@ -1,3 +1,13 @@
+/*
+ * Capacity workspace: host/VM/storage utilization, cluster metric history,
+ * entity inspector, and remediation-task shortcuts.
+ * APIs: GET /api/metrics/cluster, /api/metrics/capacity-baseline,
+ * /api/metrics/{hosts|vms|storage}/:ref, /api/hosts/:ref/metrics,
+ * plus inventory GET hosts/srs/vms/tasks/alerts; POST /api/tasks/remediation.
+ * Gotcha: vFabric scope fans loads across attached targets and merges
+ * time-series (percent metrics averaged, counts summed). Inspector history
+ * is per-entity, not the cluster rollup.
+ */
 function capacityScopeTargets() {
   return getVFabricScopeTargets();
 }

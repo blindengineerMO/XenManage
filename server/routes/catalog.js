@@ -1,3 +1,12 @@
+/**
+ * Mount: /api/catalog (no global requireAuth in server/index.js).
+ * Auth: published GET / and GET /:slug are public; other routes use requireCatalogRole
+ * (session + catalog viewer/subscriber/admin). Deploy/day-2 also requireXenConnection.
+ * Workflow: self-service catalog of library items — request, approve, deploy, day-2 VM ops.
+ * Invariants: subscriber quotas, approval chains (no self-approve), vFabric/pool quotas on
+ * deploy. Auto-approve and webhook hooks run at request submit time.
+ * Client: CatalogView.
+ */
 const express = require('express');
 const { catalogModel, templateLibraryModel, deploymentRunModel } = require('../models/connection');
 const { catalogRoleModel } = require('../models/security-db');
@@ -59,6 +68,7 @@ function validateApprovalPolicy(policy) {
   if (!credentialVaultService.validateSharedIntegrationCredential(policy.credentialId, 'webhook')) return 'CATALOG_APPROVAL_HOOK_CREDENTIAL_INVALID';
   return null;
 }
+// Published catalog is intentionally unauthenticated so the storefront can render before login.
 router.get('/', (_req, res) => res.json({ entries: catalogModel.listPublished() }));
 router.get('/admin/entries', requireCatalogAdmin, (_req, res) => {
   res.json({ entries: catalogModel.listAll() });
@@ -123,6 +133,7 @@ router.put('/admin/roles/:userId', requireCatalogAdmin, (req, res) => {
     res.status(error.code === 'USER_NOT_FOUND' ? 404 : 400).json({ error: error.code || 'CATALOG_ROLE_UPDATE_FAILED' });
   }
 });
+// Approval-chain review; CATALOG_APPROVER_SEPARATION_REQUIRED blocks the same admin twice.
 router.put('/admin/requests/:id', requireCatalogAdmin, (req, res) => {
   const status = String(req.body?.status || '');
   if (!['approved', 'rejected', 'cancelled'].includes(status)) return res.status(400).json({ error: 'CATALOG_REQUEST_STATUS_INVALID' });
@@ -157,6 +168,7 @@ router.put('/admin/requests/:id', requireCatalogAdmin, (req, res) => {
   if (request.status !== 'pending') notifyCatalogOwner(request, 'Catalog request updated', `${existing.title}: ${request.status}`);
   res.json({ request: { ...request, approvalSteps: catalogModel.listApprovalSteps(request.id) } });
 });
+// Needs a live XAPI session; enforces vFabric/pool quotas then deploys the library source.
 router.post('/admin/requests/:id/deploy', requireCatalogAdmin, requireXenConnection, async (req, res) => {
   const request = catalogModel.beginDeployment(Number(req.params.id));
   if (!request) return res.status(409).json({ error: 'CATALOG_REQUEST_NOT_APPROVED' });
@@ -228,6 +240,7 @@ router.post('/admin/requests/:id/deploy', requireCatalogAdmin, requireXenConnect
     return res.status(error.status || 500).json({ error: error.code || 'CATALOG_DEPLOY_FAILED', message: error.message });
   }
 });
+// May auto-approve or enqueue a webhook hook; subscriber maxActivePerSubscriber is enforced here.
 router.post('/:slug/requests', requireCatalogSubscriber, (req, res) => {
   const entry = catalogModel.getPublishedBySlug(String(req.params.slug || '').trim());
   if (!entry) return res.status(404).json({ error: 'CATALOG_ENTRY_NOT_FOUND' });
@@ -260,6 +273,7 @@ router.post('/:slug/requests', requireCatalogSubscriber, (req, res) => {
 router.get('/requests/mine', requireCatalogViewer, (req, res) => {
   res.json({ requests: catalogModel.listRequestsForUser(req.session.userId) });
 });
+// Day-2 ops against the deployed VM (start/stop/reboot/snapshot/resize/decommission).
 router.post('/requests/:id/actions', requireCatalogViewer, requireXenConnection, async (req, res) => {
   const catalogRole = catalogRoleModel.getByUserId(req.session.userId)?.role;
   const requests = catalogRole === 'admin' ? catalogModel.listRequests() : catalogModel.listRequestsForUser(req.session.userId);

@@ -1,7 +1,16 @@
-/* ============================================
-   Storage View Focus Helpers
-   ============================================ */
-
+/**
+ * XenMange client — StorageView focus (detail pane / route query).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: focus = open an SR (and optionally a VDI/VBD) from
+ * `?focusKind=storage` deep links.
+ *
+ * Purpose: skip or apply route-focus; resolve focused VDI inside the SR.
+ * Consumers: StorageView (`sync` via shouldSkipStorageRouteFocusSync).
+ * Gotchas: kind must be empty or `storage`. Missing inventory resets focus
+ * state via `createStorageRouteFocusResetState`.
+ */
 function isSupportedStorageRouteFocus(focus = null) {
   return Boolean(focus) && (!focus.kind || focus.kind === 'storage');
 }

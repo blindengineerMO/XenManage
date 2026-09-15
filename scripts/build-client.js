@@ -90,6 +90,7 @@ function buildAppBundle() {
     'assets/js/core/demo-vm-transfer-routes.js',
     'assets/js/core/demo-summary.js',
     'assets/js/core/demo-request.js',
+    'assets/js/core/webauthn-browser.js',
     'assets/js/core/api.js',
     'assets/js/core/state.js',
     'assets/js/core/shared-ui-helpers.js',

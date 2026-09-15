@@ -1,7 +1,17 @@
-/* ============================================
-   Host View Workspace Helpers
-   ============================================ */
-
+/**
+ * XenMange client — HostsView workspace (selection / layout state).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: workspace = selection/layout state (which windows are
+ * open, selected host, bulk refs); service = API; focus = detail pane.
+ *
+ * Purpose: factory for HostsView reactive state and window open/close
+ * patches so the view does not scatter object literals.
+ * Consumers: HostsView.
+ * Gotchas: `createHostsViewState` is the initial `data()` blob — keep new
+ * dialog flags here or they will not be reactive.
+ */
 function createHostsViewState() {
   return {
     loading: true,

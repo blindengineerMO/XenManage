@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo remediation / plan seeds (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: build fake remediation tasks/templates and normalize lifecycle /
+ * resilience / VM-migration seeds so Activity and Lifecycle views have data.
+ * Consumers: demo-alert-routes.js, demo-planning-routes.js, demo-vm-*.
+ * Gotchas: `sortTasks` is also used by live view-models (capacity) because it
+ * is a global — renaming it would break CapacityView.
+ */
 function sortTasks(tasks) {
   return [...(tasks || [])].sort((left, right) =>
     new Date(right.finished || right.created || 0) - new Date(left.finished || left.created || 0)

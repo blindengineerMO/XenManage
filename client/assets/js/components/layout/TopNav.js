@@ -1,3 +1,12 @@
+/*
+ * Top bar: sidebar toggle, breadcrumbs, New VM / Add Target / Search,
+ * vFabric scope switcher, live-target attach/detach, profile, logout.
+ * APIs: GET /api/vfabrics, GET /api/vfabrics/:id/scope, POST
+ * /api/auth/targets/activate, DELETE /api/auth/targets/:key, POST
+ * /api/auth/logout. AddTargetWindow and ProfileWindow are FloatingWindows.
+ * Gotcha: vFabric scope is a read overlay — it does not replace the
+ * active Xen session. Logout clears control-plane session, not just Xen.
+ */
 const TopNav = {
   components: { AddTargetWindow, ProfileWindow },
   props: ['sidebarOpen'],

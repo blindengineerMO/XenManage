@@ -15,6 +15,7 @@ const { ensureMutationAllowed } = require('../middleware/governance');
 
 const router = express.Router();
 
+// Fan-out snapshot of pool/host/VM/task/message records plus local runbooks/drills.
 router.get('/', async (req, res) => {
   try {
     const [poolsResult, hostsResult, vmsResult, tasksResult, messagesResult] = await Promise.all([
@@ -111,6 +112,7 @@ router.delete('/plans/:ref', validate(schemas.opaqueRefParam, 'params'), (req, r
   }
 });
 
+// Records a tabletop drill result; does not trigger HA failover.
 router.post('/drills/:ref', validate(schemas.opaqueRefParam, 'params'), validate(schemas.resilienceDrillCreate), (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'resilience_drill_log', entityType: 'pool', entityRef: req.params.ref })) return;

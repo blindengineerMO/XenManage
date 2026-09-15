@@ -1,3 +1,14 @@
+/**
+ * XenMange client — LifecycleView view-models.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: infer default lifecycle plans from host/tasks/alerts and shape
+ * planner rows for LifecycleView.
+ * Consumers: LifecycleView, LifecycleWorkspaceDialogs.
+ * Gotchas: defaults are heuristic (tags/other_config/lifecycle text, critical
+ * messages) — not Xen update-manager state. Relies on lifecycle-view-helpers.
+ */
 function inferLifecyclePlanDefaults(host, relatedTasks = [], relatedMessages = []) {
   if (!host?.enabled) {
     return {

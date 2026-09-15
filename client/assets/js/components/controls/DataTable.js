@@ -1,3 +1,11 @@
+/*
+ * Shared inventory table: search, sort, pagination, optional row
+ * selection, inline cell-edit, and right-click ContextMenu.
+ * Emits row-click, selection-change, cell-edit, row-context. No API
+ * calls — parents load data. row-key defaults matter for selection
+ * (usually Xen OpaqueRef). Sticky first column when selectable.
+ * Context copy notice is local clipboard UX, not a network action.
+ */
 const DataTable = {
   components: { ContextMenu: typeof ContextMenu !== 'undefined' ? ContextMenu : undefined },
   props: ['columns', 'data', 'loading', 'searchable', 'selectable', 'selectedKeys', 'rowKey', 'emptyMessage', 'emptyIcon', 'initialSearch'],

@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/profile via requireAuth, then requireLocalUser.
+ * Auth: active local account (session.userId).
+ * Workflow: self-service profile, password, theme, avatar, MFA, web-push.
+ * Invariants: operators cannot change their own role here. Avatar GET serves a file.
+ * Client: SettingsView (profile) and shell theme/avatar.
+ */
 const express = require('express');
 const multer = require('multer');
 const { validate, schemas } = require('../middleware/validate');
@@ -40,8 +47,13 @@ function mapProfileError(error) {
     'MFA_TOKEN_INVALID',
     'MFA_ENROLLMENT_NOT_STARTED',
     'INVALID_PUSH_SUBSCRIPTION',
+    'WEBAUTHN_NO_PENDING_CHALLENGE',
+    'WEBAUTHN_REGISTRATION_FAILED',
   ].includes(code)) {
     return { status: 400, error: code };
+  }
+  if (code === 'WEBAUTHN_CREDENTIAL_NOT_FOUND') {
+    return { status: 404, error: code };
   }
   return { status: 500, error: code };
 }
@@ -157,6 +169,7 @@ router.delete('/avatar', (req, res) => {
   res.json({ data });
 });
 
+// Serves the avatar file bytes (not JSON) so <img> tags can hit this path.
 router.get('/avatar/:userId', (req, res) => {
   const filePath = profileService.resolveAvatarFile(req.params.userId);
   if (!filePath) return res.status(404).end();
@@ -220,6 +233,68 @@ router.post('/mfa/disable', validate(schemas.profileMfaDisable), (req, res) => {
       detail: `${data.username} disabled TOTP MFA.`,
     });
     res.json({ data });
+  } catch (error) {
+    const mapped = mapProfileError(error);
+    res.status(mapped.status).json({ error: mapped.error });
+  }
+});
+
+router.get('/webauthn/credentials', (req, res) => {
+  res.json({ data: profileService.webauthnListCredentials(req.session.userId) });
+});
+
+router.post('/webauthn/register/options', async (req, res) => {
+  try {
+    const options = await profileService.webauthnBeginRegistration(req);
+    res.json({ data: options });
+  } catch (error) {
+    const mapped = mapProfileError(error);
+    res.status(mapped.status).json({ error: mapped.error });
+  }
+});
+
+router.post('/webauthn/register/verify', validate(schemas.profileWebauthnRegisterVerify), async (req, res) => {
+  try {
+    const data = await profileService.webauthnFinishRegistration(req, req.body);
+    auditLogService.record({
+      category: 'account',
+      action: 'profile_webauthn_registered',
+      actionLabel: 'Registered a security key for',
+      entityType: 'user',
+      entityRef: String(req.session.userId),
+      entityName: req.localAccount.username,
+      operator: currentOperator(req),
+      route: '/api/profile/webauthn/register/verify',
+      status: 'success',
+      before: null,
+      after: { name: data.name },
+      detail: `${req.localAccount.username} registered a security key ("${data.name}").`,
+    });
+    res.json({ data });
+  } catch (error) {
+    const mapped = mapProfileError(error);
+    res.status(mapped.status).json({ error: mapped.error });
+  }
+});
+
+router.delete('/webauthn/credentials/:id', (req, res) => {
+  try {
+    profileService.webauthnRemoveCredential(req.session.userId, req.params.id);
+    auditLogService.record({
+      category: 'account',
+      action: 'profile_webauthn_removed',
+      actionLabel: 'Removed a security key for',
+      entityType: 'user',
+      entityRef: String(req.session.userId),
+      entityName: req.localAccount.username,
+      operator: currentOperator(req),
+      route: '/api/profile/webauthn/credentials',
+      status: 'success',
+      before: { credentialRowId: req.params.id },
+      after: { removed: true },
+      detail: `${req.localAccount.username} removed a registered security key.`,
+    });
+    res.json({ removed: true });
   } catch (error) {
     const mapped = mapProfileError(error);
     res.status(mapped.status).json({ error: mapped.error });

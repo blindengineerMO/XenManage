@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/workspaces via requireAuth.
+ * Auth: local login.
+ * Workflow: saved inventory workspace filters/layouts (not Xen resource groups).
+ * Invariants: owner-scoped. Writes use ensureMutationAllowed.
+ * Client: InventoryView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');

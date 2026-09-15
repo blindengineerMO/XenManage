@@ -1,3 +1,8 @@
+// Local filesystem browser rooted at config.storage.browserRoot/<srUuid>.
+// Used by routes/storage.js for SR file listing/upload/mkdir/move/delete.
+// Every path goes through resolveSafePath (no `..`, no symlink escape). Missing
+// SR UUID throws; the mount root is created on first access. This is the
+// control-plane host's view of an exported SR, not an XAPI VDI API.
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');

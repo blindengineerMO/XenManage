@@ -1,3 +1,17 @@
+/**
+ * XenMange client — VMsView service (API calls).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: service = API calls that fill the VM detail context
+ * (inventory, metrics, snapshots, compatibility, consoles).
+ *
+ * Purpose: empty-context factories plus `loadVmInventoryContext` /
+ * `loadVmDetailContext` for VMsView.
+ * Consumers: VMsView, vm-view-workspace.js.
+ * Gotchas: inventory fetches catch to empty arrays. Detail also fans out
+ * `getSRVDIs` per SR — large fabrics mean many parallel calls.
+ */
 function createEmptyVmMetricHistory() {
   return { metrics: [] };
 }

@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/users via requireAuth, then requireLocalAdmin.
+ * Auth: active local admin whose session role is also admin (break-glass does not apply here).
+ * Workflow: local user CRUD and admin password reset.
+ * Invariants: last active admin cannot be removed. Xen-only sessions are 403.
+ * Client: SettingsView (users).
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { userModel } = require('../models/security-db');

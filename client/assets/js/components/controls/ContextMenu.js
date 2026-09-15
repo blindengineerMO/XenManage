@@ -1,3 +1,10 @@
+/*
+ * Teleported right-click menu used by DataTable and tree nodes.
+ * Props: show, x/y, items[{label,icon,disabled,danger,divider}].
+ * Emits select/close. Position is clamped to the viewport. Keyboard:
+ * arrows/enter/escape. Not a native contextmenu — parents preventDefault
+ * and pass coordinates. No API calls.
+ */
 const ContextMenu = {
   props: ['show', 'x', 'y', 'items'],
   emits: ['close', 'select'],

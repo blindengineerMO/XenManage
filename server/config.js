@@ -81,6 +81,59 @@ const config = {
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@xenmange.local',
   },
+  oidc: {
+    enabled: String(process.env.OIDC_ENABLED || '').toLowerCase() === 'true',
+    issuer: process.env.OIDC_ISSUER || '',
+    clientId: process.env.OIDC_CLIENT_ID || '',
+    clientSecret: process.env.OIDC_CLIENT_SECRET || '',
+    redirectUri: process.env.OIDC_REDIRECT_URI || '',
+    scope: process.env.OIDC_SCOPE || 'openid profile email',
+    buttonLabel: process.env.OIDC_BUTTON_LABEL || 'Sign in with SSO',
+    defaultRole: process.env.OIDC_DEFAULT_ROLE || 'operator',
+    allowedEmailDomains: String(process.env.OIDC_ALLOWED_EMAIL_DOMAINS || '')
+      .split(',').map((domain) => domain.trim().toLowerCase()).filter(Boolean),
+  },
+  ldap: {
+    // Search + bind: a service account (bindDn/bindPassword) finds the user's DN under
+    // searchBase via searchFilter (with {{username}} substituted), then a second bind as
+    // that DN with the supplied password verifies the credential. Works for both OpenLDAP
+    // (e.g. filter "(uid={{username}})") and Active Directory (e.g. "(sAMAccountName={{username}})").
+    enabled: String(process.env.LDAP_ENABLED || '').toLowerCase() === 'true',
+    url: process.env.LDAP_URL || '',
+    bindDn: process.env.LDAP_BIND_DN || '',
+    bindPassword: process.env.LDAP_BIND_PASSWORD || '',
+    searchBase: process.env.LDAP_SEARCH_BASE || '',
+    searchFilter: process.env.LDAP_SEARCH_FILTER || '(uid={{username}})',
+    usernameAttribute: process.env.LDAP_USERNAME_ATTRIBUTE || 'uid',
+    emailAttribute: process.env.LDAP_EMAIL_ATTRIBUTE || 'mail',
+    displayNameAttribute: process.env.LDAP_DISPLAY_NAME_ATTRIBUTE || 'cn',
+    tlsRejectUnauthorized: String(process.env.LDAP_TLS_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false',
+    defaultRole: process.env.LDAP_DEFAULT_ROLE || 'operator',
+    allowedEmailDomains: String(process.env.LDAP_ALLOWED_EMAIL_DOMAINS || '')
+      .split(',').map((domain) => domain.trim().toLowerCase()).filter(Boolean),
+  },
+  webauthn: {
+    // rpID/origin are the strict security anchor for every WebAuthn ceremony — a
+    // credential minted for one origin will never verify against another. Left
+    // unset, services/webauthn.js derives both from the inbound request (hostname /
+    // scheme+host) so a self-hosted install with an arbitrary domain works with zero
+    // configuration; set these to pin XenMange behind a reverse proxy that changes
+    // the Host header, or to a single canonical origin when serving multiple hostnames.
+    rpName: process.env.WEBAUTHN_RP_NAME || 'XenMange',
+    rpId: process.env.WEBAUTHN_RP_ID || '',
+    origin: process.env.WEBAUTHN_ORIGIN || '',
+  },
+  saml: {
+    enabled: String(process.env.SAML_ENABLED || '').toLowerCase() === 'true',
+    entryPoint: process.env.SAML_ENTRY_POINT || '',
+    issuer: process.env.SAML_ISSUER || 'xenmange',
+    cert: process.env.SAML_CERT || '',
+    callbackUrl: process.env.SAML_CALLBACK_URL || '',
+    buttonLabel: process.env.SAML_BUTTON_LABEL || 'Sign in with SAML',
+    defaultRole: process.env.SAML_DEFAULT_ROLE || 'operator',
+    allowedEmailDomains: String(process.env.SAML_ALLOWED_EMAIL_DOMAINS || '')
+      .split(',').map((domain) => domain.trim().toLowerCase()).filter(Boolean),
+  },
 };
 
 // Session secrets and bootstrap credentials fall back to well-known, source-visible
@@ -93,6 +146,15 @@ if (env === 'production') {
   }
   if (!process.env.XENMANGE_BOOTSTRAP_PASSWORD) {
     problems.push('XENMANGE_BOOTSTRAP_PASSWORD must be set (refusing to create the bootstrap admin account with a known default password).');
+  }
+  if (config.oidc.enabled && (!config.oidc.issuer || !config.oidc.clientId || !config.oidc.clientSecret || !config.oidc.redirectUri)) {
+    problems.push('OIDC_ENABLED=true requires OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, and OIDC_REDIRECT_URI to all be set.');
+  }
+  if (config.ldap.enabled && (!config.ldap.url || !config.ldap.bindDn || !config.ldap.bindPassword || !config.ldap.searchBase)) {
+    problems.push('LDAP_ENABLED=true requires LDAP_URL, LDAP_BIND_DN, LDAP_BIND_PASSWORD, and LDAP_SEARCH_BASE to all be set.');
+  }
+  if (config.saml.enabled && (!config.saml.entryPoint || !config.saml.cert || !config.saml.callbackUrl)) {
+    problems.push('SAML_ENABLED=true requires SAML_ENTRY_POINT, SAML_CERT, and SAML_CALLBACK_URL to all be set.');
   }
   if (problems.length) {
     throw new Error(`Insecure production configuration:\n- ${problems.join('\n- ')}`);

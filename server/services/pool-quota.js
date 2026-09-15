@@ -1,3 +1,9 @@
+// Enforces governance pool quotas (max VMs / running VMs / memory GiB) against
+// live XAPI inventory. Consumed by routes/vms.js and catalog.js before clone.
+// Disabled quotas are a no-op. autoSelect picks the least-loaded eligible pool
+// and writes requestedVm.hostRef — callers must pass a mutable payload.
+// requireResolvedTarget throws if host/pool cannot be determined. Limit 0 means
+// unlimited for that metric.
 const governanceService = require('./governance');
 
 const BYTES_PER_GIB = 1024 ** 3;
@@ -35,6 +41,10 @@ function quotaError(code, message, details = {}) {
   return error;
 }
 
+/**
+ * Throws QUOTA_EXCEEDED (409) when the next VM would breach an enabled pool quota.
+ * With autoSelect:true, mutates requestedVm.hostRef to the chosen host.
+ */
 async function enforcePoolQuota(xenApi, requestedVm, options = {}) {
   const { requireResolvedTarget = false, autoSelect = false, eligiblePoolRefs = [] } = options;
   if (!requestedVm.hostRef && !autoSelect) {

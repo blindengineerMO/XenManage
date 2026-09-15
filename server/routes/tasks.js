@@ -16,6 +16,7 @@ const templateDeploymentRunService = require('../services/template-deployment-ru
 
 const router = express.Router();
 
+// One Activity list: template-deployment runs + remediation tickets + XAPI tasks, newest 200.
 router.get('/', async (req, res) => {
   try {
     const tasks = await req.xenApi.getTasks();
@@ -42,6 +43,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Operator ticket, not an XAPI task — optionally seeded from a remediation template.
 router.post('/remediation', validate(schemas.remediationTaskCreate), (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'remediation_task_create', entityType: 'task', entityRef: req.body.alertRef })) return;

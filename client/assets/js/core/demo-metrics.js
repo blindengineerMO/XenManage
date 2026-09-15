@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo metric series (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: generate deterministic fake RRD-like trend points for cluster,
+ * host, VM, and storage charts plus a capacity baseline.
+ * Consumers: demo-shell-routes.js, demo-resource-routes.js, CapacityView.
+ * Gotchas: values are seeded from entity refs — they look stable, not live.
+ * Unknown ranges fall back to 24h. This is not Xen RRD XML.
+ */
 const DEMO_RANGE_TO_MS = {
   '1h': 60 * 60 * 1000,
   '6h': 6 * 60 * 60 * 1000,

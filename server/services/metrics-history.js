@@ -1,3 +1,10 @@
+// Reads and writes perf.db metric samples / hourly rollups. Collector writes
+// via this module; routes/metrics.js and placement-engine read series, latest
+// values, and listCapacityBaseline(). Ranges: 1h/6h/24h use raw samples; 7d/30d
+// use hourly rollups. ENTITY_METRICS is the supported host/vm/sr set — add a
+// name there before expecting charts. RRD CF prefixes (average/min/max/last)
+// are stripped when matching XenServer legend names. Samples older than
+// STALE_SAMPLE_WINDOW_MS are ignored for "current" capacity views.
 const { metricSampleModel } = require('../models/perf-db');
 
 const RANGE_TO_MS = {

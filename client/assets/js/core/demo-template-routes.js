@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo VM-template / catalog-deploy routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: /api/vms/templates, governance, promote, deploy, compose dry-run
+ * for TemplatesView.
+ * Consumers: demo-request.js (`handleDemoTemplateRoutes`).
+ * Gotchas: operating-system vs deployable kinds are XenMange concepts; golden
+ * templates must come from a halted non-template VM in `demoDb`.
+ */
 function handleDemoTemplateRoutes(method, path, body, parsedUrl, search, targetKey) {
   if (method === 'GET' && path === '/api/vms/templates') {
     const templates = buildDemoVmInventory(targetKey).filter((vm) => vm.is_a_template);

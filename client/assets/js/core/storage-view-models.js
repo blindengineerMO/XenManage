@@ -1,3 +1,15 @@
+/**
+ * XenMange client — StorageView view-models.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: shape SR/VDI/VBD/PBD API payloads into UI-ready selection
+ * profiles, attachment rows, snapshot lineage, and path-health summaries.
+ * Consumers: StorageView, StoragePropertiesWindow, StorageWorkspaceDialogs.
+ * Gotchas: destroy-ready vs destroy-blocked depends on `sr.VDIs` being
+ * present — missing inventory is `destroyUnknown`, not empty. Uses
+ * `formatBytes` from shared-ui-helpers.js.
+ */
 function buildStorageSelectionProfile(srs = [], selectedSrRefs = []) {
   const srList = Array.isArray(srs) ? srs : [];
   const selected = new Set(Array.isArray(selectedSrRefs) ? selectedSrRefs : []);

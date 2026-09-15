@@ -1,3 +1,9 @@
+// Synthetic alerts from persisted host memory and SR utilization samples
+// (warning/critical thresholds in THRESHOLDS). Refs are OpaqueRef:telemetry:…
+// so they never collide with XAPI message refs. Samples older than 24h are
+// ignored. Consumed by routes/alerts.js and dashboard.js alongside listAlerts().
+// These are not written to Xen `message` and have no operator ack in XAPI —
+// alert state still goes through alerts.saveAlertState by ref.
 const { metricSampleModel } = require('../models/perf-db');
 
 const FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;

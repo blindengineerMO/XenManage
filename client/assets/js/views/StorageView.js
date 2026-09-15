@@ -1,3 +1,13 @@
+/*
+ * Storage Repositories workspace: SR inventory, VDI mapping, file browser,
+ * probe/create/import, rescan/forget/destroy, local cache.
+ * APIs: create/probe/import SR; PUT /api/srs/:ref/config; rescan/repair/
+ * forget/destroy; VDI create/resize/clone/delete/attach-as-CD; file list/
+ * mkdir/upload/move/delete; GET VDIs and VBDs.
+ * Gotcha: batch destroy refuses non-empty SRs. File browser and properties
+ * are FloatingWindows. Forget/destroy/VDI delete/file delete can require
+ * a governance approvalId.
+ */
 const StorageView = {
   components: {
     DataTable,

@@ -1,3 +1,8 @@
+// Saved inventory search workspaces (scope + query + optional target) in
+// settings (`inventory.workspaces`), max MAX_WORKSPACES. Visibility follows
+// resource-ownership. Consumed by routes/workspaces.js. VALID_SCOPES is the
+// inventory class filter; unknown scopes become `all`. listAll() is admin/
+// internal — list(actor) is what the UI should call.
 const crypto = require('crypto');
 const { settingsModel } = require('../models/connection');
 const {

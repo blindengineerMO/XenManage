@@ -88,6 +88,7 @@ router.put('/:ref/config',
     }
   });
 
+// Enable/disable pool HA or retune failure-to-tolerate; heartbeat SRs come from the body.
 router.post('/:ref/ha',
   validate(schemas.opaqueRefParam, 'params'),
   validate(schemas.poolHaUpdate),
@@ -120,6 +121,7 @@ router.post('/:ref/ha',
     }
   });
 
+// Joins a remote host into the current pool; vault credential IDs substitute for plaintext passwords.
 router.post('/join',
   validate(schemas.poolJoin),
   async (req, res) => {
@@ -161,6 +163,7 @@ router.post('/join',
     }
   });
 
+// Cannot eject the pool coordinator — promote another host first.
 router.post('/:ref/eject',
   validate(schemas.opaqueRefParam, 'params'),
   validate(schemas.poolEject),

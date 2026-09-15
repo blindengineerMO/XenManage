@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo storage/network resource routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: /api/storage (SRs, VDIs, VBDs, PBDs, ISO browser) and network
+ * interfaces / VIF config for StorageView and NetworkingView.
+ * Consumers: demo-request.js (`handleDemoResourceRoutes`).
+ * Gotchas: ISO paths are fake path-segment lists; VIF state lives in
+ * `demoDb.vifStates` (see demo-runtime.js).
+ */
 function demoIsoRelativePathSegments(relativePath) {
   return String(relativePath || '').replace(/\\/g, '/').split('/').filter(Boolean);
 }

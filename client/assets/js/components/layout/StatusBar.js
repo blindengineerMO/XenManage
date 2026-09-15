@@ -1,3 +1,9 @@
+/*
+ * Bottom status strip: "Secure" marker, current Xen connection label,
+ * shell/demo mode, and a 1s clock. Reads store only — no API calls.
+ * connectionLabel reflects the active live target; shellLabel shows
+ * demo vs live. Interval is cleared on unmount.
+ */
 const StatusBar = {
   template: `
     <div class="statusbar">

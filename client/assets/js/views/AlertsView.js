@@ -1,3 +1,13 @@
+/*
+ * Alerts workspace: severity-first triage, bulk state changes, persisted
+ * suppression policies, and remediation-template follow-through.
+ * APIs: GET /api/alerts (scoped), /api/alerts/policies, remediation
+ * templates; PUT /api/alerts/:ref/state and /api/alerts/bulk-state;
+ * policy and template CRUD; POST /api/tasks/remediation to queue work.
+ * Gotcha: vFabric read-scope disables triage writes. Policy/template
+ * delete may require a governance approvalId. Editors live in
+ * AlertsWorkspaceDialogs (FloatingWindow).
+ */
 const AlertsView = {
   components: {
     DataTable,

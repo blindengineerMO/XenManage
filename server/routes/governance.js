@@ -1,3 +1,13 @@
+/**
+ * Mount: /api/governance via requireAuth.
+ * Auth: local login; most writes also requireAdminSession (or active break-glass).
+ * Workflow: policy, session role, pool quotas, permission grants/templates, API tokens,
+ * approval queue, emergency elevation.
+ * Invariants: break-glass bypasses the account's real role by design. Approvals reject
+ * self-approval and require distinct second approvers. This router defines the gates
+ * other modules call via ensureMutationAllowed.
+ * Client: GovernanceView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const governanceService = require('../services/governance');
@@ -217,6 +227,7 @@ router.put('/role', validate(schemas.governanceRoleUpdate), (req, res) => {
   }
 });
 
+// Emergency admin elevation: MFA if enrolled, written justification, time-boxed on the session.
 router.post('/break-glass/activate', validate(schemas.breakGlassActivate), (req, res) => {
   try {
     const account = getSessionAccount(req);
@@ -436,6 +447,7 @@ router.post('/approvals', validate(schemas.governanceApprovalRequest), (req, res
   }
 });
 
+// Requester cannot approve their own request; a second approval must come from a different admin.
 router.post('/approvals/:id/decision', requireAdminSession, validate(schemas.governanceApprovalDecision), (req, res) => {
   try {
     const previous = governanceService.listApprovals().find((record) => record.id === req.params.id) || null;

@@ -1,3 +1,17 @@
+/**
+ * XenMange client — HostsView helpers (pure formatters).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: helpers = pure formatters; models = UI objects;
+ * service = API calls; workspace = selection/layout; focus = detail pane.
+ *
+ * Purpose: selection refs, maintenance-mode detection, CPU/software/license
+ * string maps for host rows.
+ * Consumers: HostsView, host-view-models.js, HostPropertiesWindow.
+ * Gotchas: maintenance is `host.maintenance_mode` or other_config flag —
+ * both must be checked (`resolveHostMaintenanceState`).
+ */
 function normalizeHostSelectionRefs(values = []) {
   return Array.isArray(values) ? values.filter(Boolean) : [];
 }

@@ -1,7 +1,16 @@
-/* ============================================
-   Lifecycle View Workspace Helpers
-   ============================================ */
-
+/**
+ * XenMange client — LifecycleView workspace (selection / layout state).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: workspace = selected host, inspector/planner windows,
+ * bulk refs, planner seed from a remediation task.
+ *
+ * Purpose: factory for LifecycleView reactive state and inspector/planner
+ * open/close patches.
+ * Consumers: LifecycleView.
+ * Gotchas: `plannerLaunchMode` distinguishes plan vs task-driven launch.
+ */
 function createLifecycleViewState() {
   return {
     loading: true,

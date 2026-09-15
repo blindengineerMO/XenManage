@@ -1,3 +1,14 @@
+/**
+ * XenMange client — HostsView view-models.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: shape host API payloads into UI-ready summary, relationship, and
+ * inventory objects for the HostsView detail pane.
+ * Consumers: HostsView, HostPropertiesWindow, HostWorkspaceDialogs.
+ * Gotchas: resident VMs match `resident_VMs` against ref or uuid. Relies on
+ * host-view-helpers.js already being concatenated.
+ */
 function buildSelectedHostSummaryProfile(host = null) {
   return {
     editionLabel: String(host?.edition || '').trim() || 'No host edition was reported.',

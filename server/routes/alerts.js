@@ -23,6 +23,7 @@ const { ensureMutationAllowed } = require('../middleware/governance');
 
 const router = express.Router();
 
+// Xen messages plus derived telemetry alerts share one ref map for list/state updates.
 async function getAlertRecordMap(xenApi) {
   const [messages, telemetryAlerts] = await Promise.all([
     xenApi?.getMessages ? xenApi.getMessages() : Promise.resolve({}),
@@ -82,6 +83,7 @@ router.put('/:ref/state', validate(schemas.opaqueRefParam, 'params'), validate(s
   }
 });
 
+// Single triage state applied to many refs so operators can ack a storm in one mutation.
 router.put('/bulk-state', validate(schemas.alertBulkStateUpdate), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'alert_bulk_state_save', entityType: 'alert-batch', entityRef: String(req.body.refs.length) })) return;

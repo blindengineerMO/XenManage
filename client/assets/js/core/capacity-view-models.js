@@ -1,3 +1,15 @@
+/**
+ * XenMange client — CapacityView view-models.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: shape host/SR/VM/task/history payloads into the CapacityView
+ * workspace (hot hosts, storage risk, forecast cards, automation tasks).
+ * Consumers: CapacityView, CapacityWorkspaceDialogs.
+ * Gotchas: calls `buildCapacityAnalytics` (capacity-analytics.js) then layers
+ * UI cards. Injected callbacks (`isCapacityAutomationTask`, `colorClass`)
+ * keep this file free of Vue instance state.
+ */
 function buildCapacityWorkspaceModel({
   hosts = [],
   srs = [],

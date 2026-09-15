@@ -414,6 +414,7 @@ router.put('/templates/deployments/:id/validation', validate(schemas.templateDep
   }
 });
 
+// Quota gates run before clone so a blocked deploy never leaves a half-created VM.
 router.post('/templates/:ref/deploy', validate(schemas.templateDeploy), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'template_deploy', entityType: 'template', entityRef: req.params.ref })) return;
@@ -441,6 +442,7 @@ router.post('/templates/:ref/deploy', validate(schemas.templateDeploy), async (r
   }
 });
 
+// Plan-only: no ensureMutationAllowed and no XAPI writes, so operators can preview compose safely.
 router.post('/compose/dry-run', validate(schemas.composeDeploy), async (req, res) => {
   try {
     const plan = await planCompose(req.xenApi, req.body);
@@ -638,6 +640,7 @@ router.post('/:ref/duplicate', validate(schemas.opaqueRefParam, 'params'), valid
   }
 });
 
+// Streams XVA (or metadata) from XAPI through this response; do not buffer as JSON.
 router.get('/:ref/export', validate(schemas.opaqueRefParam, 'params'), validate(schemas.vmExportQuery, 'query'), async (req, res) => {
   try {
     const record = await safeGetVmRecord(req.xenApi, req.params.ref);
@@ -675,6 +678,7 @@ router.get('/:ref/export', validate(schemas.opaqueRefParam, 'params'), validate(
   }
 });
 
+// Raw request body is the XVA stream (PUT, not multipart) so large packages skip JSON parsing.
 router.put('/import', validate(schemas.vmImportQuery, 'query'), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'vm_import', entityType: 'vm', entityRef: 'new' })) return;
@@ -730,6 +734,7 @@ router.put('/import', validate(schemas.vmImportQuery, 'query'), async (req, res)
   }
 });
 
+// Live or storage migrate depending on body; still a single-VM mutation under ensureMutationAllowed.
 router.post('/:ref/migrate', validate(schemas.opaqueRefParam, 'params'), validate(schemas.vmMigrationCreate), async (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, { actionKey: 'vm_migrate', entityType: 'vm', entityRef: req.params.ref })) return;
@@ -829,6 +834,7 @@ router.get('/:ref/consoles', validate(schemas.opaqueRefParam, 'params'), async (
   }
 });
 
+// HTML launcher (not JSON): session-auth page that iframes the XAPI console URL.
 router.get('/:ref/consoles/:consoleRef/launch', validate(schemas.vmConsoleParams, 'params'), async (req, res) => {
   try {
     const consoles = await req.xenApi.getVMConsoles(req.params.ref);

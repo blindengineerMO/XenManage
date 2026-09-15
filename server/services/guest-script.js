@@ -1,3 +1,8 @@
+// Cloud-init guest-script interpolation for template/catalog deploy. Replaces
+// ${name} from the provided variables map (unknown names throw). Result is
+// stuffed into xenstore key `vm-data` and capped at 64 KiB after interpolation.
+// Consumed by template-deployment and catalog-deployment. Callers must already
+// have verified the source starts with #cloud-config — this module does not.
 const GUEST_SCRIPT_MAX_BYTES = 64 * 1024;
 
 function createGuestScriptError(code, message = code) {
@@ -16,6 +21,10 @@ function interpolateGuestScript(content, variables) {
   });
 }
 
+/**
+ * Interpolate ${vars} and return { 'vm-data': script }. Throws GUEST_SCRIPT_TOO_LARGE
+ * above 64 KiB and GUEST_SCRIPT_VARIABLE_UNKNOWN for missing keys.
+ */
 function buildGuestScriptXenstoreData(content, variables) {
   const script = interpolateGuestScript(content, variables);
   if (Buffer.byteLength(script, 'utf8') > GUEST_SCRIPT_MAX_BYTES) {

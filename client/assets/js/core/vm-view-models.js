@@ -1,3 +1,15 @@
+/**
+ * XenMange client — VMsView view-models.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: shape VM API payloads into UI-ready metric series, migration
+ * summaries, and tab models for VMsView.
+ * Consumers: VMsView, VMOverviewTab, VMResourcesTab, VMCompatibilityTab,
+ * VMMigrationTab.
+ * Gotchas: metric series colors are hardcoded by name substring (network_rx,
+ * disk_read, …). Relies on vm-view-helpers.js already in scope.
+ */
 function formatVmMigrationCurrentHostSummary(host = null) {
   return host
     ? `${host.name_label || host.ref} · ${host.address || host.uuid || '-'}`

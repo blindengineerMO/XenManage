@@ -1,3 +1,10 @@
+/**
+ * Mount: app root (no /api prefix) — GET /metrics.
+ * Auth: none (Prometheus scrape). Distinct from session /api/metrics.
+ * Workflow: text exposition of workflow depth and managed-target health.
+ * Invariants: unauthenticated; do not put secrets here.
+ * Client: Prometheus, not a Vue view.
+ */
 const express = require('express');
 const { getDb, managedTargetModel } = require('../models/connection');
 const { renderPrometheusMetrics } = require('../services/runtime-metrics');

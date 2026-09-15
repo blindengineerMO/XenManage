@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/settings via requireAuth (file is system-config.js).
+ * Auth: local login.
+ * Workflow: control-plane settings sections, retention sweeps, vault rewrap.
+ * Invariants: writes use ensureMutationAllowed. Retention preview is dry-run;
+ * /retention/run deletes unless dryRun is set. Vault rewrap needs the previous master key.
+ * Client: SettingsView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { ensureMutationAllowed } = require('../middleware/governance');
@@ -45,6 +53,7 @@ router.get('/retention/preview', validate(schemas.retentionRun, 'query'), (req, 
   }
 });
 
+// Re-encrypts vault wraps under the current master key after a key rotation.
 router.post('/vault/rewrap', (req, res) => {
   try {
     if (!ensureMutationAllowed(req, res, {
@@ -83,6 +92,7 @@ router.post('/vault/rewrap', (req, res) => {
   }
 });
 
+// dryRun previews deletions; omit it to actually sweep. Both paths still hit ensureMutationAllowed.
 router.post('/retention/run', validate(schemas.retentionRun), (req, res) => {
   try {
     if (!req.body.dryRun) {

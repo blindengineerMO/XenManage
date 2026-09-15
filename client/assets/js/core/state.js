@@ -1,7 +1,21 @@
-/* ============================================
-   Shared Store And Session Routing
-   ============================================ */
-
+/**
+ * XenMange client — reactive session store and shared UI state.
+ *
+ * Concatenated after api.js (scripts/build-client.js). Not an ES module:
+ * `reactive` comes from foundation.js; `api` from api.js.
+ *
+ * Purpose: the single Vue-reactive `store` (auth, live targets, demoMode,
+ * governance role) plus confirm/undo dialogs, theme, route-focus query
+ * helpers, and governance-approval handoff.
+ * Consumers: every view, AppShell / TopNav, api.js (`store.demoMode`),
+ * router guards, bootstrap-session.js.
+ * Gotchas:
+ * - `demoMode` is what makes api.js skip the network. Do not set it unless
+ *   there is no live Xen target.
+ * - `ready` stays false until bootstrapSession finishes; router guards wait
+ *   on it.
+ * - Pending governance drafts live in sessionStorage, not the store.
+ */
 const store = reactive({
   authenticated: false,
   connected: false,
@@ -143,6 +157,10 @@ function findApprovedGovernanceApproval(approvals = [], draft = {}) {
   ) || null;
 }
 
+/**
+ * Return an approved-request id, or throw APPROVAL_REQUIRED for operators
+ * when policy gates the destructive action. Admins skip this check.
+ */
 async function resolveGovernanceApproval(draft = {}) {
   const normalized = normalizeGovernanceApprovalDraft(draft);
   if (!normalized.actionKey || !normalized.entityRef) return '';
@@ -174,6 +192,7 @@ function handoffToGovernanceApproval(router, draft = {}, message = '') {
   return router.push(route);
 }
 
+/** Copy /api/auth/status (or bootstrap payload) onto `store`. */
 function applySessionStatus(status = {}) {
   store.authenticated = Boolean(status.authenticated);
   store.connected = Boolean(status.connected);
@@ -274,6 +293,10 @@ function applyUndoDelaySeconds(value) {
   store.undoDelayLoaded = true;
 }
 
+/**
+ * Show the undo bar and resolve true when the delay elapses (execute) or
+ * false if the operator cancels. Loads undoDelaySeconds from settings once.
+ */
 async function requestUndoableOperation(options = {}) {
   if (typeof window === 'undefined') return Promise.resolve(true);
   if (!store.undoDelayLoaded) {

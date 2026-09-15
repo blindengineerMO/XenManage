@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo saved-connection / host-target routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: /api/connections and /api/host-targets CRUD plus visibility
+ * (private/shared) for PoolsView, HostsView, and InventoryView.
+ * Consumers: demo-request.js (`handleDemoTargetRoutes`).
+ * Gotchas: `is_default` is per-owner; connecting does not open a real TLS
+ * session to Xen.
+ */
 function handleDemoTargetRoutes(method, path, body) {
   if (method === 'GET' && path === '/api/connections') {
     return listDemoConnections();

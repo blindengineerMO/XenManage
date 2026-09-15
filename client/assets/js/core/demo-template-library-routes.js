@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo template-library tree routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: folder/item tree, versions, rename/move/save for TemplateLibraryView
+ * (Monaco-backed snippets — not Xen VM templates).
+ * Consumers: demo-request.js (`handleDemoTemplateLibraryRoutes`).
+ * Gotchas: visibility is filtered by `getDemoActor`; this is a file library,
+ * not `VM.is_a_template`.
+ */
 function buildDemoTemplateLibraryTree() {
   const actor = getDemoActor();
   const folders = demoDb.templateLibraryFolders.filter((record) => demoRecordIsVisible(record, actor));

@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo /api/governance (+ users/groups) routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: permission templates, grants, roles, quotas, approvals, break-glass,
+ * users, groups, and API tokens for GovernanceView.
+ * Consumers: demo-request.js (`handleDemoGovernanceRoutes`).
+ * Gotchas: role templates (`read-only` / `operator` / `admin`) are hardcoded
+ * here; they are not Xen pool roles.
+ */
 const DEMO_PERMISSION_TEMPLATES = [
   { key: 'vm-operator', label: 'VM Operator', description: 'Day-to-day VM lifecycle and power operations without host, network, or storage administration.', permissions: ['vm.read', 'vm.list', 'vm.create', 'vm.power.*', 'vm.snapshot.create', 'vm.migration.*', 'vm.update'] },
   { key: 'backup-operator', label: 'Backup Operator', description: 'Snapshot and restore access for backup workflows, without power or configuration control.', permissions: ['vm.read', 'vm.list', 'vm.snapshot.*', 'vm.backup.*', 'vm.restore'] },

@@ -1,3 +1,19 @@
+/**
+ * XenMange client — demo runtime helpers (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: clone/id helpers, target-key scoping (`demo-fabric` vs `demo-edge`),
+ * VM inventory, fake consoles, compatibility, and placement recommendations.
+ * Consumers: demo-request.js, demo-*-routes.js, demo-summary.js.
+ * Gotchas: `getDemoTargetScope` falls back to the full fabric for unknown keys.
+ * `clone` is JSON round-trip — Dates become strings, functions are dropped.
+ */
+
+/** Deep-clone via JSON. Demo-only; not a general immutable helper. */
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -65,6 +81,7 @@ function buildDemoVifInventory() {
   );
 }
 
+/** Filter demoDb to one fake fabric (`demo-fabric` full, `demo-edge` pool-2). */
 function getDemoTargetScope(targetKey = '') {
   const normalizedTargetKey = String(targetKey || '').trim() || 'demo-fabric';
   if (!normalizedTargetKey || normalizedTargetKey === 'demo-fabric') {

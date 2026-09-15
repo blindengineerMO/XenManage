@@ -1,3 +1,11 @@
+/**
+ * Mount: /api/vfabrics via requireAuth.
+ * Auth: local login.
+ * Workflow: virtual-fabric groupings of connections/host-targets plus per-fabric quotas.
+ * Invariants: members are filtered to what the actor can see. Quota writes use
+ * ensureMutationAllowed; VM create/deploy later calls enforceVFabricQuotas against these.
+ * Client: VFabricsView.
+ */
 const express = require('express');
 const { vFabricModel, connectionModel, hostTargetModel } = require('../models/connection');
 const { validate, schemas } = require('../middleware/validate');
@@ -88,6 +96,7 @@ router.get('/:id/quota', validate(schemas.vFabricIdParam, 'params'), async (req,
   }
 });
 
+// Caps that VM create/deploy later enforce via enforceVFabricQuotas — setting them here does not migrate VMs.
 router.put('/:id/quota', validate(schemas.vFabricIdParam, 'params'), validate(schemas.vFabricQuotaUpdate), (req, res) => {
   try {
     if (!requireAdminSession(req, res)) return;

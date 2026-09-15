@@ -1,7 +1,17 @@
-/* ============================================
-   Storage View Service Helpers
-   ============================================ */
-
+/**
+ * XenMange client — StorageView service (API calls).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: service = API calls (SR list, VDI/VBD/PBD detail, probe
+ * import payloads).
+ *
+ * Purpose: load storage inventory and detail context; map probe results into
+ * introduce/import payloads.
+ * Consumers: StorageView.
+ * Gotchas: detail uses Promise.allSettled. Probe introduce is skipped for
+ * non-shared types (`isSharedStorageType`).
+ */
 async function loadStorageHosts(apiClient) {
   const result = await apiClient.getHosts();
   return result.data || [];

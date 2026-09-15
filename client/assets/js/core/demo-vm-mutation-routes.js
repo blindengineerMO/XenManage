@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo VM config-mutation routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: PUT /api/vms/:ref/config and related field writes (CPU, memory,
+ * affinity, tags, xenstore, NVRAM) for VMsView.
+ * Consumers: demo-request.js (`handleDemoVmMutationRoutes`).
+ * Gotchas: Object.assign onto the `demoDb.vms` row — no Xen field validation.
+ * Appliance membership is rewritten in `demoDb.vmAppliances`.
+ */
 function handleDemoVmMutationRoutes(method, path, body) {
   if (method === 'PUT' && path.startsWith('/api/vms/') && path.endsWith('/config')) {
     ensureDemoMutationAllowed({ actionKey: 'vm_config_update', entityType: 'vm', entityRef: decodeURIComponent(path.split('/')[3] || '') });

@@ -1,7 +1,17 @@
-/* ============================================
-   Demo Seed Data
-   ============================================ */
-
+/**
+ * XenMange client — demo seed database (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: in-memory fabric used when no live Xen target is attached
+ * (`store.demoMode`). Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: the mutable `demoDb` of pools, hosts, VMs, SRs, networks, alerts,
+ * governance, catalog, etc. that demo-* route handlers read and write.
+ * Consumers: demo-runtime.js and every demo-*-routes.js file.
+ * Gotchas: JSON-cloned into responses; mutations persist only for this page
+ * session. OpaqueRef values are fake (`OpaqueRef:*-demo-*`).
+ */
 const demoDb = {
   pools: [
     {

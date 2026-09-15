@@ -157,6 +157,18 @@ const ProfileWindow = {
           </div>
           <div class="form-error" v-if="mfaError">{{ mfaError }}</div>
         </div>
+
+        <div class="detail-section-title" style="margin-top:24px">Security Keys</div>
+        <p class="text-muted">Register a hardware security key or platform authenticator (Face ID, Windows Hello, etc.) as an alternate second factor.</p>
+        <div v-if="webauthnCredentials.length" style="margin-bottom:12px">
+          <div v-for="credential in webauthnCredentials" :key="credential.id" class="form-actions" style="justify-content:space-between;align-items:center">
+            <span>{{ credential.name || 'Security key' }}</span>
+            <button type="button" class="btn btn-sm btn-danger" @click="removeWebauthnCredential(credential.id)" :disabled="webauthnBusy">Remove</button>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary" @click="registerWebauthnCredential" :disabled="webauthnBusy || !webauthnSupported">Register New Security Key</button>
+        <p class="text-muted" v-if="!webauthnSupported" style="font-size:12px">This browser does not support security keys.</p>
+        <div class="form-error" v-if="webauthnError">{{ webauthnError }}</div>
       </div>
     </floating-window>
   `,
@@ -184,6 +196,10 @@ const ProfileWindow = {
       mfaBusy: false,
       mfaError: '',
       mfaDisablePassword: '',
+      webauthnCredentials: [],
+      webauthnBusy: false,
+      webauthnError: '',
+      webauthnSupported: false,
     };
   },
   computed: {
@@ -223,6 +239,15 @@ const ProfileWindow = {
         } catch (_) {
           this.pushSubscribed = false;
         }
+      }
+
+      this.webauthnSupported = isWebauthnSupported();
+      this.webauthnError = '';
+      try {
+        const result = await api.webauthnListCredentials();
+        this.webauthnCredentials = result.data || [];
+      } catch (_) {
+        this.webauthnCredentials = [];
       }
     },
     async saveProfile() {
@@ -392,6 +417,42 @@ const ProfileWindow = {
         this.mfaError = error.message || 'Unable to disable MFA';
       } finally {
         this.mfaBusy = false;
+      }
+    },
+    async registerWebauthnCredential() {
+      this.webauthnBusy = true;
+      this.webauthnError = '';
+      try {
+        const optionsResult = await api.webauthnRegisterOptions();
+        const name = window.prompt('Name this security key (optional):', '') || undefined;
+        const credential = store.demoMode
+          ? { id: 'demo', rawId: 'demo', type: 'public-key', response: {} }
+          : await webauthnRegister(optionsResult.data);
+        await api.webauthnRegisterVerify(credential, name);
+        const listResult = await api.webauthnListCredentials();
+        this.webauthnCredentials = listResult.data || [];
+        if (store.user) store.user.mfaEnabled = true;
+        this.profile.mfa_enabled = true;
+      } catch (error) {
+        this.webauthnError = error.message || 'Unable to register security key';
+      } finally {
+        this.webauthnBusy = false;
+      }
+    },
+    async removeWebauthnCredential(credentialId) {
+      this.webauthnBusy = true;
+      this.webauthnError = '';
+      try {
+        await api.webauthnRemoveCredential(credentialId);
+        const listResult = await api.webauthnListCredentials();
+        this.webauthnCredentials = listResult.data || [];
+        const profileResult = await api.getProfile();
+        this.profile = profileResult.data;
+        if (store.user) store.user.mfaEnabled = this.profile.mfa_enabled;
+      } catch (error) {
+        this.webauthnError = error.message || 'Unable to remove security key';
+      } finally {
+        this.webauthnBusy = false;
       }
     },
   },

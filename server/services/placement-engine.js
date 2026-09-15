@@ -1,3 +1,9 @@
+// Host placement recommendations for a VM on one xen target. Scores candidates
+// from metrics-history capacity baseline: memory (hard fit), CPU, network, and
+// SR locality. Consumed by routes/vms.js. A host that cannot fit the VM's
+// dynamic/static max memory is ineligible (score 0) regardless of other factors.
+// Weights are WEIGHTS at top of file. Disk latency, NUMA, GPU, anti-affinity,
+// and admin policy are not modeled — see the notes string on getRecommendations.
 const metricsHistoryService = require('./metrics-history');
 
 const WEIGHTS = { memory: 0.4, cpu: 0.3, network: 0.15, storage: 0.15 };
@@ -112,6 +118,10 @@ function scoreStorage(hostRef, vmSrRefs, hostSrMap, srRecords) {
   };
 }
 
+/**
+ * Rank compatible, enabled, non-resident hosts for vmRef. targetKey selects the
+ * metrics-history baseline. Returns { recommendations: [{ hostRef, eligible, score, factors }] }.
+ */
 async function getRecommendations(xenApi, vmRef, { targetKey = '', limit = 5 } = {}) {
   const [compatibility, vmMemoryBytes, vmSrRefs] = await Promise.all([
     xenApi.getVMCompatibility(vmRef),

@@ -1,3 +1,9 @@
+// Template-library tree builder over templateLibraryModel folders/items.
+// kinds: deployment-template | guest-script | snippet (unknown → snippet).
+// buildTree(actor) filters by resource-ownership visibility and sets canManage
+// per node. Consumed by routes/template-library.js. Folders nest by parent_id;
+// items without a known folder become roots. Persistence and CRUD stay on the
+// model — this module only normalizes kind and shapes the UI tree.
 const { templateLibraryModel } = require('../models/connection');
 const { canManageRecord } = require('./resource-ownership');
 

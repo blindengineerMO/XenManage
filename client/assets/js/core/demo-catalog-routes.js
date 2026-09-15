@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo /api/catalog routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: published catalog, admin versions/publish, requests, analytics,
+ * and day-2 actions for CatalogView / ApplicationsView.
+ * Consumers: demo-request.js (`handleDemoCatalogRoutes`).
+ * Gotchas: publish requires `validation_status === 'validated'` on the
+ * current version — same gate as live, but the data is fake.
+ */
 function findDemoCatalogEntry(slug) {
   return demoDb.catalogEntries.find((entry) => entry.slug === String(slug || '').trim()) || null;
 }

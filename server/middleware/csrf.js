@@ -4,8 +4,11 @@
  * Token is stored on `req.session.csrfToken` and echoed as `X-CSRF-Token`.
  * The SPA client (`client/assets/js/core/api.js`) must send that header on
  * every mutating request. Safe methods and the token-authenticated public
- * surfaces (`/api/v1`, `/api/terraform`) skip the check. Comparison is
- * timing-safe; missing/mismatched tokens return `CSRF_TOKEN_INVALID`.
+ * surfaces (`/api/v1`, `/api/terraform`) skip the check. The SAML ACS
+ * endpoint is also exempt: it's a cross-site POST from the IdP (not the
+ * SPA), so it can never carry our CSRF header — node-saml's own signature
+ * verification on the assertion is what stands in for CSRF protection there.
+ * Comparison is timing-safe; missing/mismatched tokens return `CSRF_TOKEN_INVALID`.
  */
 const crypto = require('crypto');
 
@@ -31,7 +34,7 @@ function csrfProtection(options = {}) {
   const skip = options.skip || (() => false);
 
   return (req, res, next) => {
-    if (skip(req) || req.originalUrl.startsWith('/api/v1/') || req.originalUrl.startsWith('/api/terraform/') || SAFE_METHODS.has(req.method)) {
+    if (skip(req) || req.originalUrl.startsWith('/api/v1/') || req.originalUrl.startsWith('/api/terraform/') || req.originalUrl.startsWith('/api/auth/saml/callback') || SAFE_METHODS.has(req.method)) {
       if (req.session) res.setHeader('X-CSRF-Token', getCsrfToken(req));
       return next();
     }

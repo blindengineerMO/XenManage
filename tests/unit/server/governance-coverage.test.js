@@ -44,6 +44,9 @@ const ALLOWLIST = new Set([
   // Pre-session auth bootstrapping: no governance role exists yet to gate against.
   'auth.js:POST /login',
   'auth.js:POST /mfa/verify',
+  'auth.js:POST /mfa/webauthn/options',
+  'auth.js:POST /mfa/webauthn/verify',
+  'auth.js:POST /saml/callback',
   'auth.js:POST /xen-login',
   'auth.js:POST /logout',
   // Session role switching is the mechanism governance itself is built on; it

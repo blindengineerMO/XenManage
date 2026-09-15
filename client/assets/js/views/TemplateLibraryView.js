@@ -1,3 +1,13 @@
+/*
+ * Template Library workspace: folder/item tree, Monaco JSON/YAML editor,
+ * version history, compose dry-run and deploy.
+ * APIs: /api/template-library/tree, folders, items, versions, restore;
+ * POST /api/vms/compose/dry-run and /api/vms/compose/deploy.
+ * Gotcha: Monaco is loaded lazily from /dist/vendor/monaco/monaco.js
+ * (see vendor/monaco-bootstrap.js) with module workers — required because
+ * CSP is nonce-only and cannot eval Monaco's default inline workers.
+ * Compose specs must match COMPOSE_DEPLOYMENT_JSON_SCHEMA below.
+ */
 const COMPOSE_DEPLOYMENT_JSON_SCHEMA = {
   type: 'object',
   properties: {

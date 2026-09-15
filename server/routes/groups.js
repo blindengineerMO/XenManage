@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/groups via requireAuth, then requireLocalAdmin.
+ * Auth: active local admin whose session role is also admin.
+ * Workflow: local group CRUD used for ownership/visibility of connections and libraries.
+ * Invariants: xen-only sessions are 403. Duplicate group names conflict.
+ * Client: SettingsView (groups).
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { groupModel, userModel } = require('../models/security-db');

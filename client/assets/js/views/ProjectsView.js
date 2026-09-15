@@ -1,3 +1,12 @@
+/*
+ * Organizations & Projects workspace: group pools into orgs/projects, bind
+ * pool access, assign members, enforce per-project quotas.
+ * APIs: GET/POST/DELETE /api/organizations, /api/projects; PUT project;
+ * GET/PUT project quota + evaluation; PUT project members; also loads
+ * managed-targets and users for binding pickers.
+ * Gotcha: quota form reuses GovernanceQuotaForm. Create/edit/members/
+ * quota dialogs are FloatingWindows. ConfirmWindow for destructive deletes.
+ */
 const ProjectsView = {
   components: {
     FloatingWindow,

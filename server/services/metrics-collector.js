@@ -1,3 +1,11 @@
+// Periodic performance collection across live user sessions (listAllConnections)
+// and healthy managed targets. Settings keys performance.collectionEnabled /
+// collectionIntervalSeconds (min 30s) come from system-config. Each tick pulls
+// host/VM/SR records + RRD and writes samples via metrics-history. Started from
+// server/index.js; routes/metrics.js and system-config read getStatus() /
+// collectAllLiveTargets(). Skips overlapping runs (inFlight). Tests use
+// __resetForTests(). Do not call collect from a request path unless force is
+// set — the scheduler already covers live targets.
 const { settingsModel } = require('../models/connection');
 const metricsHistoryService = require('./metrics-history');
 const { listAllConnections } = require('./xenapi');

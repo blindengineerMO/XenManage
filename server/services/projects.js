@@ -1,3 +1,10 @@
+// Project membership plus per-project quota (VMs, vCPU, memory, storage, GPU,
+// networks). Usage is counted from assigned VM refs on the given xenApi, not
+// from tags. Consumed by routes/vms.js (enforceProjectQuota before deploy).
+// target_ids, when set, must include the managed target parsed from targetKey.
+// Access: admin, owner, or member; disabled projects are forbidden. Storage
+// usage is currently left at 0 in getUsage — disk GiB is only projected from
+// the requested VM's disk plan.
 const { projectModel } = require('../models/connection');
 const managedTargetService = require('./managed-targets');
 

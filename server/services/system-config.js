@@ -1,3 +1,10 @@
+// Typed settings sections persisted in xenmange.db settings. SECTION_KEYS is
+// the allowlist — unknown sections throw UNKNOWN_SETTINGS_SECTION. Consumed by
+// routes/system-config.js, session middleware (sessionMaxAgeMs), retention and
+// control-plane-backup schedulers, and applyExpressSettings (trust proxy).
+// Performance collection keys are shared with metrics-collector. After changing
+// retention or backup intervals, call that service's refreshScheduler().
+// Secrets do not belong here — use credential-vault.
 const config = require('../config');
 const { settingsModel } = require('../models/connection');
 const credentialVaultService = require('./credential-vault');

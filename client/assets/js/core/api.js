@@ -1,7 +1,25 @@
-/* ============================================
-   API Client
-   ============================================ */
-
+/**
+ * XenMange client — HTTP / CSRF API wrapper.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module:
+ * depends on `store` (state.js) and `demoRequest` (demo-request.js) already
+ * being in scope. Views and view-services call `api.*` — they do not fetch.
+ *
+ * Purpose: one `fetch` wrapper for `/api/*` with JSON bodies, same-origin
+ * cookies, and CSRF on mutating methods. When `store.demoMode` is true, every
+ * `api.request()` is diverted to the offline demo XAPI shim instead of the
+ * network — that shim is not production Xen code.
+ * Consumers: view-services, views, bootstrap-session.js, state.js (undo /
+ * governance), forms and dialogs.
+ * Gotchas:
+ * - CSRF (`X-CSRF-Token`) is sent only on non-GET. Token is remembered from
+ *   response headers or JSON `csrfToken`, and seeded at boot from
+ *   `window.__XENMANGE_BOOTSTRAP__`.
+ * - `appendTargetKey` adds `?targetKey=` for multi-target live sessions.
+ * - `exportVM` / `importVM` / avatar upload bypass `request()` for blobs.
+ * - Failed responses throw Error with `.code` and `.payload`.
+ */
+/** Append `targetKey` as a query param so multi-target live sessions stay scoped. */
 function appendTargetKey(path, targetKey = '') {
   const normalizedTargetKey = String(targetKey || '').trim();
   if (!normalizedTargetKey) return path;
@@ -13,19 +31,26 @@ function appendTargetKey(path, targetKey = '') {
 
 let csrfToken = '';
 
+/** Capture CSRF from `X-CSRF-Token` or JSON body after each response. */
 function rememberCsrfToken(response, data) {
   csrfToken = response.headers.get('X-CSRF-Token') || data?.csrfToken || csrfToken;
 }
 
+/** Seed CSRF before the first mutating call (bootstrap payload). */
 function seedCsrfToken(token) {
   if (token) csrfToken = token;
 }
 
+/** Headers for POST/PUT/DELETE. Empty until a token has been seen. */
 function csrfHeaders() {
   return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
 }
 
 const api = {
+  /**
+   * JSON fetch wrapper. In demoMode this never hits the network — it calls
+   * `demoRequest` (offline XAPI shim). CSRF is attached on non-GET only.
+   */
   async request(method, url, body) {
     if (store.demoMode) {
       return demoRequest(method, url, body);
@@ -56,6 +81,10 @@ const api = {
   },
   csrfHeaders,
   login: (username, password) => api.request('POST', '/api/auth/login', { username, password }),
+  getOidcConfig: () => api.request('GET', '/api/auth/oidc/config'),
+  getSamlConfig: () => api.request('GET', '/api/auth/saml/config'),
+  loginWebauthnOptions: () => api.request('POST', '/api/auth/mfa/webauthn/options'),
+  loginWebauthnVerify: (credential) => api.request('POST', '/api/auth/mfa/webauthn/verify', { credential }),
   xenLogin: (host, username, password, options = {}) => api.request('POST', '/api/auth/xen-login', {
     host,
     username,
@@ -422,6 +451,10 @@ const api = {
   mfaConfirmEnrollment: (token) => api.request('POST', '/api/profile/mfa/verify', { token }),
   mfaDisable: (currentPassword) => api.request('POST', '/api/profile/mfa/disable', { currentPassword }),
   loginMfaVerify: (token) => api.request('POST', '/api/auth/mfa/verify', { token }),
+  webauthnListCredentials: () => api.request('GET', '/api/profile/webauthn/credentials'),
+  webauthnRegisterOptions: () => api.request('POST', '/api/profile/webauthn/register/options'),
+  webauthnRegisterVerify: (credential, name) => api.request('POST', '/api/profile/webauthn/register/verify', { credential, name }),
+  webauthnRemoveCredential: (id) => api.request('DELETE', `/api/profile/webauthn/credentials/${id}`),
   getPushVapidPublicKey: () => api.request('GET', '/api/profile/push/vapid-public-key'),
   getPushSubscriptions: () => api.request('GET', '/api/profile/push'),
   subscribePush: (payload) => api.request('POST', '/api/profile/push/subscribe', payload),

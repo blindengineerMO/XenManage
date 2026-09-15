@@ -1,3 +1,12 @@
+/*
+ * Custom windowing system used instead of native <dialog>/window.alert.
+ * Teleports a non-modal role="dialog" (aria-modal=false) to <body> so
+ * multiple windows can overlap the workspace. z-index starts at 550 via
+ * windowManager.next() and increments on mousedown/drag (bringToFront).
+ * Header drag is pointer-based; position is clamped to the main-content
+ * inset. Escape/Tab trap apply only to the topmost window. Do not replace
+ * this with browser modals — operators expect stacked, draggable panes.
+ */
 const FloatingWindow = {
   props: ['title', 'show', 'width', 'height', 'x', 'y'],
   emits: ['close'],

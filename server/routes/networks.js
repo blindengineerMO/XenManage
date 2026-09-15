@@ -239,6 +239,7 @@ router.put('/:ref/config',
     }
   });
 
+// Destructive: blocked while PIFs or VIFs still attach so we never orphan live NICs.
 router.post('/:ref/destroy',
   validate(schemas.opaqueRefParam, 'params'),
   validate(schemas.networkMutation),

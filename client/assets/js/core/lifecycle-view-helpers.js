@@ -1,7 +1,17 @@
-/* ============================================
-   Lifecycle View Helpers
-   ============================================ */
-
+/**
+ * XenMange client — LifecycleView helpers (pure formatters).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: helpers = labels, task/alert matching, host lookup by
+ * related VM/SR/network; models = plan objects; service = API.
+ *
+ * Purpose: stage/baseline/action labels and find-* helpers that map a
+ * remediation task or alert onto a host row.
+ * Consumers: LifecycleView, lifecycle-view-models.js, lifecycle-view-focus.js.
+ * Gotchas: matching is string/ref fuzzy (`recordMatchesLifecycleValue`), not
+ * a Xen object-graph walk.
+ */
 function formatLifecycleStageLabel(value) {
   const map = {
     aligned: 'Aligned',

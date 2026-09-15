@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo VM list/create/import/migrate routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: GET /api/vms, create-from-profile, groups, appliances, GPU
+ * profiles, import/export, migrate, clone — VMsView transfer workflows.
+ * Consumers: demo-request.js (`handleDemoVmTransferRoutes`).
+ * Gotchas: `DEMO_BUNDLED_OS_PROFILES` are diskless install stubs, not real
+ * templates. Export returns a fake blob via api.exportVM's demo branch.
+ */
 const DEMO_BUNDLED_OS_PROFILES = [
   ['windows-server-2003', 'Windows Server 2003', 'bios', 32, 2, 1],
   ['windows-server-2008-r2', 'Windows Server 2008 R2', 'bios', 40, 2, 2],

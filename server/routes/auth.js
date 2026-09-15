@@ -1,7 +1,10 @@
 /**
  * Mount: /api/auth (login/xen-login also sit behind authLimiter in server/index.js).
- * Auth: public for login, MFA, xen-login, logout, status; requireAuth for target switching.
- * Workflow: local control-plane login (optional TOTP), then xen-login to bind an XAPI session.
+ * Auth: public for login, MFA, OIDC, xen-login, logout, status; requireAuth for target switching.
+ * Workflow: local, LDAP, or OIDC control-plane login (optional TOTP), then xen-login to bind an
+ * XAPI session. POST /login tries LDAP first when enabled (see resolveAppLoginUser) and falls
+ * through to local password verification on any LDAP miss, so a broken/unreachable directory
+ * never locks out local-only accounts like the bootstrap admin.
  * Invariants: xen-login requires an existing local session; a revoked local account is destroyed
  * on later requireAuth/requireXenConnection. Multi-target keys live on the session.
  * Client: LoginView; shell uses /status and /targets to switch the active Xen host.
@@ -18,7 +21,7 @@ const {
   removeConnection,
 } = require('../services/xenapi');
 const { connectionModel, hostTargetModel } = require('../models/connection');
-const { authEventModel, userModel } = require('../models/security-db');
+const { authEventModel, userModel, webauthnCredentialModel } = require('../models/security-db');
 const { validate, schemas } = require('../middleware/validate');
 const auditLogService = require('../services/audit-log');
 const governanceService = require('../services/governance');
@@ -26,6 +29,31 @@ const credentialVaultService = require('../services/credential-vault');
 const profileService = require('../services/profile');
 const managedTargetService = require('../services/managed-targets');
 const { getCsrfToken } = require('../middleware/csrf');
+const oidcService = require('../services/oidc');
+const ldapService = require('../services/ldap');
+const samlService = require('../services/saml');
+const webauthnService = require('../services/webauthn');
+const config = require('../config');
+
+// Tries LDAP first (when enabled), auto-provisioning a local user record on first
+// success; any LDAP miss (not found, wrong password, directory unreachable) falls
+// through to local password verification rather than rejecting outright.
+async function resolveAppLoginUser(username, password) {
+  if (ldapService.isEnabled()) {
+    const ldapResult = await ldapService.authenticate(username, password);
+    if (ldapResult) {
+      return userModel.getByLdapDn(ldapResult.dn)
+        || userModel.createLdapUser({
+          dn: ldapResult.dn,
+          username: ldapResult.username,
+          email: ldapResult.email,
+          displayName: ldapResult.displayName,
+          role: config.ldap.defaultRole,
+        });
+    }
+  }
+  return userModel.verifyPassword(username, password);
+}
 
 function normalizeConnectionId(value) {
   const normalized = Number(value || 0);
@@ -262,7 +290,7 @@ function buildStatusPayload(req) {
 // POST /api/auth/login - Sign into XenMange
 router.post('/login', validate(schemas.appLogin), async (req, res) => {
   try {
-    const user = userModel.verifyPassword(req.body.username, req.body.password);
+    const user = await resolveAppLoginUser(req.body.username, req.body.password);
     if (!user) {
       return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
     }
@@ -283,7 +311,15 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
         ip: req.ip,
         detail: 'Password verified; awaiting MFA token.',
       });
-      return res.json({ success: true, mfaRequired: true });
+      const mfaAccount = userModel.getByUsernameById(user.id);
+      return res.json({
+        success: true,
+        mfaRequired: true,
+        mfaMethods: {
+          totp: Boolean(mfaAccount?.mfa_secret_encrypted),
+          webauthn: webauthnCredentialModel.countForUser(user.id) > 0,
+        },
+      });
     }
 
     req.session.userId = user.id;
@@ -291,6 +327,7 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
     req.session.displayName = user.display_name || user.username;
     req.session.authenticated = true;
     req.session.authMode = 'local';
+    req.session.authProvider = user.auth_provider || 'local';
     req.session.governanceRole = governanceService.getPolicy().defaultRole;
     req.session.governanceRole = user.role || req.session.governanceRole;
     req.session.xenUser = user.username;
@@ -302,7 +339,9 @@ router.post('/login', validate(schemas.appLogin), async (req, res) => {
       username: user.username,
       event: 'app_login',
       ip: req.ip,
-      detail: 'Authenticated to the XenMange control plane.',
+      detail: user.auth_provider === 'ldap'
+        ? 'Authenticated to the XenMange control plane via LDAP.'
+        : 'Authenticated to the XenMange control plane.',
     });
     auditLogService.record({
       category: 'session',
@@ -352,12 +391,144 @@ router.post('/mfa/verify', validate(schemas.appLoginMfaVerify), async (req, res)
       return res.status(401).json({ error: 'MFA_TOKEN_INVALID' });
     }
 
-    delete req.session.pendingMfaUserId;
+    completeMfaLogin(req, res, user, 'Authenticated to the XenMange control plane (MFA).');
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'AUTH_FAILED' });
+  }
+});
+
+// Completes a pending-MFA login (used by both the TOTP and WebAuthn verify routes)
+// with an mfa-specific audit/event detail string.
+function completeMfaLogin(req, res, user, detail) {
+  delete req.session.pendingMfaUserId;
+  req.session.userId = user.id;
+  req.session.appUsername = user.username;
+  req.session.displayName = user.display_name || user.username;
+  req.session.authenticated = true;
+  req.session.authMode = 'local';
+  req.session.authProvider = user.auth_provider || 'local';
+  req.session.governanceRole = governanceService.getPolicy().defaultRole;
+  req.session.governanceRole = user.role || req.session.governanceRole;
+  req.session.xenUser = user.username;
+  persistSessionTargets(req.session, [], '');
+
+  userModel.touchLastLogin(user.id);
+  authEventModel.create({
+    userId: user.id,
+    username: user.username,
+    event: 'app_login',
+    ip: req.ip,
+    detail,
+  });
+  auditLogService.record({
+    category: 'session',
+    action: 'app_session_login',
+    actionLabel: 'Signed into XenMange as',
+    entityType: 'user',
+    entityRef: String(user.id),
+    entityName: user.username,
+    operator: user.username,
+    route: '/login',
+    status: 'success',
+    before: null,
+    after: { id: user.id, username: user.username, role: user.role || 'operator' },
+    detail: `Signed into the XenMange control plane as ${user.username} using MFA.`,
+  });
+
+  res.json({
+    success: true,
+    connected: false,
+    user: {
+      id: user.id,
+      username: user.username,
+      displayName: user.display_name || user.username,
+      role: user.role || 'operator',
+    },
+    ...buildStatusPayload(req),
+  });
+}
+
+// POST /api/auth/mfa/webauthn/options - Begin a security-key assertion for a pending MFA login
+router.post('/mfa/webauthn/options', async (req, res) => {
+  try {
+    const pendingUserId = req.session.pendingMfaUserId;
+    if (!pendingUserId) {
+      return res.status(400).json({ error: 'NO_PENDING_MFA_LOGIN' });
+    }
+    const user = userModel.getById(pendingUserId);
+    if (!user || !user.active) {
+      return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+    }
+    const options = await webauthnService.beginAuthentication(req, user);
+    res.json({ data: options });
+  } catch (err) {
+    res.status(400).json({ error: err.code || 'WEBAUTHN_OPTIONS_FAILED' });
+  }
+});
+
+// POST /api/auth/mfa/webauthn/verify - Complete a login that requires a security key
+router.post('/mfa/webauthn/verify', validate(schemas.authWebauthnVerify), async (req, res) => {
+  try {
+    const pendingUserId = req.session.pendingMfaUserId;
+    if (!pendingUserId) {
+      return res.status(400).json({ error: 'NO_PENDING_MFA_LOGIN' });
+    }
+    const user = userModel.getById(pendingUserId);
+    if (!user || !user.active) {
+      return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+    }
+
+    await webauthnService.finishAuthentication(req, user, req.body.credential);
+    completeMfaLogin(req, res, user, 'Authenticated to the XenMange control plane (WebAuthn security key).');
+  } catch (err) {
+    res.status(401).json({ error: err.code || 'WEBAUTHN_VERIFICATION_FAILED' });
+  }
+});
+
+// GET /api/auth/oidc/config - Public: whether SSO login is available and its button label
+router.get('/oidc/config', (req, res) => {
+  res.json({ enabled: oidcService.isEnabled(), buttonLabel: config.oidc.buttonLabel });
+});
+
+// GET /api/auth/oidc/start - Redirect the browser to the IdP's authorization endpoint
+router.get('/oidc/start', async (req, res) => {
+  if (!oidcService.isEnabled()) {
+    return res.status(404).json({ error: 'OIDC_NOT_CONFIGURED' });
+  }
+  try {
+    const redirectUrl = await oidcService.buildAuthorizationRedirect(req, { returnTo: req.query.returnTo });
+    res.redirect(redirectUrl);
+  } catch (err) {
+    res.status(500).json({ error: err.code || 'OIDC_START_FAILED' });
+  }
+});
+
+// GET /api/auth/oidc/callback - IdP redirects here with an authorization code
+router.get('/oidc/callback', async (req, res) => {
+  if (!oidcService.isEnabled()) {
+    return res.status(404).json({ error: 'OIDC_NOT_CONFIGURED' });
+  }
+  try {
+    const { subject, email, displayName, returnTo } = await oidcService.handleCallback(req);
+
+    let user = userModel.getByOidcSubject(subject);
+    if (!user) {
+      user = userModel.createOidcUser({ subject, email, displayName, role: config.oidc.defaultRole });
+    }
+    if (!user.active) {
+      return res.status(403).send('This account has been deactivated. Contact an administrator.');
+    }
+
+    await new Promise((resolve, reject) => {
+      req.session.regenerate((err) => (err ? reject(err) : resolve()));
+    });
+
     req.session.userId = user.id;
     req.session.appUsername = user.username;
     req.session.displayName = user.display_name || user.username;
     req.session.authenticated = true;
     req.session.authMode = 'local';
+    req.session.authProvider = 'oidc';
     req.session.governanceRole = governanceService.getPolicy().defaultRole;
     req.session.governanceRole = user.role || req.session.governanceRole;
     req.session.xenUser = user.username;
@@ -369,7 +540,7 @@ router.post('/mfa/verify', validate(schemas.appLoginMfaVerify), async (req, res)
       username: user.username,
       event: 'app_login',
       ip: req.ip,
-      detail: 'Authenticated to the XenMange control plane (MFA).',
+      detail: 'Authenticated to the XenMange control plane (OIDC SSO).',
     });
     auditLogService.record({
       category: 'session',
@@ -383,22 +554,102 @@ router.post('/mfa/verify', validate(schemas.appLoginMfaVerify), async (req, res)
       status: 'success',
       before: null,
       after: { id: user.id, username: user.username, role: user.role || 'operator' },
-      detail: `Signed into the XenMange control plane as ${user.username} using MFA.`,
+      detail: `Signed into the XenMange control plane as ${user.username} using OIDC SSO.`,
     });
 
-    res.json({
-      success: true,
-      connected: false,
-      user: {
-        id: user.id,
-        username: user.username,
-        displayName: user.display_name || user.username,
-        role: user.role || 'operator',
-      },
-      ...buildStatusPayload(req),
-    });
+    res.redirect(returnTo || '/');
   } catch (err) {
-    res.status(500).json({ error: err.message || 'AUTH_FAILED' });
+    res.status(401).send(`SSO sign-in failed: ${err.code || err.message || 'OIDC_CALLBACK_FAILED'}`);
+  }
+});
+
+// GET /api/auth/saml/config - Public: whether SAML SSO is available and its button label
+router.get('/saml/config', (req, res) => {
+  res.json({ enabled: samlService.isEnabled(), buttonLabel: config.saml.buttonLabel });
+});
+
+// GET /api/auth/saml/metadata - SP metadata XML for IdP configuration
+router.get('/saml/metadata', (req, res) => {
+  if (!samlService.isEnabled()) {
+    return res.status(404).json({ error: 'SAML_NOT_CONFIGURED' });
+  }
+  try {
+    res.type('application/xml').send(samlService.getServiceProviderMetadata());
+  } catch (err) {
+    res.status(500).json({ error: err.code || 'SAML_METADATA_FAILED' });
+  }
+});
+
+// GET /api/auth/saml/login - Redirect the browser to the IdP's SSO endpoint
+router.get('/saml/login', async (req, res) => {
+  if (!samlService.isEnabled()) {
+    return res.status(404).json({ error: 'SAML_NOT_CONFIGURED' });
+  }
+  try {
+    const redirectUrl = await samlService.buildAuthorizationRedirect({ returnTo: req.query.returnTo });
+    res.redirect(redirectUrl);
+  } catch (err) {
+    res.status(500).json({ error: err.code || 'SAML_START_FAILED' });
+  }
+});
+
+// POST /api/auth/saml/callback - IdP's Assertion Consumer Service (ACS) endpoint
+router.post('/saml/callback', async (req, res) => {
+  if (!samlService.isEnabled()) {
+    return res.status(404).json({ error: 'SAML_NOT_CONFIGURED' });
+  }
+  try {
+    const { subject, email, displayName, returnTo } = await samlService.handleCallback(req);
+
+    let user = userModel.getBySamlSubject(subject);
+    if (!user) {
+      user = userModel.createSamlUser({ subject, email, displayName, role: config.saml.defaultRole });
+    }
+    if (!user.active) {
+      return res.status(403).send('This account has been deactivated. Contact an administrator.');
+    }
+
+    await new Promise((resolve, reject) => {
+      req.session.regenerate((err) => (err ? reject(err) : resolve()));
+    });
+
+    req.session.userId = user.id;
+    req.session.appUsername = user.username;
+    req.session.displayName = user.display_name || user.username;
+    req.session.authenticated = true;
+    req.session.authMode = 'local';
+    req.session.authProvider = 'saml';
+    req.session.governanceRole = governanceService.getPolicy().defaultRole;
+    req.session.governanceRole = user.role || req.session.governanceRole;
+    req.session.xenUser = user.username;
+    persistSessionTargets(req.session, [], '');
+
+    userModel.touchLastLogin(user.id);
+    authEventModel.create({
+      userId: user.id,
+      username: user.username,
+      event: 'app_login',
+      ip: req.ip,
+      detail: 'Authenticated to the XenMange control plane (SAML SSO).',
+    });
+    auditLogService.record({
+      category: 'session',
+      action: 'app_session_login',
+      actionLabel: 'Signed into XenMange as',
+      entityType: 'user',
+      entityRef: String(user.id),
+      entityName: user.username,
+      operator: user.username,
+      route: '/login',
+      status: 'success',
+      before: null,
+      after: { id: user.id, username: user.username, role: user.role || 'operator' },
+      detail: `Signed into the XenMange control plane as ${user.username} using SAML SSO.`,
+    });
+
+    res.redirect(returnTo || '/');
+  } catch (err) {
+    res.status(401).send(`SSO sign-in failed: ${err.code || err.message || 'SAML_CALLBACK_FAILED'}`);
   }
 });
 
@@ -556,6 +807,7 @@ router.get('/targets', requireAuth, (req, res) => {
   res.json(buildStatusPayload(req));
 });
 
+// Switch the session's active Xen target without re-login; also accepts a healthy managed-target key.
 router.post('/targets/activate', requireAuth, (req, res) => {
   const target = activateSessionTarget(req.session, req.body || {});
   const managedTargetId = managedTargetService.parseManagedTargetKey(req.body?.targetKey);

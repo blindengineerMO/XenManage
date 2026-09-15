@@ -1,3 +1,9 @@
+// In-process operator audit trail stored in settings (`activity.audit`), newest
+// first, capped at MAX_ENTRIES (500). Consumed by nearly every mutating route
+// via record(), and by log-center / retention / routes that list activity.
+// record() snapshots before/after, derives changedFields (max 12), and inherits
+// breakGlassElevated from request-context when the caller omits it. This is not
+// a SIEM: retention.sweep purges by happenedAt. Do not put secrets in before/after.
 const { settingsModel } = require('../models/connection');
 const requestContext = require('./request-context');
 

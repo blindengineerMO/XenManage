@@ -1,3 +1,9 @@
+/*
+ * Recursive tree node for TemplateLibraryView folders/items.
+ * Emits select and contextmenu (parent owns PromptWindow + API).
+ * Folders default expanded. Kind badge distinguishes snippet /
+ * deployment-template / guest-script. No API calls.
+ */
 const TemplateLibraryTreeNode = {
   name: 'TemplateLibraryTreeNode',
   props: ['node', 'activeId', 'activeType', 'depth'],

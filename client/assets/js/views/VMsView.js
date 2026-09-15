@@ -1,3 +1,13 @@
+/*
+ * Virtual Machines workspace: searchable inventory, bulk power actions, and
+ * New VM / Deploy Template / Import XVA flows.
+ * APIs: GET /api/vms, /api/vms/creation-sources, /api/vms/groups,
+ * /api/vms/gpu-profiles, /api/projects, /api/srs/:ref/vdis; POST /api/vms
+ * to provision; power ops via POST /api/vms/:action; live-target switch
+ * via POST /api/auth/targets/activate for cross-pool migrate.
+ * Gotcha: create/import/properties are FloatingWindows, not native modals.
+ * Bulk actions only offer buttons valid for the mixed selection states.
+ */
 const VMsView = {
   components: {
     DataTable,

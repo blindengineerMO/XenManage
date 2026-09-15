@@ -1,3 +1,9 @@
+// Unified operations log: merges audit, auth events, alerts, telemetry alerts,
+// remediation tasks, and Xen tasks into one sorted feed. Consumed by
+// routes/logs.js (list, HTML report, PDF). Source ids are prefixed (`audit:`,
+// `auth:`, …) so export-by-id is unambiguous. Does not persist — it reads the
+// other services on each request. Add a source by extending SOURCE_ORDER plus a
+// normalize* helper in listEntries.
 const path = require('path');
 const ejs = require('ejs');
 const PDFDocument = require('pdfkit');

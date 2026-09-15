@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/control-plane-backups via requireAuth, then requireAdmin per route.
+ * Auth: active local admin whose session role is also admin.
+ * Workflow: snapshot/verify/preview the SQLite control-plane DBs (not Xen VM backups).
+ * Invariants: restore-preview is read-only — there is no restore-in-place endpoint.
+ * Client: SettingsView (control-plane backup).
+ */
 const express = require('express');
 const governanceService = require('../services/governance');
 const { userModel } = require('../models/security-db');
@@ -52,6 +59,7 @@ router.post('/:id/verify', requireAdmin, (req, res) => {
   }
 });
 
+// Read-only preview — there is no restore-in-place route on purpose.
 router.get('/:id/restore-preview', requireAdmin, (req, res) => {
   try {
     const result = backupService.restorePreview(req.params.id);

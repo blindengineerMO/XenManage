@@ -1,7 +1,25 @@
-/* ============================================
-   Demo Request Dispatcher
-   ============================================ */
+/**
+ * XenMange client — demo request dispatcher (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: `api.request` calls this instead of `fetch` when
+ * `store.demoMode` is true. Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: parse method/path and hand off to handleDemo*Routes modules in a
+ * fixed order. First defined result wins; unsupported paths throw
+ * DEMO_ROUTE_UNSUPPORTED.
+ * Consumers: api.js only.
+ * Gotchas: handler order matters (profile/settings/catalog before VM routes).
+ * Returning `undefined` means "not my route" — never return undefined as a
+ * successful empty body.
+ */
 
+/**
+ * @param {string} method HTTP verb
+ * @param {string} url path or absolute URL under /api
+ * @param {object} [body] JSON body for mutations
+ */
 function demoRequest(method, url, body) {
   const parsedUrl = new URL(url, window.location.origin);
   const path = parsedUrl.pathname;

@@ -1,3 +1,17 @@
+/**
+ * XenMange client — demo projects / managed-targets routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: organizations/projects and managed-target enable/check for
+ * ProjectsView. Managed targets require a shared connection with a vault id.
+ * Consumers: demo-request.js (`handleDemoProjectsRoutes`).
+ * Gotchas: `DEMO_MANAGED_TARGET_SCOPES` maps connection index → demo-fabric /
+ * demo-edge; check results are canned, not a real host ping.
+ */
 const DEMO_MANAGED_TARGET_SCOPES = ['demo-fabric', 'demo-edge'];
 
 function demoManagedTargetEligibility(connection) {

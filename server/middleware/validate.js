@@ -1070,6 +1070,13 @@ const schemas = {
   profileMfaDisable: Joi.object({
     currentPassword: Joi.string().required().min(1).max(256),
   }),
+  profileWebauthnRegisterVerify: Joi.object({
+    credential: Joi.object().unknown(true).required(),
+    name: Joi.string().allow('').max(120).default(''),
+  }),
+  authWebauthnVerify: Joi.object({
+    credential: Joi.object().unknown(true).required(),
+  }),
   profilePushSubscribe: Joi.object({
     endpoint: Joi.string().uri().required().max(1000),
     keys: Joi.object({

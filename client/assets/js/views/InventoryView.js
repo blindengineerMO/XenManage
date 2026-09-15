@@ -1,3 +1,13 @@
+/*
+ * Global inventory index: search across compute/storage/networks/alerts/
+ * tasks, plus saved operator workspaces and the connection atlas.
+ * APIs: GET pools/templates/vms/hosts/srs/networks, dashboard messages,
+ * tasks, connections, SR VDIs; /api/inventory/workspaces CRUD;
+ * /api/managed-targets register/enable/check; POST /api/auth/targets/activate.
+ * Gotcha: search is client-side over the loaded snapshot. Workspace delete
+ * and target attach use FloatingWindows. Demo mode still hits api.* which
+ * is intercepted by demoRequest.
+ */
 const InventoryView = {
   components: {
     DataTable,

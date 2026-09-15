@@ -1,3 +1,8 @@
+// Optional Sentry capture. Enabled only when SENTRY_DSN is set; otherwise
+// captureException is a no-op. Wired from middleware/error-handler.js with
+// requestId + route tags. sendDefaultPii is off. Do not call Sentry APIs
+// directly from routes — go through captureException so tests and DSN-less
+// installs stay inert.
 const Sentry = require('@sentry/node');
 const config = require('../config');
 

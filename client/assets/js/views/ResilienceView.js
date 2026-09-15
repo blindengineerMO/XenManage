@@ -1,3 +1,13 @@
+/*
+ * Resilience workspace: protection coverage, failover posture, recovery
+ * runbooks, and drill evidence.
+ * APIs: GET /api/resilience plus inventory networks/tasks/hosts/vms/srs/
+ * pools; PUT /api/resilience/plans/:ref; DELETE runbook (approval-gated);
+ * POST /api/resilience/drills/:ref; PUT /api/tasks/remediation/:ref when
+ * promoting a task into a runbook source.
+ * Gotcha: runbook/drill editors are FloatingWindows in
+ * ResilienceWorkspaceDialogs. Delete runbook may need approvalId.
+ */
 const ResilienceView = {
   components: {
     StatusBadge,

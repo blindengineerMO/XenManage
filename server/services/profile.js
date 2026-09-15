@@ -1,12 +1,19 @@
+// Operator self-service profile: display name, password, theme, avatar, MFA,
+// and push-subscription prefs. Consumed by routes/profile.js and governance
+// (admin user edits). Avatars are resized to WebP under config.profile.avatarRoot;
+// paths are constrained to that root. MFA secrets prefer vault-sealed payloads;
+// legacy base64-GCM blobs still decrypt via deriveMfaKey(). changePassword
+// revokes other sessions. Do not return decrypted MFA secrets to the client.
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const sharp = require('sharp');
 const config = require('../config');
-const { userModel, sessionStoreModel, pushSubscriptionModel } = require('../models/security-db');
+const { userModel, sessionStoreModel, pushSubscriptionModel, webauthnCredentialModel } = require('../models/security-db');
 const totp = require('./totp');
 const credentialVaultService = require('./credential-vault');
+const webauthnService = require('./webauthn');
 
 const AVATAR_MIME_EXTENSIONS = {
   'image/png': '.png',
@@ -200,6 +207,42 @@ const profileService = {
     if (!user?.mfa_enabled || !user.mfa_secret_encrypted) return false;
     const secret = decryptMfaSecret(user.mfa_secret_encrypted);
     return totp.verifyToken(secret, token);
+  },
+
+  webauthnListCredentials(userId) {
+    return webauthnCredentialModel.listForUser(userId).map(({ public_key: _publicKey, ...safe }) => safe);
+  },
+
+  async webauthnBeginRegistration(req) {
+    const user = userModel.getByUsernameById(req.session.userId);
+    if (!user) throwUserNotFound();
+    return webauthnService.beginRegistration(req, user);
+  },
+
+  async webauthnFinishRegistration(req, { credential, name } = {}) {
+    const user = userModel.getByUsernameById(req.session.userId);
+    if (!user) throwUserNotFound();
+    const record = await webauthnService.finishRegistration(req, user, credential, name);
+    userModel.setMfaEnabledFlag(user.id, true);
+    const { public_key: _publicKey, ...safe } = record;
+    return safe;
+  },
+
+  webauthnRemoveCredential(userId, credentialRowId) {
+    const removed = webauthnCredentialModel.removeForUser(userId, credentialRowId);
+    if (!removed) {
+      const error = new Error('WEBAUTHN_CREDENTIAL_NOT_FOUND');
+      error.code = 'WEBAUTHN_CREDENTIAL_NOT_FOUND';
+      throw error;
+    }
+
+    const user = userModel.getByUsernameById(userId);
+    const stillHasSecondFactor = Boolean(user?.mfa_secret_encrypted) || webauthnCredentialModel.countForUser(userId) > 0;
+    if (!stillHasSecondFactor) {
+      userModel.setMfaEnabledFlag(userId, false);
+    }
+
+    return removed;
   },
 
   listPushSubscriptions(userId) {

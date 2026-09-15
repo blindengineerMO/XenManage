@@ -1,3 +1,13 @@
+/*
+ * Hosts workspace: dense host inventory, inline config edits, bulk
+ * maintenance, and host-target registration/connect.
+ * APIs: GET /api/hosts, /api/pools; PUT /api/hosts/:ref/config;
+ * POST .../maintenance/enter|exit, .../shutdown, .../reboot, multipathing;
+ * host targets via /api/host-targets plus POST /api/auth/xen-login and
+ * /api/auth/targets/activate.
+ * Gotcha: properties and registration use FloatingWindow. Destructive host
+ * power actions expect a governance approvalId when policy requires it.
+ */
 const HostsView = {
   components: {
     DataTable,

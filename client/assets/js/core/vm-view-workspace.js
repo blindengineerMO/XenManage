@@ -1,3 +1,17 @@
+/**
+ * XenMange client — VMsView workspace (selection / layout state).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: workspace = which VM is selected, which windows/tabs are
+ * open, migration-destination inventory, import window flags.
+ *
+ * Purpose: load VM list/tasks and build state patches for properties,
+ * import, migration destination, and detail loading.
+ * Consumers: VMsView.
+ * Gotchas: `loadVmRecords` lives here (not vm-view-service.js) for historical
+ * reasons — keep it next to the window-state builders.
+ */
 async function loadVmRecords(api) {
   const result = await api.getVMs();
   return result.data || [];

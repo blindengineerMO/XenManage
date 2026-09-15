@@ -1,3 +1,10 @@
+// Shared/private ownership helpers for control-plane records (connections,
+// credentials, template-library, workspaces, vFabrics, …). Admins see and
+// manage everything. isVisibleToActor: shared or unowned or owner. canManageRecord:
+// owner, or shared-with-no-owner; shared-owned records are visible but not
+// editable by non-owners. resolveCreateOwnership defaults private when the
+// actor has a userId. Consumed by routes and template-library/vfabric-scope.
+// Visibility values are only `private` | `shared`.
 const governanceService = require('./governance');
 const { userModel } = require('../models/security-db');
 
@@ -29,6 +36,7 @@ function getRecordVisibility(record = {}) {
   return normalizeVisibility(record.visibility, record.owner_user_id ? 'private' : 'shared');
 }
 
+/** True if actor may see the record (admin, shared, unowned, or owner). */
 function isVisibleToActor(record, actor = {}) {
   if (!record) return false;
   if (isAdminRole(actor.role)) return true;
@@ -43,6 +51,10 @@ function isVisibleToActor(record, actor = {}) {
   return ownerUserId !== null && ownerUserId === normalizeOwnerUserId(actor.userId);
 }
 
+/**
+ * True if actor may mutate the record. Shared-but-owned records are visible to
+ * everyone and writable only by the owner (or admin).
+ */
 function canManageRecord(record, actor = {}) {
   if (!record) return false;
   if (isAdminRole(actor.role)) return true;

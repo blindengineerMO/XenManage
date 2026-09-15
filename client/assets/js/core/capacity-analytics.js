@@ -1,7 +1,16 @@
-/* ============================================
-   Capacity Analytics Helpers
-   ============================================ */
-
+/**
+ * XenMange client — capacity analytics (forecasts, utilization, trends).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: turn host/SR/VM/task/message + cluster history into utilization
+ * percents, trend signals, and forecast horizons for CapacityView.
+ * Consumers: capacity-view-models.js (`buildCapacityWorkspaceModel`),
+ * CapacityView, CapacityWorkspaceDialogs.
+ * Gotchas: VM memory/CPU fields have several aliases (`memoryActualBytesLatest`
+ * vs `memory_static_max`) — `normalizeVm*` picks the first defined. Forecast
+ * math is heuristic, not Xen RRD. `formatPercent` returns '-' when total is 0.
+ */
 function formatPercent(part, total) {
   const numerator = Number(part);
   const denominator = Number(total);

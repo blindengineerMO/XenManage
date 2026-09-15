@@ -1,3 +1,10 @@
+/**
+ * Mount: /api/projects via requireAuth.
+ * Auth: local login; list/get are membership-filtered, writes need owner or admin.
+ * Workflow: organizations → projects → members/quotas used when deploying VMs.
+ * Invariants: writes use ensureMutationAllowed. VM create/compose calls enforceProjectQuota.
+ * Client: ProjectsView.
+ */
 const express = require('express');
 const { validate, schemas } = require('../middleware/validate');
 const { projectModel } = require('../models/connection');
@@ -62,6 +69,7 @@ router.delete('/:id', validate(schemas.projectId, 'params'), (req, res) => {
   projectModel.deleteProject(req.params.id);
   res.json({ success: true });
 });
+// Live usage vs project caps; uses req.xenApi when connected, otherwise inventory-only.
 router.get('/:id/quota-evaluation', validate(schemas.projectId, 'params'), async (req, res) => {
   try { res.json(await projectsService.evaluateProjectQuota({ projectId: req.params.id, actor: resolveActor(req), xenApi: req.xenApi, targetKey: req.xenTarget?.targetKey || '' })); }
   catch (error) { res.status(error.status || 500).json({ error: error.code || error.message }); }

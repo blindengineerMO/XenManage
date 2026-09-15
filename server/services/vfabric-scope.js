@@ -1,3 +1,9 @@
+// Resolves a vFabric to the caller's currently attached xenTargets and live
+// XenAPI handles. Members the session has not attached are listed as
+// unavailableMembers, not errors. Consumed by routes/vfabrics.js. Pool members
+// match connectionId; host members match hostTargetId. Invisible vFabrics
+// throw VFABRIC_NOT_FOUND (404) rather than leaking existence. Prefer
+// resolveVFabricScopeTargets() when the caller needs xenApi on each target.
 const { vFabricModel } = require('../models/connection');
 const { getConnection, rehydrateConnection } = require('./xenapi');
 const { isVisibleToActor, resolveActor } = require('./resource-ownership');

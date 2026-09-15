@@ -1,3 +1,13 @@
+/*
+ * Dashboard workspace: cluster summary cards, live inventory snapshots, and
+ * jump-offs into Alerts / Capacity / Inventory / Resilience / Activity.
+ * APIs: GET /api/dashboard, /api/dashboard/messages, /api/tasks, /api/hosts,
+ * /api/srs, /api/vms, /api/hosts/:ref/metrics, plus pool drill-down via
+ * GET /api/pools/:ref and /api/pools/:ref/updates.
+ * Gotcha: when a vFabric scope is active, loads fan out across attached
+ * targets and merge counts/state histograms. Cards route into workspaces
+ * rather than opening native modals; pool/host details use FloatingWindow.
+ */
 function dashboardScopeTargets() {
   return getVFabricScopeTargets();
 }

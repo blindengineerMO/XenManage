@@ -1,3 +1,14 @@
+/**
+ * XenMange client — PoolsView view-models.
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Purpose: shape pool + saved-connection API payloads into UI-ready labels
+ * (visibility, ownership, HA, WLB, vSwitch) for PoolsView.
+ * Consumers: PoolsView, PoolPropertiesWindow, PoolTargetsDialogs.
+ * Gotchas: "attached" vs "current" is about XenMange live sessions
+ * (`connectedTargets`), not Xen pool membership. Master host is `pool.master`.
+ */
 function buildPoolVisibilityLabel(visibility = '') {
   return visibility === 'shared' ? 'Shared' : 'Private';
 }

@@ -17,6 +17,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const config = require('../config');
 const { runMigrations } = require('../migrations/runner');
 
@@ -133,6 +134,7 @@ function normalizeUserRecord(record, { includePasswordHash = false, includeMfaSe
     avatar_path: record.avatar_path || '',
     theme: record.theme === 'light' ? 'light' : 'dark',
     mfa_enabled: Boolean(record.mfa_enabled),
+    auth_provider: record.auth_provider || 'local',
     group_count: Number(record.group_count || 0),
     groups: Array.isArray(record.groups)
       ? record.groups
@@ -220,6 +222,26 @@ function getSecurityDb() {
     checksum: 'security-baseline-2026-09-02',
     adoptLegacySchema: true,
     up: initializeSchema,
+  }, {
+    version: 2,
+    name: 'security-oidc-columns',
+    checksum: 'security-oidc-columns-2026-09-14',
+    up: addOidcColumns,
+  }, {
+    version: 3,
+    name: 'security-ldap-columns',
+    checksum: 'security-ldap-columns-2026-09-15',
+    up: addLdapColumns,
+  }, {
+    version: 4,
+    name: 'security-webauthn-credentials',
+    checksum: 'security-webauthn-credentials-2026-09-15',
+    up: addWebauthnCredentialsTable,
+  }, {
+    version: 5,
+    name: 'security-saml-columns',
+    checksum: 'security-saml-columns-2026-09-15',
+    up: addSamlColumns,
   }]);
   ensureBootstrapUser();
   return db;
@@ -347,6 +369,62 @@ function initializeSchema() {
   if (!apiTokenColumns.has('allowed_ips_json')) {
     db.exec(`ALTER TABLE api_tokens ADD COLUMN allowed_ips_json TEXT NOT NULL DEFAULT '[]'`);
   }
+}
+
+// Added after the security-baseline migration had already been applied to existing
+// databases, so this is its own versioned migration (never folded into initializeSchema's
+// version 1) — the runner only re-executes an already-applied version's `up()` if the
+// version number itself is new, not merely on a checksum change.
+function addOidcColumns(db) {
+  const userColumns = new Set(
+    db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  );
+  if (!userColumns.has('auth_provider')) {
+    db.exec(`ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'`);
+  }
+  if (!userColumns.has('oidc_subject')) {
+    db.exec('ALTER TABLE users ADD COLUMN oidc_subject TEXT');
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_subject ON users(oidc_subject) WHERE oidc_subject IS NOT NULL');
+}
+
+function addLdapColumns(db) {
+  const userColumns = new Set(
+    db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  );
+  if (!userColumns.has('ldap_dn')) {
+    db.exec('ALTER TABLE users ADD COLUMN ldap_dn TEXT');
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_ldap_dn ON users(ldap_dn) WHERE ldap_dn IS NOT NULL');
+}
+
+function addWebauthnCredentialsTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      credential_id TEXT NOT NULL UNIQUE,
+      public_key TEXT NOT NULL,
+      counter INTEGER NOT NULL DEFAULT 0,
+      transports_json TEXT NOT NULL DEFAULT '[]',
+      device_type TEXT,
+      backed_up INTEGER NOT NULL DEFAULT 0,
+      name TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_used_at DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
+  `);
+}
+
+function addSamlColumns(db) {
+  const userColumns = new Set(
+    db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  );
+  if (!userColumns.has('saml_subject')) {
+    db.exec('ALTER TABLE users ADD COLUMN saml_subject TEXT');
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_saml_subject ON users(saml_subject) WHERE saml_subject IS NOT NULL');
 }
 
 function ensureBootstrapUser() {
@@ -536,6 +614,7 @@ const userModel = {
         u.avatar_path,
         u.theme,
         u.mfa_enabled,
+        u.auth_provider,
         COUNT(gm.group_id) AS group_count,
         GROUP_CONCAT(g.name, '|') AS group_names
       FROM users u
@@ -560,6 +639,7 @@ const userModel = {
         u.avatar_path,
         u.theme,
         u.mfa_enabled,
+        u.auth_provider,
         COUNT(gm.group_id) AS group_count,
         GROUP_CONCAT(g.name, '|') AS group_names
       FROM users u
@@ -587,6 +667,81 @@ const userModel = {
     if (!user || !user.active) return null;
     if (!bcrypt.compareSync(String(password || ''), user.password_hash)) return null;
     return user;
+  },
+
+  getByOidcSubject(subject) {
+    const record = getSecurityDb().prepare(`
+      SELECT id FROM users WHERE oidc_subject = ?
+    `).get(String(subject || ''));
+    return record ? this.getById(record.id) : null;
+  },
+
+  createOidcUser({ subject, email = '', displayName = '', role = 'operator' }) {
+    const base = String(email || displayName || subject).split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'sso-user';
+    let username = base;
+    let suffix = 1;
+    while (this.getByUsername(username)) {
+      username = `${base}-${suffix}`;
+      suffix += 1;
+    }
+
+    const passwordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+    const result = getSecurityDb().prepare(`
+      INSERT INTO users (username, password_hash, display_name, email, role, active, auth_provider, oidc_subject)
+      VALUES (?, ?, ?, ?, ?, 1, 'oidc', ?)
+    `).run(username, passwordHash, String(displayName || username).trim(), String(email || '').trim(), normalizeRole(role), String(subject));
+
+    return this.getById(result.lastInsertRowid);
+  },
+
+  getByLdapDn(dn) {
+    const record = getSecurityDb().prepare(`
+      SELECT id FROM users WHERE ldap_dn = ?
+    `).get(String(dn || ''));
+    return record ? this.getById(record.id) : null;
+  },
+
+  createLdapUser({ dn, username, email = '', displayName = '', role = 'operator' }) {
+    const base = String(username || email || displayName || dn).split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'ldap-user';
+    let candidateUsername = base;
+    let suffix = 1;
+    while (this.getByUsername(candidateUsername)) {
+      candidateUsername = `${base}-${suffix}`;
+      suffix += 1;
+    }
+
+    const passwordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+    const result = getSecurityDb().prepare(`
+      INSERT INTO users (username, password_hash, display_name, email, role, active, auth_provider, ldap_dn)
+      VALUES (?, ?, ?, ?, ?, 1, 'ldap', ?)
+    `).run(candidateUsername, passwordHash, String(displayName || candidateUsername).trim(), String(email || '').trim(), normalizeRole(role), String(dn));
+
+    return this.getById(result.lastInsertRowid);
+  },
+
+  getBySamlSubject(subject) {
+    const record = getSecurityDb().prepare(`
+      SELECT id FROM users WHERE saml_subject = ?
+    `).get(String(subject || ''));
+    return record ? this.getById(record.id) : null;
+  },
+
+  createSamlUser({ subject, username = '', email = '', displayName = '', role = 'operator' }) {
+    const base = String(username || email || displayName || subject).split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'saml-user';
+    let candidateUsername = base;
+    let suffix = 1;
+    while (this.getByUsername(candidateUsername)) {
+      candidateUsername = `${base}-${suffix}`;
+      suffix += 1;
+    }
+
+    const passwordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+    const result = getSecurityDb().prepare(`
+      INSERT INTO users (username, password_hash, display_name, email, role, active, auth_provider, saml_subject)
+      VALUES (?, ?, ?, ?, ?, 1, 'saml', ?)
+    `).run(candidateUsername, passwordHash, String(displayName || candidateUsername).trim(), String(email || '').trim(), normalizeRole(role), String(subject));
+
+    return this.getById(result.lastInsertRowid);
   },
 
   touchLastLogin(id) {
@@ -764,6 +919,19 @@ const userModel = {
     if (!enabled) {
       getSecurityDb().prepare('UPDATE users SET mfa_secret_encrypted = NULL WHERE id = ?').run(Number(id));
     }
+
+    return this.getById(id);
+  },
+
+  // Unlike setMfaEnabled (the TOTP enroll/disable flow, which also clears the TOTP
+  // secret), this only flips the flag — used when a WebAuthn credential is
+  // added/removed so it never wipes an unrelated TOTP secret still in place.
+  setMfaEnabledFlag(id, enabled) {
+    getSecurityDb().prepare(`
+      UPDATE users
+      SET mfa_enabled = ?
+      WHERE id = ?
+    `).run(enabled ? 1 : 0, Number(id));
 
     return this.getById(id);
   },
@@ -970,4 +1138,68 @@ const groupModel = {
   },
 };
 
-module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel, permissionGrantModel, apiTokenModel, catalogRoleModel, pushSubscriptionModel };
+function decorateWebauthnCredential(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    transports: (() => { try { return JSON.parse(record.transports_json || '[]'); } catch (_) { return []; } })(),
+    backed_up: Boolean(record.backed_up),
+  };
+}
+
+const webauthnCredentialModel = {
+  listForUser(userId) {
+    return getSecurityDb().prepare(`
+      SELECT id, user_id, credential_id, public_key, counter, transports_json, device_type, backed_up, name, created_at, last_used_at
+      FROM webauthn_credentials WHERE user_id = ? ORDER BY created_at DESC
+    `).all(Number(userId)).map(decorateWebauthnCredential);
+  },
+
+  countForUser(userId) {
+    const row = getSecurityDb().prepare(`
+      SELECT COUNT(*) count FROM webauthn_credentials WHERE user_id = ?
+    `).get(Number(userId));
+    return Number(row?.count || 0);
+  },
+
+  getByCredentialId(credentialId) {
+    const record = getSecurityDb().prepare(`
+      SELECT id, user_id, credential_id, public_key, counter, transports_json, device_type, backed_up, name, created_at, last_used_at
+      FROM webauthn_credentials WHERE credential_id = ?
+    `).get(String(credentialId || ''));
+    return decorateWebauthnCredential(record);
+  },
+
+  create({ userId, credentialId, publicKey, counter = 0, transports = [], deviceType = '', backedUp = false, name = '' }) {
+    const result = getSecurityDb().prepare(`
+      INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter, transports_json, device_type, backed_up, name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      Number(userId),
+      String(credentialId),
+      String(publicKey),
+      Number(counter) || 0,
+      JSON.stringify(Array.isArray(transports) ? transports : []),
+      String(deviceType || ''),
+      backedUp ? 1 : 0,
+      String(name || 'Security key')
+    );
+    return decorateWebauthnCredential(
+      getSecurityDb().prepare('SELECT * FROM webauthn_credentials WHERE id = ?').get(result.lastInsertRowid)
+    );
+  },
+
+  updateCounter(id, counter) {
+    getSecurityDb().prepare(`
+      UPDATE webauthn_credentials SET counter = ?, last_used_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(Number(counter) || 0, Number(id));
+  },
+
+  removeForUser(userId, id) {
+    return getSecurityDb().prepare(`
+      DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?
+    `).run(Number(id), Number(userId)).changes > 0;
+  },
+};
+
+module.exports = { getSecurityDb, sessionStoreModel, authEventModel, userModel, groupModel, permissionGrantModel, apiTokenModel, catalogRoleModel, pushSubscriptionModel, webauthnCredentialModel };

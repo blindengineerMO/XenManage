@@ -94,6 +94,7 @@ router.post('/',
     }
   });
 
+// Read-only SR probe so the create/import wizard can show devices before mutating.
 router.post('/probe',
   validate(schemas.storageSrProbe),
   async (req, res) => {
@@ -301,6 +302,7 @@ router.post('/:ref/local-cache',
     }
   });
 
+// Detach from inventory only — backing LUNs/files stay. Use /destroy to wipe storage.
 router.post('/:ref/forget',
   validate(schemas.opaqueRefParam, 'params'),
   validate(schemas.storageMutation),
@@ -332,6 +334,7 @@ router.post('/:ref/forget',
     }
   });
 
+// Destructive: refuses unless the SR has zero VDIs, then deletes backing storage.
 router.post('/:ref/destroy',
   validate(schemas.opaqueRefParam, 'params'),
   validate(schemas.storageMutation),
@@ -605,6 +608,7 @@ router.post('/:ref/files/upload',
     }
   });
 
+// Streams a file from the ISO/SR browser; Content-Disposition is set for the SPA download.
 router.get('/:ref/files/download',
   validate(schemas.opaqueRefParam, 'params'),
   validate(schemas.storageFileDeleteQuery, 'query'),

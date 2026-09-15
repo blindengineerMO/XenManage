@@ -1,3 +1,9 @@
+// Read-only DR / resilience overview assembled from live XAPI VMs/hosts/tasks/
+// messages plus resilience-runbooks. Consumed by routes/resilience.js
+// (buildResilienceOverview). Policy tier is inferred from VM tags (prod →
+// Tier-1, edge/branch → Edge, staging/dev/test → Non-Prod). Task/message
+// classifiers are keyword heuristics — they do not call XAPI HA APIs. Mutating
+// runbook/drill CRUD lives in resilience-runbooks.js, not here.
 function parseDateValue(value) {
   const date = new Date(value || 0);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();

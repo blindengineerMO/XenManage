@@ -1,3 +1,12 @@
+/*
+ * Public/subscriber application catalog storefront (also /catalog).
+ * Lists published apps, submits requests, shows "My Requests", and runs
+ * day-2 actions (start/stop/resize).
+ * APIs: GET /api/catalog, POST /api/catalog/:slug/requests,
+ * GET /api/catalog/requests/mine, POST .../requests/:id/actions.
+ * Gotcha: unauthenticated users can browse; request/submit requires
+ * control-plane login (not Xen attach). Request dialog is a FloatingWindow.
+ */
 const CatalogView = {
   components: { FloatingWindow },
   template: `

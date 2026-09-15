@@ -1,3 +1,12 @@
+/*
+ * App login screen (not Xen pool login). Posts credentials to POST
+ * /api/auth/login, then optional MFA via POST /api/auth/login/mfa.
+ * After success, GET /api/connections and /api/host-targets decide whether
+ * to land on Pools or a requested returnTo (catalog is the public exception).
+ * Gotcha: "Open Demo Dashboard" never hits the API — it applies a fake
+ * session with demoMode=true so api.request routes through demoRequest.
+ * Pool/host Xen login happens later from Pools/Hosts, not here.
+ */
 const LoginView = {
   template: `
     <div class="login-screen">
@@ -40,12 +49,20 @@ const LoginView = {
               <span class="mdi mdi-flask-outline"></span>
               Open Demo Dashboard
             </button>
+            <button v-if="oidcConfig.enabled" class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="startOidcLogin">
+              <span class="mdi mdi-shield-account-outline"></span>
+              {{ oidcConfig.buttonLabel }}
+            </button>
+            <button v-if="samlConfig.enabled" class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="startSamlLogin">
+              <span class="mdi mdi-shield-key-outline"></span>
+              {{ samlConfig.buttonLabel }}
+            </button>
           </div>
           <div class="login-meta-note">Bootstrap control-plane credentials default to <span class="mono">admin / admin123!</span> unless overridden by environment configuration. Pool and host target registration now happens after sign-in from the Pools and Hosts workspaces.</div>
           <div class="form-error" v-if="error">{{ error }}</div>
         </form>
 
-        <form v-else @submit.prevent="handleMfaVerify">
+        <form v-else-if="!webauthnPending" @submit.prevent="handleMfaVerify">
           <div class="form-group">
             <label for="app-mfa-token">Authenticator code</label>
             <input id="app-mfa-token"
@@ -63,11 +80,34 @@ const LoginView = {
               <span v-if="loading" class="loading-spinner" style="margin-right:8px"></span>
               {{ loading ? 'Verifying...' : 'Verify Code' }}
             </button>
+            <button v-if="mfaMethods.webauthn" class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="switchToWebauthn">
+              <span class="mdi mdi-usb-flash-drive-outline"></span>
+              Use a Security Key
+            </button>
             <button class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="cancelMfa">
               Back
             </button>
           </div>
           <div class="login-meta-note">Enter the 6-digit code from your authenticator app to finish signing in.</div>
+          <div class="form-error" v-if="error">{{ error }}</div>
+        </form>
+
+        <form v-else @submit.prevent="handleWebauthnVerify">
+          <div class="form-group">
+            <p class="login-meta-note">Insert or tap your security key, then confirm the prompt from your browser.</p>
+          </div>
+          <div class="form-actions">
+            <button class="form-btn" type="submit" :disabled="loading">
+              <span v-if="loading" class="loading-spinner" style="margin-right:8px"></span>
+              {{ loading ? 'Waiting for Key...' : 'Use Security Key' }}
+            </button>
+            <button v-if="mfaMethods.totp" class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="webauthnPending = false">
+              Use Authenticator Code Instead
+            </button>
+            <button class="form-btn form-btn-secondary" type="button" :disabled="loading" @click="cancelMfa">
+              Back
+            </button>
+          </div>
           <div class="form-error" v-if="error">{{ error }}</div>
         </form>
       </div>
@@ -105,9 +145,31 @@ const LoginView = {
       error: null,
       mfaPending: false,
       mfaToken: '',
+      mfaMethods: { totp: false, webauthn: false },
+      webauthnPending: false,
+      oidcConfig: { enabled: false, buttonLabel: 'Sign in with SSO' },
+      samlConfig: { enabled: false, buttonLabel: 'Sign in with SAML' },
     };
   },
+  async mounted() {
+    try {
+      this.oidcConfig = await api.getOidcConfig();
+    } catch (error) {
+      this.oidcConfig = { enabled: false, buttonLabel: 'Sign in with SSO' };
+    }
+    try {
+      this.samlConfig = await api.getSamlConfig();
+    } catch (error) {
+      this.samlConfig = { enabled: false, buttonLabel: 'Sign in with SAML' };
+    }
+  },
   methods: {
+    startOidcLogin() {
+      window.location.href = '/api/auth/oidc/start';
+    },
+    startSamlLogin() {
+      window.location.href = '/api/auth/saml/login';
+    },
     async resolvePostLoginRoute() {
       try {
         const [connections, hostTargets] = await Promise.all([
@@ -135,6 +197,8 @@ const LoginView = {
         const result = await api.login(this.appUsername, this.appPassword);
         if (result.mfaRequired) {
           this.mfaPending = true;
+          this.mfaMethods = result.mfaMethods || { totp: false, webauthn: false };
+          this.webauthnPending = Boolean(this.mfaMethods.webauthn && !this.mfaMethods.totp);
           return;
         }
         applySessionStatus(result);
@@ -167,8 +231,36 @@ const LoginView = {
         this.loading = false;
       }
     },
+    switchToWebauthn() {
+      this.webauthnPending = true;
+      this.error = null;
+    },
+    async handleWebauthnVerify() {
+      this.loading = true;
+      this.error = null;
+
+      try {
+        if (!isWebauthnSupported()) {
+          throw new Error('This browser does not support security keys');
+        }
+        const optionsResult = await api.loginWebauthnOptions();
+        const credential = await webauthnAuthenticate(optionsResult.data);
+        const result = await api.loginWebauthnVerify(credential);
+        applySessionStatus(result);
+        const requestedReturnPath = String(this.$route.query.returnTo || '');
+        const destination = isPublicAppRoute(requestedReturnPath)
+          ? catalogPath
+          : await this.resolvePostLoginRoute();
+        this.$router.push(destination);
+      } catch (error) {
+        this.error = error.message || 'Security key verification failed';
+      } finally {
+        this.loading = false;
+      }
+    },
     cancelMfa() {
       this.mfaPending = false;
+      this.webauthnPending = false;
       this.mfaToken = '';
       this.appPassword = '';
       this.error = null;

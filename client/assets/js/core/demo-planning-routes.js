@@ -1,3 +1,16 @@
+/**
+ * XenMange client — demo resilience/lifecycle plan routes (offline XAPI shim).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * OFFLINE/DEMO ONLY: used when no live Xen target is attached (`store.demoMode`).
+ * Do not treat this as production XenServer/XAPI code.
+ *
+ * Purpose: /api/resilience runbooks+drills and /api/lifecycle/plans for
+ * ResilienceView and LifecycleView.
+ * Consumers: demo-request.js (`handleDemoPlanningRoutes`).
+ * Gotchas: mutations go through `ensureDemoMutationAllowed` like live policy.
+ */
 function handleDemoPlanningRoutes(method, path, body) {
   if (method === 'GET' && path === '/api/resilience') {
     return buildDemoResilience();

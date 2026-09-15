@@ -1,3 +1,9 @@
+/*
+ * Sparkline card for capacity/host/VM metric series. Props: series
+ * [{key,label,points[{ts,value}]}], valueKind (percent/bytes/raw),
+ * accentStatus for StatusBadge. Renders SVG polylines; no API calls —
+ * parents pass history from /api/metrics/*.
+ */
 const MetricTrendCard = {
   props: {
     title: { type: String, default: 'Metric Trend' },

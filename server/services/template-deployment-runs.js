@@ -1,3 +1,10 @@
+// Maps template-governance deployment audits onto durable deployment_runs rows
+// (Activity / tasks UI). recordDeployment() creates the run after clone;
+// syncValidationByDeploymentAudit() updates status when operators tick
+// boot/network/storage checks. Consumed by template-deployment and routes/vms
+// + tasks. Status mapping: validated→success, failed→failure, warning→warning,
+// else pending. Retention purges terminal runs via the template-deployment-runs
+// domain. Compose runs are written by deployment-engine, not this module.
 const { deploymentRunModel } = require('../models/connection');
 
 function buildRunStatus(validationStatus = 'pending', notes = '', vmName = 'VM') {

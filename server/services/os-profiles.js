@@ -1,3 +1,9 @@
+// Bundled diskless OS install profiles (Windows/Linux labels, boot mode, default
+// disk/memory/vCPU). Matched against the pool's XAPI other-config install sources
+// by alias; unmatched profiles are omitted. Generic "Other install media" is the
+// fallback source. Consumed by routes/vms.js (buildBundledOsProfiles) and xenapi
+// (findBundledOsProfile when remapping the disks XML onto a destination SR).
+// These are not golden images — operators still attach installer ISO/PXE.
 const BUNDLED_OS_PROFILES = [
   { id: 'windows-server-2003', nameLabel: 'Windows Server 2003', aliases: ['windows server 2003'], bootMode: 'bios', diskGiB: 32, memoryGiB: 2, vcpus: 1 },
   { id: 'windows-server-2008-r2', nameLabel: 'Windows Server 2008 R2', aliases: ['windows server 2008 r2', 'windows server 2008'], bootMode: 'bios', diskGiB: 40, memoryGiB: 2, vcpus: 2 },

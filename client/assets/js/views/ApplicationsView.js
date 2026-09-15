@@ -1,3 +1,13 @@
+/*
+ * Catalog curator workspace: turn Template Library assets into published
+ * self-service applications, review subscriber requests, deploy.
+ * APIs: GET /api/catalog/admin/entries, /requests, /analytics;
+ * GET /api/template-library/tree, /api/credentials; POST/PUT/DELETE catalog
+ * entries; validate/publish versions; PUT review + POST deploy requests.
+ * Gotcha: create/edit/analytics/versions are FloatingWindows. Approval
+ * policy (manual/multi-step/threshold/webhook) is stored on the entry and
+ * enforced server-side when subscribers request from CatalogView.
+ */
 const ApplicationsView = {
   components: { FloatingWindow, ConfirmWindow },
   template: `

@@ -1,3 +1,17 @@
+/**
+ * XenMange client — VMsView focus (detail pane / route query).
+ *
+ * Concatenated global script (scripts/build-client.js). Not an ES module.
+ *
+ * Workspace split: focus = open VM properties (or migration tab) from
+ * `?focusKind=vm|task` deep links, including alert/activity handoff.
+ *
+ * Purpose: sync route query to selected VM; seed migration tab from a
+ * remediation task when focus kind is `task`.
+ * Consumers: VMsView (`syncVmRouteFocusWorkflow`).
+ * Gotchas: supported kinds are `vm` and `task`. Focus key includes seedAction
+ * so the same VM can re-open on a different tab.
+ */
 function isSupportedVmRouteFocus(focus = null) {
   return Boolean(focus) && (!focus.kind || ['vm', 'task'].includes(focus.kind));
 }
